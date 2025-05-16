@@ -21,7 +21,7 @@
 [package]
 name = "zensical"
 version = "0.0.2"
-description = ""
+description = "Zensical CLI"
 edition.workspace = true
 rust-version.workspace = true
 homepage.workspace = true
