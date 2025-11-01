@@ -134,7 +134,10 @@ impl Page {
         // Set computed path in id, and compute final target path - once we add
         // more convenience function to the id crate, we can make this shorter
         let path = path.to_string_lossy().into_owned();
-        let id = builder.with_location(&path).build().expect("invariant");
+        let id = builder
+            .with_location(path.replace('\\', "/"))
+            .build()
+            .expect("invariant");
 
         // Compute URL of page, and strip the index.html suffix in case
         // directory URLs should be used. The URL is relative.
