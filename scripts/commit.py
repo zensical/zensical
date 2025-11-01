@@ -82,7 +82,7 @@ class Message:
             raise TypeError(f"Invalid type: {self.type}")
 
         # Validate description
-        if self.description != self.description.lower():
+        if self.description[0] != self.description[0].lower():
             raise ValueError("Commit message must be lowercased.")
 
         # Retrieve staged files
