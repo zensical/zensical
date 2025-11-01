@@ -1,0 +1,256 @@
+# Copyright (c) Zensical LLC <https://zensical.org>
+
+# SPDX-License-Identifier: MIT
+# Third-party contributions licensed under CLA
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to
+# deal in the Software without restriction, including without limitation the
+# rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+# sell copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+# IN THE SOFTWARE.
+
+name: Build
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+    tags:
+      - '*'
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Build wheels (Linux, ${{ matrix.platform }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform:
+          - x86_64
+          - x86
+          - aarch64
+          - armv7
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          manylinux: auto
+
+      - name: Build free-threaded wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist -i python3.13t
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          manylinux: auto
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.platform.target }}
+          path: dist
+
+  musllinux:
+    name: Build wheels (Linux Musl, ${{ matrix.platform }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform:
+          - x86_64
+          - x86
+          - aarch64
+          - armv7
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          manylinux: musllinux_1_2
+
+      - name: Build free-threaded wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist -i python3.13t
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          manylinux: musllinux_1_2
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-musllinux-${{ matrix.platform.target }}
+          path: dist
+
+  windows:
+    name: Build wheels (Windows, ${{ matrix.platform }})
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        platform:
+          - x64
+          - x86
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+          architecture: ${{ matrix.platform.target }}
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+      - name: Set up free-threaded Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.13t
+          architecture: ${{ matrix.platform.target }}
+
+      - name: Build free-threaded wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist -i python3.13t
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-${{ matrix.platform.target }}
+          path: dist
+
+  macos:
+    name: Build wheels (macOS, ${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: macos-13
+            target: x86_64
+          - runner: macos-14
+            target: aarch64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+      - name: Build free-threaded wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist -i python3.13t
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.platform.target }}
+          path: dist
+
+  sdist:
+    name: Build source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    if: >-
+      ${{
+        startsWith(github.ref, 'refs/tags/') ||
+        github.event_name == 'workflow_dispatch'
+      }}
+    needs: [linux, musllinux, windows, macos, sdist]
+    permissions:
+      id-token: write                  # Sign the release artifacts
+      contents: write                  # Upload release artifacts
+      attestations: write              # Generate artifact attestation
+
+    steps:
+      - name: Download wheels and sdist
+        uses: actions/download-artifact@v4
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'wheels-*/*'
+
+      - name: Publish to PyPI
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: PyO3/maturin-action@v1
+        env:
+          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        with:
+          command: upload
+          args: --non-interactive --skip-existing wheels-*/*
