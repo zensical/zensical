@@ -40,7 +40,8 @@ from .extensions.search import SearchExtension
 
 
 FRONT_MATTER_RE = re.compile(
-    r"^-{3}[ \t]*\n(.*?\n)(?:\.{3}|-{3})[ \t]*\n", re.UNICODE | re.DOTALL
+    r"^-{3}[ \r\t]*?\n(.*?\r?\n)(?:\.{3}|-{3})[ \r\t]*\n",
+    re.UNICODE | re.DOTALL,
 )
 """
 Regex pattern to extract front matter.
