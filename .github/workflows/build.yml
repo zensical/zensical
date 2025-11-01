@@ -36,15 +36,15 @@ permissions:
 
 jobs:
   linux:
-    name: Build wheels (Linux, ${{ matrix.platform }})
+    name: Build wheels (Linux, ${{ matrix.platform.target }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
         platform:
-          - x86_64
-          - x86
-          - aarch64
-          - armv7
+          - target: x86_64
+          - target: x86
+          - target: aarch64
+          - target: armv7
 
     steps:
       - name: Checkout repository
@@ -78,15 +78,15 @@ jobs:
           path: dist
 
   musllinux:
-    name: Build wheels (Linux Musl, ${{ matrix.platform }})
+    name: Build wheels (Linux Musl, ${{ matrix.platform.target }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
         platform:
-          - x86_64
-          - x86
-          - aarch64
-          - armv7
+          - target: x86_64
+          - target: x86
+          - target: aarch64
+          - target: armv7
 
     steps:
       - name: Checkout repository
@@ -120,13 +120,13 @@ jobs:
           path: dist
 
   windows:
-    name: Build wheels (Windows, ${{ matrix.platform }})
+    name: Build wheels (Windows, ${{ matrix.platform.target }})
     runs-on: windows-latest
     strategy:
       matrix:
         platform:
-          - x64
-          - x86
+          - target: x64
+          - target: x86
 
     steps:
       - name: Checkout repository
