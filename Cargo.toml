@@ -1,0 +1,75 @@
+# Copyright (c) Zensical LLC <https://zensical.org>
+
+# SPDX-License-Identifier: MIT
+# Third-party contributions licensed under CLA
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to
+# deal in the Software without restriction, including without limitation the
+# rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+# sell copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+# IN THE SOFTWARE.
+
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.86"
+homepage = "https://github.com/zensical/zensical"
+documentation = "https://github.com/zensical/zensical"
+repository = "https://github.com/zensical/zensical"
+authors = ["Zensical <contributors@zensical.org>"]
+license = "MIT"
+publish = false
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+[workspace.dependencies]
+zensical = { version = "0.0.0", path = "crates/zensical" }
+zensical-serve = { version = "0.0.0", path = "crates/zensical-serve" }
+zensical-watch = { version = "0.0.0", path = "crates/zensical-watch" }
+
+ahash = "0.8.12"
+base64 = "0.22.1"
+crossbeam = "0.8.4"
+file-id = "0.2.3"
+fluent-uri = "0.3.2"
+httparse = "1.10.1"
+httpdate = "1.0.3"
+indicatif = "0.18.1"
+matchit = "0.9.0"
+mio = "1.1.0"
+minijinja = "2.12.0"
+minijinja-contrib = "2.12.0"
+notify = "8.2.0"
+percent-encoding = "2.3.2"
+sha1_smol = "1.0.1"
+slab = "0.4.9"
+serde = "1.0.228"
+serde_json = "1.0.145"
+thiserror = "2.0.17"
+tungstenite = { version = "0.28.0", default-features = false }
+tracing = { version = "0.1.41" }
+tracing-chrome = "0.7.2"
+tracing-subscriber = "0.3.20"
+walkdir = "2.5.0"
+zrx = "0.0.3"
+
+[workspace.dependencies.pyo3]
+version = "0.27.1"
+features = ["extension-module", "abi3-py310"]

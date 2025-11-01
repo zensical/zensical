@@ -1,0 +1,85 @@
+# Copyright (c) Zensical LLC <https://zensical.org>
+
+# SPDX-License-Identifier: MIT
+# Third-party contributions licensed under CLA
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to
+# deal in the Software without restriction, including without limitation the
+# rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+# sell copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+# IN THE SOFTWARE.
+
+[build-system]
+requires = ["maturin>=1.8,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "zensical"
+description = "A modern static site generator built by the creators of Material for MkDocs"
+authors = [
+    { name = "Zensical LLC", email = "contributors@zensical.org" }
+]
+license = { text = "MIT" }
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+    "Programming Language :: Python",
+    "Topic :: Documentation",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Text Processing :: Markup :: HTML",
+    "Topic :: Text Processing :: Markup :: Markdown",
+]
+dynamic = ["version"]
+dependencies = [
+    "click>=8.1.8",
+    "deepmerge>=2.0",
+    "markdown>=3.7",
+    "pygments>=2.16",
+    "pymdown-extensions>=10.15",
+    "pyyaml>=6.0.2",
+]
+
+[project.urls]
+Homepage = "https://zensical.org/"
+Documentation = "https://zensical.org/docs/"
+Source = "https://github.com/zensical/zensical/"
+Changelog = "https://zensical.org/docs/changelog/"
+Issues = "https://github.com/zensical/zensical/issues"
+
+[project.scripts]
+zensical = "zensical.main:cli"
+
+[dependency-groups]
+dev = [
+    "maturin>=1.9.3",
+    "ruff>=0.12.8",
+]
+
+[tool.maturin]
+python-source = "python"
+features = ["pyo3/extension-module"]
+manifest-path = "crates/zensical/Cargo.toml"
+include = [
+  "python/zensical/templates/**/*"
+]
+
+[tool.ruff]
+line-length = 80
+fix = true
+
