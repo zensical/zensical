@@ -55,6 +55,9 @@ jobs:
         with:
           python-version: 3.x
 
+      - name: Prepare build
+        uses: python scripts/prepare.py
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -97,6 +100,9 @@ jobs:
         with:
           python-version: 3.x
 
+      - name: Prepare build
+        uses: python scripts/prepare.py
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -137,6 +143,9 @@ jobs:
         with:
           python-version: 3.x
           architecture: ${{ matrix.platform.target }}
+
+      - name: Prepare build
+        uses: python scripts/prepare.py
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
@@ -184,6 +193,9 @@ jobs:
         with:
           python-version: 3.x
 
+      - name: Prepare build
+        uses: python scripts/prepare.py
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -210,6 +222,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+
+      - name: Prepare build
+        uses: python scripts/prepare.py
 
       - name: Build sdist
         uses: PyO3/maturin-action@v1
