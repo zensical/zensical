@@ -2,48 +2,97 @@
 icon: simple/markdown
 ---
 
-# Intro to Markdown
+# Markdown in 5min
 
-!!! warning ""
-    Zensical uses [Python Markdown] to be compatible with [Material for MkDocs].
-    In the medium term, we are considering adding support or CommonMark and
-    providing tools for existing projects to migrate. Check out our [roadmap].
+## Headers
+```
+# H1 Header
+## H2 Header
+### H3 Header
+#### H4 Header
+##### H5 Header
+###### H6 Header
+```
 
-[Python Markdown]: https://python-markdown.github.io/
-[Material for MkDocs]: https://squidfunk.github.io/mkdocs-material/
-[CommonMark]: https://commonmark.org/
-[roadmap]: https://zensical.org/about/roadmap/
+## Text formatting
+```
+**bold text**
+*italic text*
+***bold and italic***
+~~strikethrough~~
+`inline code`
+```
 
-Text in Markdown can be _italicized_, __bold face__.
+## Links and images
+```
+[Link text](https://example.com)
+[Link with title](https://example.com "Hover title")
+![Alt text](image.jpg)
+![Image with title](image.jpg "Image title")
+```
 
-Markdown allows you to produce bullet point lists:
+## Lists
+```
+Unordered:
+- Item 1
+- Item 2
+  - Nested item
 
-* bullet
-* point
-* list
-    * nested
-    * list
+Ordered:
+1. First item
+2. Second item
+3. Third item
+```
 
-as well as numbered lists:
+## Blockquotes
+```
+> This is a blockquote
+> Multiple lines
+>> Nested quote
+```
 
-1. numbered
-2. list
-    1. nested
-    2. list
+## Code blocks
+````
+```javascript
+function hello() {
+  console.log("Hello, world!");
+}
+```
+````
 
-> If you can't explain it to a six year old, you don't understand it
-> yourself.<br> (Albert Einstein)
+## Tables
+```
+| Header 1 | Header 2 | Header 3 |
+|----------|----------|----------|
+| Row 1    | Data     | Data     |
+| Row 2    | Data     | Data     |
+```
 
+## Horizontal rule
+```
+---
+or
+***
+or
+___
+```
 
-| Feature        | Supported | Notes                      |
-| -------------- | --------- | -------------------------- |
-| Admonitions    | ✅         | Native support            |
-| Code Highlight | ✅         | Pygments & Superfences    |
-| Task Lists     | ✅         | Pymdown extensions        |
-| Emojis         | ✅         | GitHub-style emoji        |
+## Task lists
+```
+- [x] Completed task
+- [ ] Incomplete task
+- [ ] Another task
+```
 
+## Escaping characters
+```
+Use backslash to escape: \* \_ \# \`
+```
 
-<figure markdown="span">
-  ![Image title](https://dummyimage.com/600x400/){ width="300" }
-  <figcaption>Image caption</figcaption>
-</figure>
+## Line breaks
+```
+End a line with two spaces  
+to create a line break.
+
+Or use a blank line for a new paragraph.
+```

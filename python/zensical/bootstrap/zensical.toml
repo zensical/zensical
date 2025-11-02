@@ -10,31 +10,31 @@
 
 # The site_name is shown in the page header and the browser window title
 #
-# Read more: https://zensical.org/docs/setup/basics#site_name
-site_name = "My Zensical project"
+# Read more: https://zensical.org/docs/setup/basics/#site_name
+site_name = "Documentation"
 
 # The site_description is included in the HTML head and should contain a
 # meaningful description of the site content for use by search engines.
 #
-# Read more: https://zensical.org/docs/setup/basics#site_description
+# Read more: https://zensical.org/docs/setup/basics/#site_description
 site_description = "A new project generated from the default template project."
 
 # The site_author attribute. This is used in the HTML head element.
 #
-# Read more: https://zensical.org/docs/setup/basics#site_author
+# Read more: https://zensical.org/docs/setup/basics/#site_author
 site_author = "<your name here>"
 
 # The site_url is the canonical URL for your site. When building online
 # documentation you should set this.
-# Read more: https://zensical.org/docs/setup/basics#site_url
+# Read more: https://zensical.org/docs/setup/basics/#site_url
 #site_url = "https://www.example.com/"
 
 # The copyright notice appears in the page footer and can contain an HTML
 # fragment.
 #
-# Read more: https://zensical.org/docs/setup/basics#copyright
+# Read more: https://zensical.org/docs/setup/basics/#copyright
 copyright = """
-(c) 2025 your name here
+Copyright &copy; 2025 The authors
 """
 
 # Zensical supports both implicit navigation and explicitly defined navigation.
@@ -43,11 +43,11 @@ copyright = """
 # "docs_dir". The definition below demonstrates how a navigation structure
 # can be defined using TOML syntax.
 #
-# Read more: https://zensical.org/docs/setup/setting-up-navigation
-nav = [
-  {"Welcome" = "index.md"},
-  {"Intro to Markdown" = "markdown.md"},
-]
+# Read more: https://zensical.org/docs/setup/navigation/
+# nav = [
+#   { "Get started" = "index.md" },
+#   { "Markdown in 5min" = "markdown.md" },
+# ]
 
 # ----------------------------------------------------------------------------
 # Section for configuring theme options
@@ -55,9 +55,7 @@ nav = [
 [project.theme]
 
 # change this to "classic" to use the traditional Material for MkDocs look.
-#
-# TODO: add link to docs
-variant = "modern"
+#variant = "classic"
 
 # Zensical allows you to override specific blocks, partials, or whole
 # templates as well as to define your own templates. To do this, uncomment
@@ -74,7 +72,7 @@ variant = "modern"
 # must be relative to the "docs_dir".
 #
 # Read more:
-# - https://zensical.org/docs/setup/changing-the-logo-and-icons/#favicon
+# - https://zensical.org/docs/setup/logo-and-icons/#favicon
 # - https://developer.mozilla.org/en-US/docs/Glossary/Favicon
 #
 #favicon = "assets/images/favicon.png"
@@ -90,7 +88,7 @@ variant = "modern"
 # the documentation for details.
 #
 # Read more:
-# - https://zensical.org/docs/docs/setup/changing-the-language/
+# - https://zensical.org/docs/setup/language/
 #
 language = "en"
 
@@ -99,19 +97,19 @@ language = "en"
 features = [
     # Zensical includes an announcement bar. This feature allows users to
     # dismiss it then they have read the announcement.
-    # https://zensical.org/docs/setup/setting-up-the-header/#announcement-bar
+    # https://zensical.org/docs/setup/header/#announcement-bar
     "announce.dismiss",
 
     # If you have a repository configured and turn feature this on, Zensical
     # will generate an edit button for the page. This works for common
     # repository hosting services.
-    # https://zensical.org/docs/setup/adding-a-git-repository/#code-actions
+    # https://zensical.org/docs/setup/repository/#code-actions
     #"content.action.edit",
 
     # If you have a repository configured and turn feature this on, Zensical
     # will generate a button that allows the user to view the Markdown
     # code for the current page.
-    # https://zensical.org/docs/setup/adding-a-git-repository/#code-actions
+    # https://zensical.org/docs/setup/repository/#code-actions
     #"content.action.view",
 
     # Code annotations allow you to add an icon with a tooltip to your
@@ -146,89 +144,89 @@ features = [
 
     # With this feature enabled, Zensical will automatically hide parts
     # of the header when the user scrolls past a certain point.
-    # https://zensical.org/docs/setup/setting-up-the-header/#automatic-hiding
-    "header.autohide",
+    # https://zensical.org/docs/setup/header/#automatic-hiding
+    # "header.autohide",
 
     # Turn on this feature to expand all collapsible sections in the
     # navigation sidebar by default.
-    # https://zensical.org/docs/setup/setting-up-navigation/#navigation-expansion
+    # https://zensical.org/docs/setup/navigation/#navigation-expansion
     # "navigation.expand",
 
     # This feature turns on navigation elements in the footer that allow the
     # user to navigate to a next or previous page.
-    # http://zensical.org/docs/setup/setting-up-the-footer/#navigation
+    # https://zensical.org/docs/setup/footer/#navigation
     "navigation.footer",
 
     # When section index pages are enabled, documents can be directly attached
     # to sections, which is particularly useful for providing overview pages.
-    # http://zensical.org/docs/setup/setting-up-navigation/#section-index-pages
+    # https://zensical.org/docs/setup/navigation/#section-index-pages
     "navigation.indexes",
 
-    # When instant loading is enabled, clicks on all internal links will be
+    # When instant navigation is enabled, clicks on all internal links will be
     # intercepted and dispatched via XHR without fully reloading the page.
-    # http://zensical.org/docs/setup/setting-up-navigation/#instant-loading
+    # https://zensical.org/docs/setup/navigation/#instant-navigation
     "navigation.instant",
 
     # With instant prefetching, your site will start to fetch a page once the
     # user hovers over a link. This will reduce the perceived loading time
     # for the user.
-    # http://zensical.org/docs/setup/setting-up-navigation/#instant-prefetching
+    # https://zensical.org/docs/setup/navigation/#instant-prefetching
     "navigation.instant.prefetch",
 
     # In order to provide a better user experience on slow connections when
     # using instant navigation, a progress indicator can be enabled.
-    # http://zensical.org/docs/setup/setting-up-navigation/#progress-indicator
+    # https://zensical.org/docs/setup/navigation/#progress-indicator
     #"navigation.instant.progress"
 
     # When navigation paths are activated, a breadcrumb navigation is rendered
     # above the title of each page
-    # http://zensical.org/docs/setup/setting-up-navigation/#navigation-path
+    # https://zensical.org/docs/setup/navigation/#navigation-path
     "navigation.path",
 
     # When pruning is enabled, only the visible navigation items are included
     # in the rendered HTML, reducing the size of the built site by 33% or more.
-    # http://zensical.org/docs/setup/setting-up-navigation/#navigation-pruning
+    # https://zensical.org/docs/setup/navigation/#navigation-pruning
     #"navigation.prune",
 
     # When sections are enabled, top-level sections are rendered as groups in
     # the sidebar for viewports above 1220px, but remain as-is on mobile.
-    # http://zensical.org/docs/setup/setting-up-navigation/#navigation-sections
+    # https://zensical.org/docs/setup/navigation/#navigation-sections
     "navigation.sections",
 
     # When tabs are enabled, top-level sections are rendered in a menu layer
     # below the header for viewports above 1220px, but remain as-is on mobile.
-    # http://zensical.org/docs/setup/setting-up-navigation/#navigation-tabs
+    # https://zensical.org/docs/setup/navigation/#navigation-tabs
     #"navigation.tabs",
 
     # When sticky tabs are enabled, navigation tabs will lock below the header
     # and always remain visible when scrolling down.
-    # http://zensical.org/docs/setup/setting-up-navigation/#sticky-navigation-tabs
+    # https://zensical.org/docs/setup/navigation/#sticky-navigation-tabs
     #"navigation.tabs.sticky",
 
     # A back-to-top button can be shown when the user, after scrolling down,
     # starts to scroll up again.
-    # http://zensical.org/docs/setup/setting-up-navigation/#back-to-top-button
+    # https://zensical.org/docs/setup/navigation/#back-to-top-button
     "navigation.top",
 
     # When anchor tracking is enabled, the URL in the address bar is
     # automatically updated with the active anchor as highlighted in the table
     # of contents.
-    # http://zensical.org/docs/setup/setting-up-navigation/#anchor-tracking
+    # https://zensical.org/docs/setup/navigation/#anchor-tracking
     "navigation.tracking",
 
     # When search highlighting is enabled and a user clicks on a search result,
     # Zensical will highlight all occurrences after following the link.
-    # https://zensical.org/docs/setup/setting-up-site-search/#search-highlighting
+    # https://zensical.org/docs/setup/search/#search-highlighting
     "search.highlight",
 
     # When anchor following for the table of contents is enabled, the sidebar
     # is automatically scrolled so that the active anchor is always visible.
-    # https://zensical.org/docs/setup/setting-up-navigation/#anchor-following
+    # https://zensical.org/docs/setup/navigation/#anchor-following
     # "toc.follow"
 
     # When navigation integration for the table of contents is enabled, it is
     # always rendered as part of the navigation sidebar on the left.
-    # https://zensical.org/docs/setup/setting-up-navigation/#navigation-integration
+    # https://zensical.org/docs/setup/navigation/#navigation-integration
     #"toc.integrate"
 ]
 
@@ -238,7 +236,7 @@ features = [
 #
 # The path provided should be relative to the "docs_dir".
 #
-# Read more: http://zensical.org/docs/customization/#additional-css
+# Read more: https://zensical.org/docs/customization/#additional-css
 #
 #extra_css = ["assets/stylesheets/extra.css"]
 
@@ -247,7 +245,7 @@ features = [
 #
 # The path provided should be relative to the "docs_dir".
 #
-# Read more: http://zensical.org/docs/customization/#additional-javascript
+# Read more: https://zensical.org/docs/customization/#additional-javascript
 #extra_javascript = ["assets/javascript/extra.js"]
 
 # ----------------------------------------------------------------------------
@@ -257,10 +255,8 @@ features = [
 # customized.
 #
 # Read more:
-# - https://zensical.org/docs/setup/changing-the-colors
+# - https://zensical.org/docs/setup/colors/
 # ----------------------------------------------------------------------------
-
-# TODO: use the version from "web"
 [[project.theme.palette]]
 scheme = "default"
 toggle.icon = "lucide/sun"
@@ -277,7 +273,6 @@ toggle.name = "Switch to light mode"
 # of suitably licensed fonts. There are options for a normal text font and for
 # a monospaced font used in code blocks.
 # ----------------------------------------------------------------------------
-# These are the defaults
 #[project.theme.font]
 #text = "Inter"
 #code = "Jetbrains Mono"
@@ -294,13 +289,12 @@ toggle.name = "Switch to light mode"
 # There are other icons you can customize. See the documentation for details.
 #
 # Read more:
-# - https://zensical.org/docs/setup/changing-the-logo-and-icons
-# - http://zensical.org/docs/authoring/icons-emojis/#search
+# - https://zensical.org/docs/setup/logo-and-icons
+# - https://zensical.org/docs/authoring/icons-emojis/#search
 # ----------------------------------------------------------------------------
 #[project.theme.icon]
 #logo = "lucide/smile"
 #repo = "lucide/smile"
-
 
 # ----------------------------------------------------------------------------
 # The "extra" section contains miscellaneous settings.
