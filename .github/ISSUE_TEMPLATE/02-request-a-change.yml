@@ -1,0 +1,94 @@
+name: Request a change
+description: Want to submit an idea? Propose a change or feature request
+body:
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: >-
+        This field is optional. You may provide additional context for the idea
+        you want to propose, helping us to understand what you are working on
+        and what you are trying to achieve. If the context is not relevant, you
+        can leave this field empty.
+        [More](https://zensical.org/docs/community/contribute/request-a-change/#context)
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: >-
+        Please provide a detailed description of your idea in 2-3 sentences so
+        that we maintainers can fully understand what change, feature, or the
+        improvement you are proposing. Don't yet explain the benefits of your
+        idea, we'll come to that. Focus on functionality.
+        [More](https://zensical.org/docs/community/contribute/request-a-change/#description)
+    validations:
+      required: true
+
+  - type: textarea
+    id: related-links
+    attributes:
+      label: Related links
+      description: >-
+        Please list all links to open and closed [issues](https://github.com/zensical/zensical/issues),
+        or to [documentation sections](https://zensical.org/docs/) that are
+        relevant to your idea. If you discussed your idea with the community on
+        our [Discord channel](https://discord.gg/FDgcZuH7) prior to creating
+        this change request, please link the discussion here as well.
+        [More](https://zensical.org/docs/community/contribute/request-a-change/#related-links)
+      value: |-
+        - [Requesting a change](https://zensical.org/docs/community/contribute/request-a-change/)
+        -
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-cases
+    attributes:
+      label: Use Cases
+      description: >-
+        Please explain how your idea will work from an author's and user's
+        perspective. Elaborate on how the change would positively impact not only
+        you but our community and how it aligns with the goals and [vision](https://zensical.org/about/vision/)
+        of the project.
+        [More](https://zensical.org/docs/community/contribute/request-a-change/#use-cases)
+    validations:
+      required: true
+
+  - type: textarea
+    id: visuals
+    attributes:
+      label: Visuals
+      description: >-
+        This field is optional. You may provide sketches, screenshots, mockups,
+        or external assets to illustrate your idea. If you have seen this change,
+        feature, or improvement used in other static site generators or themes,
+        please describe how it is implemented and advertised.
+        [More](https://zensical.org/docs/community/contribute/request-a-change/#visuals)
+      placeholder: |-
+        Drag and drop images here or link external assets.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      description:
+        Please ensure your idea fulfills all of the following requirements. If
+        you need clarification on a specific requirement, follow the link to
+        learn about it and understand why it is necessary before ticking the box.
+        This will save the maintainers and you valuable time.
+      options:
+      - label: >-
+            I have read and followed the [change request guidelines](https://zensical.org/docs/community/contribute/request-a-change/).
+        required: true
+      - label: >-
+            I have verified that [my idea is a change request and not a bug report](https://zensical.org/docs/community/contribute/request-a-change/#its-not-a-bug-its-a-feature).
+        required: true
+      - label: >-
+            I have ensured that, to the best of my knowledge, my idea will benefit the entire community.
+        required: true
+      - label: >-
+            I have included relevant links to [the documentation](https://zensical.org/docs/) and related [issues](https://github.com/zensical/zensical/issues),
+            to underline the need for my idea.
+        required: true
