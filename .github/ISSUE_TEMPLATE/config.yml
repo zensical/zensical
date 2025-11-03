@@ -25,14 +25,14 @@ contact_links:
     about: >
       Missing information in our docs? Report a documentation issue
 
-  - name: Get professional support
-    url: https://zensical.org/spark/
-    about: >
-      Need help with Zensical? Get professional support directly from the
-      Zensical team in Zensical Spark
-
   - name: Ask a question
     url: https://discord.gg/FDgcZuH7
     about: >
       Have a question or need help? Connect with our community on our
       Discord channel
+
+  - name: Get professional support
+    url: https://zensical.org/spark/
+    about: >
+      Need help with Zensical? Get professional support directly from the
+      Zensical team
