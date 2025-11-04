@@ -104,6 +104,7 @@ impl Page {
 
         // Determine whether to use directory URLs
         let use_directory_urls = config.project.use_directory_urls;
+        let file_uri = id.location().into_owned();
 
         // Create identifier builder, as we need to change the context in order
         // to copy the file over to the site directory
@@ -160,7 +161,6 @@ impl Page {
         // variants are supported by MkDocs, so we mirror behavior for now
         let edit_url = repo_url.clone().and_then(|repo_url| {
             edit_uri.clone().map(|uri| {
-                let file_uri = id.location().replace(".html", ".md");
                 if uri.starts_with("https://") {
                     format!("{uri}/{file_uri}")
                 } else {

@@ -34,7 +34,7 @@ from markdown.postprocessors import Postprocessor
 
 class SearchProcessor(Postprocessor):
     """
-    PostProcessor that extracts searchable content from the rendered HTML.
+    Post processor that extracts searchable content from the rendered HTML.
     """
 
     def __init__(self, md):
