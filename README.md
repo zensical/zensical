@@ -27,8 +27,6 @@
 <p align="center">
   <a href="https://zensical.org/"><strong>Home</strong></a>
   &middot;
-  <a href="https://zensical.org/docs/"><strong>Documentation</strong></a>
-  &middot;
   <a href="https://zensical.org/docs/get-started/"><strong>Get started</strong></a>
   &middot;
   <a href="https://zensical.org/compatibility/"><strong>Compatibility</strong></a>
