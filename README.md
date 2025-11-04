@@ -25,29 +25,17 @@
 </p>
 
 <p align="center">
-  <a href="https://zensical.org/docs/">
-    <strong>Documentation</strong>
-  </a>
+  <a href="https://zensical.org/docs/"><strong>Documentation</strong></a>
   &middot;
-  <a href="https://zensical.org/docs/get-started/">
-    <strong>Get started</strong>
-  </a>
+  <a href="https://zensical.org/docs/get-started/"><strong>Get started</strong></a>
   &middot;
-  <a href="https://zensical.org/compatibility/">
-    <strong>Compatibility</strong>
-  </a>
+  <a href="https://zensical.org/compatibility/"><strong>Compatibility</strong></a>
   &middot;
-  <a href="https://zensical.org/about/roadmap/">
-    <strong>Roadmap</strong>
-  </a>
+  <a href="https://zensical.org/about/roadmap/"><strong>Roadmap</strong></a>
   &middot;
-  <a href="https://zensical.org/about/newsletter/">
-    <strong>Newsletter</strong>
-  </a>
+  <a href="https://zensical.org/about/newsletter/"><strong>Newsletter</strong></a>
   &middot;
-  <a href="https://zensical.org/spark/">
-    <strong>Zensical Spark</strong>
-  </a>
+  <a href="https://zensical.org/spark/"><strong>Zensical Spark</strong></a>
 </p>
 
 <p align="center">
@@ -90,3 +78,5 @@ Serve the documentation locally:
 ``` sh
 zensical serve
 ```
+
+For detailed installation instructions, configuration options, and a demo, visit zensical.org/docs/
