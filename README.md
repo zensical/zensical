@@ -25,6 +25,8 @@
 </p>
 
 <p align="center">
+  <a href="https://zensical.org/"><strong>Home</strong></a>
+  &middot;
   <a href="https://zensical.org/docs/"><strong>Documentation</strong></a>
   &middot;
   <a href="https://zensical.org/docs/get-started/"><strong>Get started</strong></a>
@@ -58,25 +60,3 @@
     <a href="https://zensical.org/docs/">zensical.org/docs/</a>.
   </em>
 </p>
-
-## Quick start
-
-Install Zensical via `pip`:
-
-``` sh
-pip install zensical
-```
-
-Create a new documentation site:
-
-``` sh
-zensical new .
-```
-
-Serve the documentation locally:
-
-``` sh
-zensical serve
-```
-
-For detailed installation instructions, configuration options, and a demo, visit zensical.org/docs/
