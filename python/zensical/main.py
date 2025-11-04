@@ -144,20 +144,33 @@ def new_project(directory: str | None, **kwargs):
     """
     Create a new template project in the current directory or in the given
     directory.
+
+    Raises:
+        ClickException: if the directory already contains a zensical.toml or a
+            docs directory that is not empty, as well as when the path provided
+            points to something that is not a directory.
     """
 
     if directory is None:
         directory = "."
+    docs_dir = os.path.join(directory, "docs")
+    config_file = os.path.join(directory, "zensical.toml")
+
     if os.path.exists(directory):
         if not os.path.isdir(directory):
             raise (ClickException("Path provided is not a directory."))
-        if any(os.listdir(directory)):
-            raise (ClickException("Directory is not empty. Aborting."))
+        if os.path.exists(config_file):
+            raise (ClickException(f"{config_file} already exists."))
+        if os.path.exists(docs_dir):
+            raise (ClickException(f"{docs_dir} already exists."))
     else:
         os.makedirs(directory)
-    # ok, directory exists and is empty
+
     package_dir = os.path.dirname(os.path.abspath(__file__))
-    shutil.copy(os.path.join(package_dir, "bootstrap/zensical.toml"), directory)
+    shutil.copy(
+        os.path.join(package_dir, "bootstrap/zensical.toml"),
+        directory
+    )
     shutil.copytree(
         os.path.join(package_dir, "bootstrap/docs"),
         os.path.join(directory, "docs"),
