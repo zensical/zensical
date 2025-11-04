@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/zensical-dark.png">
     <source media="(prefers-color-scheme: light)" srcset=".github/assets/zensical.png">
-    <img alt="Zensical" src=".github/assets/zensical.png" height="280">
+    <img alt="Zensical" src=".github/assets/zensical.png" height="240">
   </picture>
 </p>
 
