@@ -82,8 +82,7 @@ pip install zensical
 Create a new documentation site:
 
 ``` sh
-zensical new my-docs
-cd my-docs
+zensical new .
 ```
 
 Serve the documentation locally:
