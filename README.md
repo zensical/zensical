@@ -8,7 +8,7 @@
 
 <p align="center">
   <strong>
-    A modern static site generator by the creators of
+    A modern static site generator built by the creators of
     <a href="https://github.com/squidfunk/mkdocs-material/">Material for MkDocs</a>
   </strong>
 </p>
@@ -25,9 +25,69 @@
 </p>
 
 <p align="center">
+  <a href="https://zensical.org/docs/">
+    <strong>Documentation</strong>
+  </a>
+  &middot;
+  <a href="https://zensical.org/docs/get-started/">
+    <strong>Get started</strong>
+  </a>
+  &middot;
+  <a href="https://zensical.org/compatibility/">
+    <strong>Compatibility</strong>
+  </a>
+  &middot;
+  <a href="https://zensical.org/about/roadmap/">
+    <strong>Roadmap</strong>
+  </a>
+  &middot;
+  <a href="https://zensical.org/about/newsletter/">
+    <strong>Newsletter</strong>
+  </a>
+  &middot;
+  <a href="https://zensical.org/spark/">
+    <strong>Zensical Spark</strong>
+  </a>
+</p>
+
+<p align="center">
+  Write your documentation in Markdown and create a professional static site for
+  your Open Source or commercial project in minutes – searchable, customizable,
+  more than 60 languages, for all devices.
+</p>
+
+<p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshot-dark.png">
     <source media="(prefers-color-scheme: light)" srcset=".github/assets/screenshot.png">
     <img alt="Zensical" src=".github/assets/screenshot.png">
   </picture>
 </p>
+
+<p align="center">
+  <em>
+    Visit our documentation at
+    <a href="https://zensical.org/docs/">zensical.org/docs/</a>.
+  </em>
+</p>
+
+## Quick start
+
+Install Zensical via `pip`:
+
+``` sh
+pip install zensical
+```
+
+Create a new documentation site:
+
+``` sh
+zensical new my-docs
+cd my-docs
+```
+
+Serve the documentation locally:
+
+``` sh
+zensical serve
+```
