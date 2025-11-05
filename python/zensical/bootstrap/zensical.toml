@@ -49,6 +49,24 @@ Copyright &copy; 2025 The authors
 #   { "Markdown in 5min" = "markdown.md" },
 # ]
 
+# With the "extra_css" option you can add your own CSS styling to customize
+# your Zensical project according to your needs. You can add any number of
+# CSS files.
+#
+# The path provided should be relative to the "docs_dir".
+#
+# Read more: https://zensical.org/docs/customization/#additional-css
+#
+#extra_css = ["assets/stylesheets/extra.css"]
+
+# With the `extra_javascript` option you can add your own JavaScript to your
+# project to customize the behavior according to your needs.
+#
+# The path provided should be relative to the "docs_dir".
+#
+# Read more: https://zensical.org/docs/customization/#additional-javascript
+#extra_javascript = ["assets/javascript/extra.js"]
+
 # ----------------------------------------------------------------------------
 # Section for configuring theme options
 # ----------------------------------------------------------------------------
@@ -229,24 +247,6 @@ features = [
     # https://zensical.org/docs/setup/navigation/#navigation-integration
     #"toc.integrate"
 ]
-
-# With the "extra_css" option you can add your own CSS styling to customize
-# your Zensical project according to your needs. You can add any number of
-# CSS files.
-#
-# The path provided should be relative to the "docs_dir".
-#
-# Read more: https://zensical.org/docs/customization/#additional-css
-#
-#extra_css = ["assets/stylesheets/extra.css"]
-
-# With the `extra_javascript` option you can add your own JavaScript to your
-# project to customize the behavior according to your needs.
-#
-# The path provided should be relative to the "docs_dir".
-#
-# Read more: https://zensical.org/docs/customization/#additional-javascript
-#extra_javascript = ["assets/javascript/extra.js"]
 
 # ----------------------------------------------------------------------------
 # In the "palette" subsection you can configure options for the color scheme.
