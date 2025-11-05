@@ -24,7 +24,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a documentation issue
-    url: https://github.com/zensical/docs/issues
+    url: https://github.com/zensical/docs/issues/new?template=01-report-a-docs-issue.yml
     about: >
       Missing information in our docs? Report a documentation issue
 
