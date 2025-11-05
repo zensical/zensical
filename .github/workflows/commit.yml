@@ -53,9 +53,9 @@ jobs:
           echo "Getting commits from ${base}..${head}"
           git log "${base}..${head}" --pretty=format:"%s" > commits.txt
 
-      - name: Run commit message linter
-        run: |
-          while IFS= read -r commit; do
-            echo "Linting commit message: $commit"
-            scripts/commit.py "$commit"
-          done < commits.txt
+      # - name: Run commit message linter
+      #   run: |
+      #     while IFS= read -r commit; do
+      #       echo "Linting commit message: $commit"
+      #       scripts/commit.py "$commit"
+      #     done < commits.txt

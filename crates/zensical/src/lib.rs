@@ -219,6 +219,12 @@ fn serve(py: Python, config_file: PathBuf, dev_addr: String) -> PyResult<()> {
     })
 }
 
+/// Returns the current version.
+#[pyfunction]
+fn version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 // ----------------------------------------------------------------------------
 
 /// Expose Rust runtime to Python.
@@ -226,5 +232,6 @@ fn serve(py: Python, config_file: PathBuf, dev_addr: String) -> PyResult<()> {
 fn zensical(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(build, m)?)?;
     m.add_function(wrap_pyfunction!(serve, m)?)?;
+    m.add_function(wrap_pyfunction!(version, m)?)?;
     Ok(())
 }
