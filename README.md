@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/zensical-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset=".github/assets/zensical.png">
-    <img alt="Zensical" src=".github/assets/zensical.png" height="240">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zensical/zensical/master/.github/assets/zensical-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/zensical/zensical/master/.github/assets/zensical.png">
+    <img alt="Zensical" src="https://raw.githubusercontent.com/zensical/zensical/master/.github/assets/zensical.png" height="240">
   </picture>
 </p>
 
@@ -46,9 +46,9 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/screenshot-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset=".github/assets/screenshot.png">
-    <img alt="Zensical" src=".github/assets/screenshot.png">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zensical/zensical/master/.github/assets/screenshot-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/zensical/zensical/master/.github/assets/screenshot.png">
+    <img alt="Zensical" src="https://raw.githubusercontent.com/zensical/zensical/master/.github/assets/screenshot.png">
   </picture>
 </p>
 
