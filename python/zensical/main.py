@@ -29,16 +29,17 @@ import shutil
 import webbrowser
 
 from click import ClickException
-from zensical import build, serve
+from zensical import build, serve, version
 
 # ----------------------------------------------------------------------------
 # Commands
 # ----------------------------------------------------------------------------
 
 
+@click.version_option(version=version(), message="%(version)s")
 @click.group()
 def cli():
-    """Zensical"""
+    """Zensical - A modern static site generator"""
 
 
 @cli.command(name="build")
@@ -167,10 +168,7 @@ def new_project(directory: str | None, **kwargs):
         os.makedirs(directory)
 
     package_dir = os.path.dirname(os.path.abspath(__file__))
-    shutil.copy(
-        os.path.join(package_dir, "bootstrap/zensical.toml"),
-        directory
-    )
+    shutil.copy(os.path.join(package_dir, "bootstrap/zensical.toml"), directory)
     shutil.copytree(
         os.path.join(package_dir, "bootstrap/docs"),
         os.path.join(directory, "docs"),

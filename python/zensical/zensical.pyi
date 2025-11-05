@@ -35,6 +35,11 @@ def serve(config_file: str, dev_addr: str):
     Builds and serves the project.
     """
 
+def version() -> str:
+    """
+    Returns the current version.
+    """
+
 # ----------------------------------------------------------------------------
 
-__all__ = ["build", "serve"]
+__all__ = ["build", "serve", "version"]
