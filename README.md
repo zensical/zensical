@@ -2,7 +2,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/zensical/zensical/master/.github/assets/zensical-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/zensical/zensical/master/.github/assets/zensical.png">
-    <img alt="Zensical" src="https://raw.githubusercontent.com/zensical/zensical/master/.github/assets/zensical.png" height="240">
+    <img alt="Zensical" src="https://raw.githubusercontent.com/zensical/zensical/master/.github/assets/zensical.png" width="290" height="240">
   </picture>
 </p>
 
