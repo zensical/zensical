@@ -156,6 +156,7 @@ def new_project(directory: str | None, **kwargs):
         directory = "."
     docs_dir = os.path.join(directory, "docs")
     config_file = os.path.join(directory, "zensical.toml")
+    github_dir = os.path.join(directory, ".github")
 
     if os.path.exists(directory):
         if not os.path.isdir(directory):
@@ -164,21 +165,20 @@ def new_project(directory: str | None, **kwargs):
             raise (ClickException(f"{config_file} already exists."))
         if os.path.exists(docs_dir):
             raise (ClickException(f"{docs_dir} already exists."))
+        if os.path.exists(github_dir):
+            raise (ClickException(f"{github_dir} already exists."))
     else:
         os.makedirs(directory)
 
     package_dir = os.path.dirname(os.path.abspath(__file__))
-    shutil.copy(
-        os.path.join(package_dir, "bootstrap/zensical.toml"),
-        directory
-    )
+    shutil.copy(os.path.join(package_dir, "bootstrap/zensical.toml"), directory)
     shutil.copytree(
         os.path.join(package_dir, "bootstrap/docs"),
-        os.path.join(directory, "docs")
+        os.path.join(directory, "docs"),
     )
     shutil.copytree(
         os.path.join(package_dir, "bootstrap/.github"),
-        os.path.join(directory, ".github")
+        os.path.join(directory, ".github"),
     )
 
 

@@ -141,7 +141,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         Mode::Build(_) => None,
         Mode::Serve(addr, seq) => {
             if *seq == 0 {
-                println!("Serving {} on {addr}", site_dir.display());
+                println!("Serving {} on http://{addr}", site_dir.display());
             } else {
                 println!("Reloading...");
             }

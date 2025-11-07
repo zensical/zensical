@@ -53,6 +53,7 @@ dependencies = [
     "pygments>=2.16",
     "pymdown-extensions>=10.15",
     "pyyaml>=6.0.2",
+    "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.urls]
