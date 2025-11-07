@@ -236,6 +236,7 @@ dependencies = [
     { name = "pygments" },
     { name = "pymdown-extensions" },
     { name = "pyyaml" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
 
 [package.dev-dependencies]
@@ -252,6 +253,7 @@ requires-dist = [
     { name = "pygments", specifier = ">=2.16" },
     { name = "pymdown-extensions", specifier = ">=10.15" },
     { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
 ]
 
 [package.metadata.requires-dev]
