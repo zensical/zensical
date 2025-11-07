@@ -54,14 +54,55 @@ use cached::cached;
 
 /// Create a stream to process static assets.
 pub fn process_assets(config: &Config, files: &Stream<Id, String>) {
-    let matcher = Matcher::from_str("zrs:::::**/*.{html,md,toml,xml,yml}:")
-        .expect("invariant");
+    let extra_templates = config.project.extra_templates.clone();
+    let docs_dir = config.project.docs_dir.clone();
+    let matcher =
+        Matcher::from_str(&format!("zrs::::{docs_dir}::")).expect("invariant");
 
     // Create pipeline to copy static assets
     let site_dir = config.project.site_dir.clone();
     let root_dir = config.get_root_dir();
     files.map(with_id(move |id: &Id, from: String| {
-        if matcher.is_match(id).expect("invariant") {
+        if !matcher.is_match(id).expect("invariant") {
+            return Ok(());
+        }
+
+        // Don't copy Markdown files
+        if id.location().ends_with(".md") {
+            return Ok(());
+        }
+
+        // Don't copy template files that we render later
+        if extra_templates.contains(&id.location().into_owned()) {
+            return Ok(());
+        }
+
+        // Create identifier builder, as we need to change the context in order
+        // to copy the file over to the site directory
+        let builder = id.to_builder().with_context(&site_dir);
+        let id = builder.build().expect("invariant");
+
+        // Compute parent path, create intermediate directories and copy files
+        let to = root_dir.join(id.to_path());
+        fs::create_dir_all(to.parent().expect("invariant"))?;
+        fs::copy(from, to).map(|_| ())
+    }));
+}
+
+/// Create a stream to process static assets in theme.
+pub fn process_theme_assets(config: &Config, files: &Stream<Id, String>) {
+    let matcher = Matcher::from_str("zrs::::templates/*::").expect("invariant");
+
+    // Create pipeline to copy static assets
+    let site_dir = config.project.site_dir.clone();
+    let root_dir = config.get_root_dir();
+    files.map(with_id(move |id: &Id, from: String| {
+        if !matcher.is_match(id).expect("invariant") {
+            return Ok(());
+        }
+
+        // Don't copy templates - they will be rendered later
+        if id.location().ends_with(".html") {
             return Ok(());
         }
 
@@ -204,6 +245,10 @@ pub fn render_templates(
         matcher.is_match(id).expect("invariant")
     }));
 
+    // Add docs directory to theme templates
+    let mut theme_dirs = config.theme_dirs.clone();
+    theme_dirs.push(config.get_docs_dir());
+
     // Create pipeline to render templates
     let config = config.clone();
     templates.product(nav).delta_map(with_splat(
@@ -212,10 +257,8 @@ pub fn render_templates(
             let site_dir = config.get_site_dir();
 
             // Obtain template
-            let template = Template::new(
-                name.to_string_lossy(),
-                config.theme_dirs.clone(),
-            );
+            let template =
+                Template::new(name.to_string_lossy(), theme_dirs.clone());
 
             // Render template and write to disk
             template
@@ -277,6 +320,7 @@ pub fn create_workspace(config: &Config) -> Workspace<Id> {
 
     // Set up workflow to process static assets, as well as Markdown files, and
     // create a barrier to wait for the completion of all Markdown files
+    process_theme_assets(&config, &files);
     process_assets(&config, &files);
     let markdown = process_markdown(&config, &files);
     let wait = wait_for_markdown(&config, &files);
