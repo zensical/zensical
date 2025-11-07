@@ -131,12 +131,12 @@ def _apply_defaults(config: dict, path: str) -> dict:
         raise ConfigurationError("Missing required setting: site_name")
 
     # Set site directory
-    config.setdefault("site_dir", "site")
+    set_default(config, "site_dir", "site", str)
     if ".." in config.get("site_dir"):
         raise ConfigurationError("site_dir must not contain '..'")
 
     # Set docs directory
-    config.setdefault("docs_dir", "docs")
+    set_default(config, "docs_dir", "docs", str)
     if ".." in config.get("docs_dir"):
         raise ConfigurationError("docs_dir must not contain '..'")
 
@@ -176,7 +176,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
         config["edit_uri"] = edit_uri.rstrip("/")
 
     # Set defaults for theme font settings
-    theme = config.setdefault("theme", {})
+    theme = set_default(config, "theme", {}, dict)
     if isinstance(theme, str):
         theme = {"name": theme}
         config["theme"] = theme
@@ -212,7 +212,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
         set_default(theme["font"], "code", font["code"], str)
 
     # Set defaults for theme icons
-    icon = theme.setdefault("icon", {})
+    icon = set_default(theme, "icon", {}, dict)
     set_default(icon, "repo", None, str)
     set_default(icon, "annotation", None, str)
     set_default(icon, "tag", {}, dict)
@@ -242,7 +242,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
         set_default(icon, "next", None, str)
 
     # Set defaults for theme admonition icons
-    admonition = icon.setdefault("admonition", {})
+    admonition = set_default(icon, "admonition", {}, dict)
     set_default(admonition, "note", None, str)
     set_default(admonition, "abstract", None, str)
     set_default(admonition, "info", None, str)
@@ -277,7 +277,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
             set_default(toggle, "name", None, str)
 
     # Set defaults for extra settings
-    extra = config.setdefault("extra", {})
+    extra = set_default(config, "extra", {}, dict)
     set_default(extra, "homepage", None, str)
     set_default(extra, "scope", None, str)
     set_default(extra, "annotate", {}, dict)
@@ -436,10 +436,13 @@ def _apply_defaults(config: dict, path: str) -> dict:
 
 def set_default(
     entry: dict, key: str, default: Any, data_type: type = None
-) -> None:
+) -> any:
     """
     Set a key to a default value if it isn't set, and optionally cast it to the specified data type.
     """
+    if key in entry and entry[key] is None:
+        del entry[key]
+
     # Set the default value if the key is not present
     entry.setdefault(key, default)
 
@@ -449,6 +452,9 @@ def set_default(
             entry[key] = data_type(entry[key])
         except (ValueError, TypeError) as e:
             raise ValueError(f"Failed to cast key '{key}' to {data_type}: {e}")
+
+    # Return the resulting value
+    return entry[key]
 
 
 def _convert_extra(data: dict | list) -> dict | list:
@@ -640,13 +646,15 @@ def _convert_plugins(value: any, config: dict) -> list:
                 plugins[item] = {}
 
     # Define defaults for search plugin
-    search = plugins.setdefault("search", {})
-    search.setdefault("enabled", True)
-    search.setdefault("separator", '[\\s\\-_,:!=\\[\\]()\\\\"`/]+|\\.(?!\\d)')
+    search = set_default(plugins, "search", {}, dict)
+    set_default(search, "enabled", True, bool)
+    set_default(
+        search, "separator", '[\\s\\-_,:!=\\[\\]()\\\\"`/]+|\\.(?!\\d)', str
+    )
 
     # Define defaults for offline plugin
-    offline = plugins.setdefault("offline", {"enabled": False})
-    offline.setdefault("enabled", True)
+    offline = set_default(plugins, "offline", {"enabled": False}, dict)
+    set_default(offline, "enabled", True, bool)
 
     # Ensure correct resolution of links when viewing the site from the
     # file system by disabling directory URLs
@@ -660,16 +668,11 @@ def _convert_plugins(value: any, config: dict) -> list:
             script = "https://unpkg.com/iframe-worker/shim"
             config["extra"]["polyfills"].append(script)
 
-    # Ensure extra polyfills/shims use structured format
-    config["extra"]["polyfills"] = _convert_extra_javascript(
-        config["extra"]["polyfills"]
-    )
-
     # Now, add another level of indirection, by moving all plugin configuration
     # into a `config` property, making it compatible with Material for MkDocs.
-    for name, config in plugins.items():
-        if not isinstance(config, dict) or "config" not in config:
-            plugins[name] = {"config": config}
+    for name, data in plugins.items():
+        if not isinstance(data, dict) or "config" not in data:
+            plugins[name] = {"config": data}
 
     # Return plugins
     return plugins
