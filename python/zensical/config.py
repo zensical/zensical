@@ -25,8 +25,12 @@ from __future__ import annotations
 
 import importlib
 import os
-import tomllib
 import yaml
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib  # type: ignore
 
 from click import ClickException
 from deepmerge import always_merger
