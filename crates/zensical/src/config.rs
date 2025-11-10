@@ -183,7 +183,7 @@ impl Config {
         PathBuf::from(".")
             .relative_to(path)
             .to_string_lossy()
-            .into_owned()
+            .replace('\\', "/")
     }
 
     /// Returns the base path, derived from the site URL if available.
