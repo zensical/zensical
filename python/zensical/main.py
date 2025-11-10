@@ -26,14 +26,29 @@ from __future__ import annotations
 import click
 import os
 import shutil
+import threading
+import time
 import webbrowser
+import urllib.request
 
 from click import ClickException
 from zensical import build, serve, version
 
+
 # ----------------------------------------------------------------------------
 # Commands
 # ----------------------------------------------------------------------------
+def open_browser(url):
+    def _open_browser(url):
+        while True:
+            try:
+                with urllib.request.urlopen(url):
+                    webbrowser.open(url)
+                    break
+            except Exception:
+                time.sleep(1)
+
+    threading.Thread(target=_open_browser, args=(url,), daemon=True).start()
 
 
 @click.version_option(version=version(), message="%(version)s")
@@ -126,7 +141,7 @@ def execute_serve(config_file: str | None, **kwargs):
     # Obtain development server address and open in browser, if desired
     dev_addr = kwargs.get("dev_addr") or "localhost:8000"
     if kwargs.get("open", False):
-        webbrowser.open(f"http://{dev_addr}")
+        open_browser(f"http://{dev_addr}")
     if kwargs.get("strict", False):
         print("Warning: Strict mode is currently unsupported.")
 
