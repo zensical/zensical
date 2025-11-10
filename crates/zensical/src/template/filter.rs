@@ -63,7 +63,7 @@ pub fn url_filter(state: &State, url: String) -> String {
         target
             .relative_to(&source) // fmt
             .to_string_lossy()
-            .into_owned()
+            .replace('\\', "/")
 
     // Render URLs in static templates
     } else {
@@ -71,7 +71,7 @@ pub fn url_filter(state: &State, url: String) -> String {
         Path::new(&source.to_string())
             .join(target.normalize())
             .to_string_lossy()
-            .into_owned()
+            .replace('\\', "/")
     }
 }
 
