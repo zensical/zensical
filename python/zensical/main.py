@@ -38,6 +38,10 @@ from zensical import build, serve, version
 # ----------------------------------------------------------------------------
 # Commands
 # ----------------------------------------------------------------------------
+
+
+# Wait for the server to be available before opening the browser - we'll remove
+# this hack once the server can signal that it's ready for serving.
 def open_browser(url):
     def _open_browser(url):
         while True:
