@@ -161,16 +161,17 @@ def _apply_defaults(config: dict, path: str) -> dict:
     # Set defaults for repository name settings
     repo_url = config.get("repo_url")
     if repo_url and not config.get("repo_name"):
+        docs_dir = config.get("docs_dir")
         host = urlparse(repo_url).hostname or ""
         if host == "github.com":
-            config["repo_name"] = "GitHub"
-            config["edit_uri"] = "edit/master/docs"
+            set_default(config, "repo_name", "GitHub", str)
+            set_default(config, "edit_uri", f"edit/master/{docs_dir}", str)
         elif host == "gitlab.com":
-            config["repo_name"] = "GitLab"
-            config["edit_uri"] = "edit/master/docs"
+            set_default(config, "repo_name", "GitLab", str)
+            set_default(config, "edit_uri", f"edit/master/{docs_dir}", str)
         elif host == "bitbucket.org":
-            config["repo_name"] = "Bitbucket"
-            config["edit_uri"] = "src/default/docs"
+            set_default(config, "repo_name", "Bitbucket", str)
+            set_default(config, "edit_uri", f"src/default/{docs_dir}", str)
         elif host:
             config["repo_name"] = host.split(".")[0].title()
 
