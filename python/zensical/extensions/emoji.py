@@ -41,8 +41,8 @@ def twemoji(options: object, md: Markdown):
     """
     Create twemoji index.
     """
-    paths = options.get("custom_icons", [])[:]
-    return _load_twemoji_index(tuple(paths))
+    path = options.get("custom_icons", None)
+    return _load_twemoji_index(path)
 
 
 def to_svg(
@@ -92,6 +92,8 @@ def _load_twemoji_index(paths):
     """
     Load twemoji index and add icons.
     """
+    paths = [] if paths is None else [paths]
+
     index = {
         "name": "twemoji",
         "emoji": twemoji_db.emoji,
@@ -101,7 +103,9 @@ def _load_twemoji_index(paths):
     # Compute path to theme root and traverse all icon directories
     root = os.path.dirname(os.path.dirname(__file__))
     root = os.path.join(root, "templates", ".icons")
-    for path in [*paths, root]:
+    paths.append(root)
+
+    for path in paths:
         base = os.path.normpath(path)
 
         # Index icons provided by the theme and via custom icons
