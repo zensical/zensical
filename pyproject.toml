@@ -78,6 +78,7 @@ features = ["pyo3/extension-module"]
 manifest-path = "crates/zensical/Cargo.toml"
 include = [
   "python/zensical/templates/**/*",
+  "python/zensical/bootstrap/**/*",
   "LICENSE.md",
 ]
 
