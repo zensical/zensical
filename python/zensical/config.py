@@ -156,23 +156,25 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(config, "repo_url", None, str)
     set_default(config, "repo_name", None, str)
     set_default(config, "edit_uri_template", None, str)
-    set_default(config, "edit_uri", None, str)
 
     # Set defaults for repository name settings
     repo_url = config.get("repo_url")
+    host = urlparse(repo_url).hostname or ""
+
     if repo_url and not config.get("repo_name"):
-        host = urlparse(repo_url).hostname or ""
-        if host == "github.com":
-            config["repo_name"] = "GitHub"
-            config["edit_uri"] = "edit/master/docs"
-        elif host == "gitlab.com":
-            config["repo_name"] = "GitLab"
-            config["edit_uri"] = "edit/master/docs"
+        if host.startswith(("github", "gitlab")):
+            config["repo_name"] = f"{host[0:2].title()}{{host[3:].title()}}"
         elif host == "bitbucket.org":
             config["repo_name"] = "Bitbucket"
-            config["edit_uri"] = "src/default/docs"
         elif host:
             config["repo_name"] = host.split(".")[0].title()
+
+    default_edit_uri = (
+        "src/default" if host == "bitbucket.org" else "edit/master"
+    )
+    set_default(
+        config, "edit_uri", f"{default_edit_uri}/{config['docs_dir']}", str
+    )
 
     # Remove trailing slash from edit_uri if present
     edit_uri = config.get("edit_uri")
