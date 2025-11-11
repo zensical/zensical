@@ -106,10 +106,15 @@ where
     where
         A: ToSocketAddrs,
     {
-        addr.to_socket_addrs().map_err(Into::into).map(|addrs| {
-            self.addrs.extend(addrs);
-            self
-        })
+        // The underlying system call might returned the same socket address
+        // multiple times, which is why we need to deduplicate them
+        let addrs = addr.to_socket_addrs()?;
+        for addr in addrs {
+            if !self.addrs.contains(&addr) {
+                self.addrs.push(addr);
+            }
+        }
+        Ok(self)
     }
 
     /// Creates the server and binds to the configured addresses.
