@@ -31,11 +31,11 @@ use std::str::FromStr;
 use std::{fs, io};
 use zrx::id::{Id, Matcher};
 use zrx::scheduler::action::report::IntoReport;
+use zrx::stream::Stream;
 use zrx::stream::barrier::Condition;
 use zrx::stream::function::{with_id, with_splat};
 use zrx::stream::value::{Chunk, Delta};
 use zrx::stream::workspace::Workspace;
-use zrx::stream::Stream;
 
 use super::config::Config;
 use super::structure::markdown::Markdown;
@@ -85,7 +85,7 @@ pub fn process_assets(config: &Config, files: &Stream<Id, String>) {
         // Compute parent path, create intermediate directories and copy files
         let to = root_dir.join(id.to_path());
         fs::create_dir_all(to.parent().expect("invariant"))?;
-        fs::copy(from, to).map(|_| ())
+        copy_file(from, to)
     }));
 }
 
@@ -114,8 +114,17 @@ pub fn process_theme_assets(config: &Config, files: &Stream<Id, String>) {
         // Compute parent path, create intermediate directories and copy files
         let to = root_dir.join(id.to_path());
         fs::create_dir_all(to.parent().expect("invariant"))?;
-        fs::copy(from, to).map(|_| ())
+        copy_file(from, to)
     }));
+}
+
+/// Copy a file to a new location, without copying its permissions.
+fn copy_file(
+    from: impl AsRef<Path>, to: impl AsRef<Path>,
+) -> Result<(), io::Error> {
+    let mut from = fs::File::open(from)?;
+    let mut to = fs::File::create(to)?;
+    io::copy(&mut from, &mut to).map(|_| ())
 }
 
 /// Create a stream to process Markdown files.
