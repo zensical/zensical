@@ -407,10 +407,25 @@ fn is_index(component: &str) -> bool {
 
 /// Computes a page title from a file name, replicating MkDocs' behavior.
 pub(crate) fn to_title(component: &str) -> String {
-    let mut title = component.trim_end_matches(".md").replace(['-', '_'], " ");
-    if title.to_lowercase() == title {
-        let first = title.chars().next().unwrap_or_default();
-        title = first.to_uppercase().to_string() + &title[1..];
+    let title = component.trim_end_matches(".md").replace(['-', '_'], " ");
+    let first = title.chars().next().unwrap_or_default();
+
+    if title.to_lowercase() == title && first.is_ascii_alphabetic() {
+        first.to_uppercase().to_string() + &title[1..]
+    } else {
+        title
     }
-    title
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// https://github.com/zensical/zensical/issues/66
+    #[test]
+    fn test_to_title() {
+        assert_eq!(to_title("编译器笔记"), "编译器笔记");
+        assert_eq!(to_title("hello-world"), "Hello world");
+        assert_eq!(to_title("hello_world"), "Hello world");
+    }
 }
