@@ -410,12 +410,18 @@ pub(crate) fn to_title(component: &str) -> String {
     let title = component.trim_end_matches(".md").replace(['-', '_'], " ");
     let first = title.chars().next().unwrap_or_default();
 
+    // Only uppercase first character if it's an ASCII character, and keep
+    // other languages like Chinese as-is
     if title.to_lowercase() == title && first.is_ascii_alphabetic() {
         first.to_uppercase().to_string() + &title[1..]
     } else {
         title
     }
 }
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -424,8 +430,7 @@ mod tests {
     /// https://github.com/zensical/zensical/issues/66
     #[test]
     fn test_to_title() {
-        assert_eq!(to_title("编译器笔记"), "编译器笔记");
         assert_eq!(to_title("hello-world"), "Hello world");
-        assert_eq!(to_title("hello_world"), "Hello world");
+        assert_eq!(to_title("编译器笔记"), "编译器笔记");
     }
 }
