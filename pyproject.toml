@@ -29,7 +29,7 @@ build-backend = "maturin"
 name = "zensical"
 description = "A modern static site generator built by the creators of Material for MkDocs"
 authors = [
-    { name = "Zensical LLC", email = "contributors@zensical.org" }
+    { name = "Zensical", email = "contributors@zensical.org" }
 ]
 license = { text = "MIT" }
 readme = "README.md"
