@@ -106,6 +106,8 @@ where
     where
         A: ToSocketAddrs,
     {
+        // The underlying system call might returned the same socket address
+        // multiple times, which is why we need to deduplicate them
         let addrs = addr.to_socket_addrs()?;
         for addr in addrs {
             if !self.addrs.contains(&addr) {
