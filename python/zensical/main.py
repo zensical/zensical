@@ -148,7 +148,7 @@ def execute_serve(config_file: str | None, **kwargs):
     type=click.Path(file_okay=False, dir_okay=True, writable=True),
     required=False,
 )
-def new_project(directory: str | None, **kwargs):
+def new_project(directory: str | None):
     """
     Create a new template project in the current directory or in the given
     directory.
@@ -157,7 +157,6 @@ def new_project(directory: str | None, **kwargs):
         ClickException: if the directory already contains a zensical.toml or a
             docs directory that is not empty, as well as when the path provided
             points to something that is not a directory.
-    """
 
     """
     working_dir = Path.cwd() if directory is None else Path(directory).resolve()
