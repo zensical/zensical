@@ -421,14 +421,19 @@ def _apply_defaults(config: dict, path: str) -> dict:
     if isinstance(emoji.get("emoji_index"), str):
         emoji["emoji_index"] = _resolve(emoji.get("emoji_index"))
 
-    # Tabbed extension configuration - we need to resolve the slugification
-    # function.
+    # Tabbed extension configuration - resolve slugification function
     tabbed = config["mdx_configs"].get("pymdownx.tabbed", {})
     if isinstance(tabbed.get("slugify"), dict):
         object = tabbed["slugify"].get("object", "pymdownx.slugs.slugify")
         tabbed["slugify"] = partial(
             _resolve(object), tabbed["slugify"].get("kwds")
         )
+
+    # Superfences extension configuration - resolve format function
+    superfences = config["mdx_configs"].get("pymdownx.superfences", {})
+    for fence in superfences.get("custom_fences", []):
+        if isinstance(fence.get("format"), str):
+            fence["format"] = _resolve(fence.get("format"))
 
     # Ensure the table of contents title is initialized, as it's used inside
     # the template, and the table of contents extension is always defined
