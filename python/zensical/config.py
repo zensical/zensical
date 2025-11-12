@@ -671,7 +671,14 @@ def _convert_plugins(value: any, config: dict) -> list:
             "iframe-worker" in url for url in config["extra"]["polyfills"]
         ):
             script = "https://unpkg.com/iframe-worker/shim"
-            config["extra"]["polyfills"].append(script)
+            config["extra"]["polyfills"].append(
+                {
+                    "path": script,
+                    "type": "text/javascript",
+                    "async": False,
+                    "defer": False,
+                }
+            )
 
     # Now, add another level of indirection, by moving all plugin configuration
     # into a `config` property, making it compatible with Material for MkDocs.
