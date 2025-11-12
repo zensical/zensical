@@ -23,11 +23,13 @@
 
 from __future__ import annotations
 
-import click
 import os
 import shutil
+from pathlib import Path
 
+import click
 from click import ClickException
+
 from zensical import build, serve, version
 
 
