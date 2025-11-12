@@ -60,6 +60,16 @@ def open_browser(url):
     threading.Thread(target=_open_browser, args=(url,), daemon=True).start()
 
 
+def _get_existing_config() -> str:
+    priorities = ["zensical.toml", "mkdocs.yml", "mkdocs.yaml"]
+    for file in priorities:
+        filepath = Path(file).resolve()
+        if filepath.exists():
+            return file
+    err = "No config file found in the current folder."
+    raise ClickException(err)
+
+
 @click.version_option(version=version(), message="%(version)s")
 @click.group()
 def cli():
@@ -93,12 +103,8 @@ def execute_build(config_file: str | None, **kwargs):
     Build a project.
     """
     if config_file is None:
-        for file in ["zensical.toml", "mkdocs.yml", "mkdocs.yaml"]:
-            if os.path.exists(file):
-                config_file = file
-                break
-        else:
-            raise ClickException("No config file found in the current folder.")
+        config_file = _get_existing_config()
+
     if kwargs.get("strict", False):
         print("Warning: Strict mode is currently unsupported.")
 
@@ -140,12 +146,7 @@ def execute_serve(config_file: str | None, **kwargs):
     Build and serve a project.
     """
     if config_file is None:
-        for file in ["zensical.toml", "mkdocs.yml", "mkdocs.yaml"]:
-            if os.path.exists(file):
-                config_file = file
-                break
-        else:
-            raise ClickException("No config file found in the current folder.")
+        config_file = _get_existing_config()
 
     # Obtain development server address and open in browser, if desired
     dev_addr = kwargs.get("dev_addr") or "localhost:8000"
