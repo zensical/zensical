@@ -379,7 +379,6 @@ def _apply_defaults(config: dict, path: str) -> dict:
                 "md_in_html": {},
                 "toc": {"permalink": True},
                 "pymdownx.arithmatex": {"generic": True},
-                "pymdownx.betterem": {"smart_enable": "all"},
                 "pymdownx.caret": {},
                 "pymdownx.details": {},
                 "pymdownx.emoji": {
