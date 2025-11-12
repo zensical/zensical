@@ -23,17 +23,22 @@
 
 from __future__ import annotations
 
-import click
 import os
 import shutil
 import threading
 import time
-import webbrowser
 import urllib.request
+import webbrowser
+from pathlib import Path
+from typing import TYPE_CHECKING
 
+import click
 from click import ClickException
+
 from zensical import build, serve, version
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 # ----------------------------------------------------------------------------
 # Commands
