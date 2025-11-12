@@ -154,7 +154,7 @@ def execute_serve(config_file: str | None, **kwargs):
         config_file = _get_existing_config()
 
     # Obtain development server address and open in browser, if desired
-    dev_addr = kwargs.get("dev_addr") or "localhost:8000"
+    dev_addr = kwargs.get("dev_addr", "localhost:8000")
     if kwargs.get("open", False):
         open_browser(f"http://{dev_addr}")
     if kwargs.get("strict", False):
@@ -171,7 +171,7 @@ def execute_serve(config_file: str | None, **kwargs):
     type=click.Path(file_okay=False, dir_okay=True, writable=True),
     required=False,
 )
-def new_project(directory: str | None, **kwargs):
+def new_project(directory: str | None):
     """
     Create a new template project in the current directory or in the given
     directory.
@@ -180,7 +180,6 @@ def new_project(directory: str | None, **kwargs):
         ClickException: if the directory already contains a zensical.toml or a
             docs directory that is not empty, as well as when the path provided
             points to something that is not a directory.
-    """
 
     """
     working_dir = Path.cwd() if directory is None else Path(directory).resolve()
