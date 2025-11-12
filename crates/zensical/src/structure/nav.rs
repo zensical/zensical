@@ -279,10 +279,20 @@ impl From<Chunk<Id, Page>> for Navigation {
         let mut items: Vec<NavigationItem> = Vec::new();
 
         // Convert chunk into a vector for easier processing, and sort pages by
-        // the exact same method that MkDocs uses
+        // the exact same method that MkDocs uses, with support for ordering
         let mut pages = Vec::from_iter(pages);
-        pages.sort_by_key(|item| file_sort_key(&item.id));
-
+        pages.sort_by_key(|item| {
+            let order = item.data.meta.get("order").and_then(|meta| {
+                if let crate::structure::dynamic::Dynamic::Integer(value) = meta {
+                    Some(*value)
+                } else {
+                    None
+                }
+            });
+            
+            let (parents, not_index, filename) = file_sort_key(&item.id);
+            (parents, order, not_index, filename)
+        });
         // There can only be pages, no URLs, since we're auto-populating the
         // navigation from the files in the docs directory
         for page in pages {

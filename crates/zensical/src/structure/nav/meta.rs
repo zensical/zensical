@@ -42,6 +42,8 @@ pub struct NavigationMeta {
     pub icon: Option<String>,
     /// Page status.
     pub status: Option<String>,
+    /// Page order for navigation sorting
+    pub order: Option<i64>,
 }
 
 // ----------------------------------------------------------------------------
@@ -53,9 +55,17 @@ impl From<PageMeta> for NavigationMeta {
     fn from(meta: PageMeta) -> Self {
         let icon = meta.get("icon").cloned();
         let status = meta.get("status").cloned();
+        let order = meta.get("order").cloned();
         NavigationMeta {
             icon: icon.map(|meta| meta.to_string()),
             status: status.map(|meta| meta.to_string()),
+            order: order.and_then(|meta| {
+                if let crate::structure::dynamic::Dynamic::Integer(value) = meta {
+                    Some(value)
+                } else {
+                    None
+                }
+            }),
         }
     }
 }
