@@ -610,7 +610,13 @@ def _convert_markdown_extensions(value: any):
     if "pymdownx" in value:
         pymdownx = value.pop("pymdownx")
         for ext, config in pymdownx.items():
-            value[f"pymdownx.{ext}"] = config
+            # Special case for blocks extension, which has another level of
+            # nesting. This is the only extension that requires this.
+            if ext == "blocks":
+                for block, config in config.items():
+                    value[f"pymdownx.{ext}.{block}"] = config
+            else:
+                value[f"pymdownx.{ext}"] = config
 
     # Extensions can be defined as a dict
     if isinstance(value, dict):
