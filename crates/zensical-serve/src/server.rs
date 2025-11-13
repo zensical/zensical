@@ -231,15 +231,20 @@ where
                     match signal {
                         // Change of interest - reregister with poller
                         Signal::Interest(mut interest) => {
-                            let conn = &mut self.connections[n - start];
-                            if conn.is_writing() {
-                                interest |= Interest::WRITABLE;
+                            // On Windows, occasionally, connection might have
+                            // been closed or upgraded with pendng writes.
+                            if let Some(conn) =
+                                self.connections.get_mut(n - start)
+                            {
+                                if conn.is_writing() {
+                                    interest |= Interest::WRITABLE;
+                                }
+                                self.events.reregister(
+                                    conn.socket(),
+                                    Token(n),
+                                    interest,
+                                )?;
                             }
-                            self.events.reregister(
-                                conn.socket(),
-                                Token(n),
-                                interest,
-                            )?;
                         }
 
                         // Close connection and deregister from poller
