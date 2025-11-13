@@ -31,11 +31,11 @@ use std::str::FromStr;
 use std::{fs, io};
 use zrx::id::{Id, Matcher};
 use zrx::scheduler::action::report::IntoReport;
-use zrx::stream::Stream;
 use zrx::stream::barrier::Condition;
 use zrx::stream::function::{with_id, with_splat};
 use zrx::stream::value::{Chunk, Delta};
 use zrx::stream::workspace::Workspace;
+use zrx::stream::Stream;
 
 use super::config::Config;
 use super::structure::markdown::Markdown;
