@@ -60,10 +60,29 @@ pub fn url_filter(state: &State, url: String) -> String {
         .map(|value| value.to_string())
     {
         // Make target URL relative to page
-        target
-            .relative_to(&source) // fmt
+        let relative_url = target
+            .relative_to(&source)
             .to_string_lossy()
-            .replace('\\', "/")
+            .replace('\\', "/");
+
+        // We can return if we don't stay on the same page
+        if relative_url != "." {
+            return relative_url;
+        }
+
+        // If directory URLs are enabled, and the target is ".", we use need to
+        // fall back to the file name of the target file. This should probably
+        // be fixed in ZRX, but we must check whether this behavior generalizes
+        // to paths, or is exclusive to URLs.
+        #[allow(clippy::case_sensitive_file_extension_comparisons)]
+        #[allow(clippy::map_unwrap_or)]
+        if source.ends_with(".html") && url.ends_with(".html") {
+            return target
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_else(|| url);
+        }
+        url
 
     // Render URLs in static templates
     } else {
