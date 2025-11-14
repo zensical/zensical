@@ -26,6 +26,7 @@ from __future__ import annotations
 from markdown import Extension, Markdown
 from markdown.treeprocessors import Treeprocessor
 from markdown.util import AMP_SUBSTITUTE
+from pathlib import PurePosixPath
 from xml.etree.ElementTree import Element
 from urllib.parse import urlparse
 
@@ -52,7 +53,7 @@ class LinksProcessor(Treeprocessor):
     def run(self, root: Element):
         # Now, we determine whether the current page is an index page, as we
         # must apply slightly different handling in case of directory URLs
-        current_is_index = self.path.endswith(("index.md", "README.md"))
+        current_is_index = get_name(self.path) in ("index.md", "README.md")
         for el in root.iter():
             # In case the element has a `href` or `src` attribute, we parse it
             # as an URL, so we can analyze and alter its path
@@ -81,10 +82,9 @@ class LinksProcessor(Treeprocessor):
             if path.endswith(".md"):
                 path = path.removesuffix(".md") + ".html"
                 if self.use_directory_urls:
-                    if path.endswith("index.html"):
-                        path = path[: -len("index.html")]
-                    elif path.endswith("README.html"):
-                        path = path[: -len("README.html")]
+                    name = get_name(path)
+                    if name in ("index.html", "README.html"):
+                        path = path[: -len(name)]
                     elif path.endswith(".html"):
                         path = path[: -len(".html")] + "/"
 
@@ -124,3 +124,16 @@ class LinksExtension(Extension):
         # before they are resolved to URLs.
         processor = LinksProcessor(md, self.path, self.use_directory_urls)
         md.treeprocessors.register(processor, "relpath", 0)
+
+
+# -----------------------------------------------------------------------------
+# Functions
+# -----------------------------------------------------------------------------
+
+
+def get_name(path: str) -> str:
+    """
+    Get the name of a file from a given path.
+    """
+    path = PurePosixPath(path)
+    return path.name
