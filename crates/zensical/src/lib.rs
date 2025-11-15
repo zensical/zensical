@@ -45,7 +45,7 @@ mod watcher;
 mod workflow;
 
 use config::Config;
-use server::create_server;
+use server::{create_server, ServeOptions};
 use watcher::Watcher;
 use workflow::create_workspace;
 
@@ -59,7 +59,7 @@ pub enum Mode {
     /// Build the project once.
     Build(bool),
     /// Build the project continuously.
-    Serve(String, u64),
+    Serve(ServeOptions, u64),
 }
 
 // ----------------------------------------------------------------------------
@@ -139,13 +139,20 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     // the scheduler with the agent.
     let waker = match &mode {
         Mode::Build(_) => None,
-        Mode::Serve(addr, seq) => {
+        Mode::Serve(options, seq) => {
             if *seq == 0 {
-                println!("Serving {} on http://{addr}", site_dir.display());
+                println!(
+                    "Serving {} on http://{}",
+                    site_dir.display(),
+                    options
+                        .dev_addr
+                        .as_ref()
+                        .unwrap_or_else(|| &config.project.dev_addr)
+                );
             } else {
                 println!("Reloading...");
             }
-            Some(create_server(&config, receiver, Some(addr.clone())))
+            Some(create_server(&config, receiver, options.clone()))
         }
     };
     let watcher = Watcher::new(&config, session, sender, waker.clone())?;
@@ -157,7 +164,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     loop {
         match mode {
             // Build mode - just exit when we're done
-            Mode::Build(_) => {
+            Mode::Build(..) => {
                 handle(scheduler.tick());
                 // @todo this is a hack to ensure we don't exit too early, as
                 // we need to improve the interop between scheduler and agent
@@ -171,7 +178,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
             // happens if the configuration file changed. After we've integrated
             // the scheduler with the agent, we can remove this temporary hack
             // and have immediate reloading.
-            Mode::Serve(_, _) => {
+            Mode::Serve(..) => {
                 handle(scheduler.tick_timeout(Duration::from_millis(100)));
                 if watcher.is_terminated() {
                     // Wake the server
@@ -207,10 +214,12 @@ fn build(py: Python, config_file: PathBuf, clean: bool) -> PyResult<()> {
 
 /// Builds and serves the project.
 #[pyfunction]
-fn serve(py: Python, config_file: PathBuf, dev_addr: String) -> PyResult<()> {
+fn serve(
+    py: Python, config_file: PathBuf, options: ServeOptions,
+) -> PyResult<()> {
     let mut seq = 0;
     py.detach(|| loop {
-        match run(&config_file, Mode::Serve(dev_addr.clone(), seq)) {
+        match run(&config_file, Mode::Serve(options.clone(), seq)) {
             Ok(true) => {
                 seq += 1;
             }
