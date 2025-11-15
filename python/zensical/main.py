@@ -23,17 +23,22 @@
 
 from __future__ import annotations
 
-import click
 import os
 import shutil
 import threading
 import time
-import webbrowser
 import urllib.request
+import webbrowser
+from pathlib import Path
+from typing import TYPE_CHECKING
 
+import click
 from click import ClickException
+
 from zensical import build, serve, version
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 # ----------------------------------------------------------------------------
 # Commands
@@ -53,6 +58,21 @@ def open_browser(url):
                 time.sleep(1)
 
     threading.Thread(target=_open_browser, args=(url,), daemon=True).start()
+
+
+def _get_existing_config() -> str:
+    priorities = ["zensical.toml", "mkdocs.yml", "mkdocs.yaml"]
+    for file in priorities:
+        filepath = Path(file).resolve()
+        if filepath.exists():
+            return file
+    err = "No config file found in the current folder."
+    raise ClickException(err)
+
+
+def _get_relpaths_to_gh_actions(bootstrap_dir: Path) -> list[Path]:
+    gh_actions: Iterator[Path] = bootstrap_dir.rglob("*.yml")
+    return [p.relative_to(bootstrap_dir) for p in gh_actions]
 
 
 @click.version_option(version=version(), message="%(version)s")
@@ -88,12 +108,8 @@ def execute_build(config_file: str | None, **kwargs):
     Build a project.
     """
     if config_file is None:
-        for file in ["zensical.toml", "mkdocs.yml", "mkdocs.yaml"]:
-            if os.path.exists(file):
-                config_file = file
-                break
-        else:
-            raise ClickException("No config file found in the current folder.")
+        config_file = _get_existing_config()
+
     if kwargs.get("strict", False):
         print("Warning: Strict mode is currently unsupported.")
 
@@ -135,15 +151,10 @@ def execute_serve(config_file: str | None, **kwargs):
     Build and serve a project.
     """
     if config_file is None:
-        for file in ["zensical.toml", "mkdocs.yml", "mkdocs.yaml"]:
-            if os.path.exists(file):
-                config_file = file
-                break
-        else:
-            raise ClickException("No config file found in the current folder.")
+        config_file = _get_existing_config()
 
     # Obtain development server address and open in browser, if desired
-    dev_addr = kwargs.get("dev_addr") or "localhost:8000"
+    dev_addr = kwargs.get("dev_addr", "localhost:8000")
     if kwargs.get("open", False):
         open_browser(f"http://{dev_addr}")
     if kwargs.get("strict", False):
@@ -160,7 +171,7 @@ def execute_serve(config_file: str | None, **kwargs):
     type=click.Path(file_okay=False, dir_okay=True, writable=True),
     required=False,
 )
-def new_project(directory: str | None, **kwargs):
+def new_project(directory: str | None):
     """
     Create a new template project in the current directory or in the given
     directory.
@@ -169,36 +180,36 @@ def new_project(directory: str | None, **kwargs):
         ClickException: if the directory already contains a zensical.toml or a
             docs directory that is not empty, as well as when the path provided
             points to something that is not a directory.
+
     """
+    working_dir = Path.cwd() if directory is None else Path(directory).resolve()
+    if not working_dir.is_dir():
+        err = "Path provided is not a directory."
+        raise ClickException(err)
 
-    if directory is None:
-        directory = "."
-    docs_dir = os.path.join(directory, "docs")
-    config_file = os.path.join(directory, "zensical.toml")
-    github_dir = os.path.join(directory, ".github")
+    docs_dir = working_dir / "docs"
+    config_file = working_dir / "zensical.toml"
+    github_dir = working_dir / ".github"
 
-    if os.path.exists(directory):
-        if not os.path.isdir(directory):
-            raise (ClickException("Path provided is not a directory."))
-        if os.path.exists(config_file):
-            raise (ClickException(f"{config_file} already exists."))
-        if os.path.exists(docs_dir):
-            raise (ClickException(f"{docs_dir} already exists."))
-        if os.path.exists(github_dir):
-            raise (ClickException(f"{github_dir} already exists."))
-    else:
-        os.makedirs(directory)
+    package_dir = Path(__file__).resolve().parent
+    bootstrap = package_dir / "bootstrap"
 
-    package_dir = os.path.dirname(os.path.abspath(__file__))
-    shutil.copy(os.path.join(package_dir, "bootstrap/zensical.toml"), directory)
-    shutil.copytree(
-        os.path.join(package_dir, "bootstrap/docs"),
-        os.path.join(directory, "docs"),
-    )
-    shutil.copytree(
-        os.path.join(package_dir, "bootstrap/.github"),
-        os.path.join(directory, ".github"),
-    )
+    if config_file.exists():
+        err = f"{config_file} already exists."
+        raise ClickException(err)
+    if docs_dir.exists():
+        err = f"{docs_dir} already exists."
+        raise ClickException(err)
+    if github_dir.exists():
+        for file in _get_relpaths_to_gh_actions(bootstrap):
+            if (working_dir / file).exists():
+                err = f"{file} already exists."
+                raise ClickException(err)
+    working_dir.mkdir(parents=True)
+
+    shutil.copy(src=(bootstrap / "zensical.toml"), dst=working_dir)
+    shutil.copytree(src=(bootstrap / "docs"), dst=(working_dir / "docs"))
+    shutil.copytree(src=(bootstrap / ".github"), dst=(working_dir / ".github"))
 
 
 # ----------------------------------------------------------------------------
