@@ -26,7 +26,7 @@
 //! Middleware for livereload client.
 
 use zensical_serve::handler::Handler;
-use zensical_serve::http::{Header, Request, Response};
+use zensical_serve::http::{Header, Request, Response, Status};
 use zensical_serve::middleware::Middleware;
 
 // ----------------------------------------------------------------------------
@@ -119,6 +119,21 @@ impl Middleware for Client {
         // Never cache JavaScript or CSS files, so reloading works smoothly
         if uri.ends_with(".js") || uri.ends_with(".css") {
             res.headers.insert(Header::CacheControl, "no-cache");
+        }
+
+        // In case of a 404 on "/", we attach the WebSocket script, so it will
+        // automatically reload once the build has finished. This is temporary,
+        // since we're working on properly integrating all moving parts of
+        // the system into a coherent flow.
+        if res.status == Status::NotFound {
+            res.body.clear();
+            res.body.extend(b"<script type=\"module\">");
+            res.body.extend(CLIENT.as_bytes());
+            res.body.extend(b"</script>");
+
+            // Update content length
+            res.headers.insert(Header::ContentType, "text/html");
+            res.headers.insert(Header::ContentLength, res.body.len());
         }
 
         // Return response

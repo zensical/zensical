@@ -27,6 +27,7 @@
 
 use crossbeam::channel::{unbounded, Receiver};
 use mio::Waker;
+use pyo3::FromPyObject;
 use std::sync::Arc;
 use std::{fs, thread};
 use zensical_serve::handler::Stack;
@@ -40,12 +41,26 @@ mod client;
 use client::Client;
 
 // ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
+
+/// Serve options.
+#[derive(Clone, Debug, FromPyObject, PartialEq, Eq)]
+#[pyo3(from_item_all)]
+pub struct ServeOptions {
+    /// Address to bind to.
+    pub dev_addr: Option<String>,
+    /// Whether to open the browser automatically.
+    pub open: bool,
+}
+
+// ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
 
 /// Creates an HTTP server to serve the site.
 pub fn create_server(
-    config: &Config, receiver: Receiver<String>, addr: Option<String>,
+    config: &Config, receiver: Receiver<String>, options: ServeOptions,
 ) -> Arc<Waker> {
     let site_dir = config.get_site_dir();
     fs::create_dir_all(&site_dir).expect("site directory could not be created");
@@ -53,10 +68,12 @@ pub fn create_server(
     // Create a one shot channel to extract waker - this is currently necessary,
     // so that the server wakes up when the file watcher emits new events
     let (tx, rx) = unbounded();
+    let addr = options
+        .dev_addr
+        .unwrap_or_else(|| config.project.dev_addr.clone());
 
     // Create new thread to run the server
     let base = config.get_base_path();
-    let addr = addr.unwrap_or_else(|| config.project.dev_addr.clone());
     thread::spawn({
         let tx = tx.clone();
         move || -> Result {
@@ -72,13 +89,21 @@ pub fn create_server(
                 );
 
             // Start server and extract waker for interaction with event loop
-            let mut server = match Server::new(stack, addr) {
+            let mut server = match Server::new(stack, &addr) {
                 Ok(server) => server,
                 Err(err) => {
                     let _ = tx.send(Err(err));
                     return Ok(());
                 }
             };
+
+            // Open browser, if desired
+            if options.open {
+                let url = format!("http://{addr}");
+                let _ = webbrowser::open(&url);
+            }
+
+            // Send waker back to main thread
             let _ = tx.send(Ok(server.waker()));
             loop {
                 server.poll(Some(&receiver))?;
