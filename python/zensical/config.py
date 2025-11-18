@@ -77,7 +77,9 @@ def parse_config(path: str) -> dict:
     """
     Parse configuration file.
     """
-    if path.endswith("zensical.toml"):
+    # Decide by extension; no need to convert to Path
+    _, ext = os.path.splitext(path)
+    if ext.lower() == ".toml":
         return parse_zensical_config(path)
     else:
         return parse_mkdocs_config(path)
