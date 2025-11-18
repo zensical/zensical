@@ -137,8 +137,10 @@ pub fn process_markdown(
         .map_concurrency(
             with_id(move |id: &Id, path: String| {
                 let data = fs::read_to_string(path)?;
-                cached(&config, id, data, |data| Markdown::new(id, data))
-                    .into_report()
+                cached(&config, id, (config.hash, data), |(_, data)| {
+                    Markdown::new(id, data)
+                })
+                .into_report()
             }),
             1,
         )

@@ -82,6 +82,8 @@ pub struct Project {
     pub extra_templates: Vec<String>,
     /// Markdown extension configuration.
     pub mdx_configs: MdxConfigs,
+    /// Markdown extension configuration hash.
+    pub mdx_configs_hash: u64,
     /// Plugins.
     pub plugins: Plugins,
     /// Navigation structure.
