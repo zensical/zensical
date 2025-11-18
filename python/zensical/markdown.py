@@ -30,7 +30,7 @@ from datetime import date, datetime
 from markdown import Markdown
 from yaml import SafeLoader
 
-from .config import _CONFIG
+from .config import get_config
 from .extensions.links import LinksExtension
 from .extensions.search import SearchExtension
 
@@ -61,7 +61,7 @@ def render(content: str, path: str) -> dict:
     in order to support the specific syntax of Python Markdown. We're working
     on moving the entire rendering chain to Rust.
     """
-    config = _CONFIG
+    config = get_config()
 
     # Initialize Markdown parser
     md = Markdown(

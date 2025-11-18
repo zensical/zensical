@@ -23,8 +23,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import os
+import pickle
 import yaml
 
 try:
@@ -34,7 +36,6 @@ except ModuleNotFoundError:
 
 from click import ClickException
 from deepmerge import always_merger
-from functools import partial
 from typing import Any, IO
 from yaml import BaseLoader, Loader, YAMLError
 from yaml.constructor import ConstructorError
@@ -110,6 +111,13 @@ def parse_mkdocs_config(path: str) -> dict:
 
     # Apply defaults and return parsed configuration
     _CONFIG = _apply_defaults(config, path)
+    return _CONFIG
+
+
+def get_config():
+    """
+    Return configuration.
+    """
     return _CONFIG
 
 
@@ -444,6 +452,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     # Ensure the table of contents title is initialized, as it's used inside
     # the template, and the table of contents extension is always defined
     config["mdx_configs"]["toc"].setdefault("title", None)
+    config["mdx_configs_hash"] = _hash(mdx_configs)
 
     # Convert plugins configuration
     config["plugins"] = _convert_plugins(config.get("plugins", []), config)
@@ -471,6 +480,14 @@ def set_default(
 
     # Return the resulting value
     return entry[key]
+
+
+def _hash(data: any) -> int:
+    """
+    Compute a hash for the given data.
+    """
+    hash = hashlib.sha1(pickle.dumps(data))
+    return int(hash.hexdigest(), 16) % (2**64)
 
 
 def _convert_extra(data: dict | list) -> dict | list:
