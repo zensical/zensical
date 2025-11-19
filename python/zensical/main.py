@@ -38,21 +38,6 @@ from zensical import build, serve, version
 # ----------------------------------------------------------------------------
 
 
-def _get_existing_config() -> str:
-    priorities = ["zensical.toml", "mkdocs.yml", "mkdocs.yaml"]
-    for file in priorities:
-        filepath = Path(file).resolve()
-        if filepath.exists():
-            return file
-    err = "No config file found in the current folder."
-    raise ClickException(err)
-
-
-def _get_relpaths_to_gh_actions(bootstrap_dir: Path) -> list[Path]:
-    gh_actions: Iterator[Path] = bootstrap_dir.rglob("*.yml")
-    return [p.relative_to(bootstrap_dir) for p in gh_actions]
-
-
 @click.version_option(version=version(), message="%(version)s")
 @click.group()
 def cli():
@@ -86,7 +71,12 @@ def execute_build(config_file: str | None, **kwargs):
     Build a project.
     """
     if config_file is None:
-
+        for file in ["zensical.toml", "mkdocs.yml", "mkdocs.yaml"]:
+            if os.path.exists(file):
+                config_file = file
+                break
+        else:
+            raise ClickException("No config file found in the current folder.")
     if kwargs.get("strict", False):
         print("Warning: Strict mode is currently unsupported.")
 
@@ -178,7 +168,7 @@ def new_project(directory: str | None):
         err = f"{docs_dir} already exists."
         raise ClickException(err)
     if github_dir.exists():
-        for file in _get_relpaths_to_gh_actions(bootstrap):
+        for file in [p.relative_to(bootstrap) for p in bootstrap.rglob(".yml")]:
             if (working_dir / file).exists():
                 err = f"{file} already exists."
                 raise ClickException(err)
