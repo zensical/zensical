@@ -166,15 +166,29 @@ def new_project(directory: str | None, **kwargs):
         os.makedirs(directory)
 
     package_dir = os.path.dirname(os.path.abspath(__file__))
-    shutil.copy(os.path.join(package_dir, "bootstrap/zensical.toml"), directory)
-    shutil.copytree(
-        os.path.join(package_dir, "bootstrap/docs"),
-        os.path.join(directory, "docs"),
-    )
-    shutil.copytree(
-        os.path.join(package_dir, "bootstrap/.github"),
-        os.path.join(directory, ".github"),
-    )
+    copy_tree(os.path.join(package_dir, "bootstrap"), directory)
+
+
+def copy_tree(src: str, dest: str):
+    """
+    Copies a file tree from src path to dest path, without copying file metadata
+    """
+
+    # We cannot use shutil.copytree, because that will copy metadata (including
+    # permissions) from the src, which might be readonly.
+
+    for src_dir, dir_names, file_names in os.walk(src):
+        rel_dir = os.path.relpath(src_dir, src)
+        dest_dir = os.path.join(dest, rel_dir)
+
+        for dir_name in dir_names:
+            os.mkdir(os.path.join(dest_dir, dir_name))
+        for file_name in file_names:
+            shutil.copyfile(
+                os.path.join(src_dir, file_name),
+                os.path.join(dest_dir, file_name),
+            )
+
 
 
 # ----------------------------------------------------------------------------
