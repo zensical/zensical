@@ -23,11 +23,13 @@
 
 from __future__ import annotations
 
-import click
 import os
 import shutil
+from pathlib import Path
 
+import click
 from click import ClickException
+
 from zensical import build, serve, version
 
 
@@ -136,7 +138,7 @@ def execute_serve(config_file: str | None, **kwargs):
     type=click.Path(file_okay=False, dir_okay=True, writable=True),
     required=False,
 )
-def new_project(directory: str | None, **kwargs):
+def new_project(directory: str | None):
     """
     Create a new template project in the current directory or in the given
     directory.
@@ -145,36 +147,36 @@ def new_project(directory: str | None, **kwargs):
         ClickException: if the directory already contains a zensical.toml or a
             docs directory that is not empty, as well as when the path provided
             points to something that is not a directory.
+
     """
+    working_dir = Path.cwd() if directory is None else Path(directory).resolve()
+    if not working_dir.is_dir():
+        err = "Path provided is not a directory."
+        raise ClickException(err)
 
-    if directory is None:
-        directory = "."
-    docs_dir = os.path.join(directory, "docs")
-    config_file = os.path.join(directory, "zensical.toml")
-    github_dir = os.path.join(directory, ".github")
+    docs_dir = working_dir / "docs"
+    config_file = working_dir / "zensical.toml"
+    github_dir = working_dir / ".github"
 
-    if os.path.exists(directory):
-        if not os.path.isdir(directory):
-            raise (ClickException("Path provided is not a directory."))
-        if os.path.exists(config_file):
-            raise (ClickException(f"{config_file} already exists."))
-        if os.path.exists(docs_dir):
-            raise (ClickException(f"{docs_dir} already exists."))
-        if os.path.exists(github_dir):
-            raise (ClickException(f"{github_dir} already exists."))
-    else:
-        os.makedirs(directory)
+    package_dir = Path(__file__).resolve().parent
+    bootstrap = package_dir / "bootstrap"
 
-    package_dir = os.path.dirname(os.path.abspath(__file__))
-    shutil.copy(os.path.join(package_dir, "bootstrap/zensical.toml"), directory)
-    shutil.copytree(
-        os.path.join(package_dir, "bootstrap/docs"),
-        os.path.join(directory, "docs"),
-    )
-    shutil.copytree(
-        os.path.join(package_dir, "bootstrap/.github"),
-        os.path.join(directory, ".github"),
-    )
+    if config_file.exists():
+        err = f"{config_file} already exists."
+        raise ClickException(err)
+    if docs_dir.exists():
+        err = f"{docs_dir} already exists."
+        raise ClickException(err)
+    if github_dir.exists():
+        for file in [p.relative_to(bootstrap) for p in bootstrap.rglob(".yml")]:
+            if (working_dir / file).exists():
+                err = f"{file} already exists."
+                raise ClickException(err)
+    working_dir.mkdir(parents=True)
+
+    shutil.copy(src=(bootstrap / "zensical.toml"), dst=working_dir)
+    shutil.copytree(src=(bootstrap / "docs"), dst=(working_dir / "docs"))
+    shutil.copytree(src=(bootstrap / ".github"), dst=(working_dir / ".github"))
 
 
 # ----------------------------------------------------------------------------
