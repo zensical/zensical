@@ -123,7 +123,7 @@ class LinksExtension(Extension):
         # after our treeprocessor, so we can check the original Markdown URIs
         # before they are resolved to URLs.
         processor = LinksProcessor(md, self.path, self.use_directory_urls)
-        md.treeprocessors.register(processor, "relpath", 0)
+        md.treeprocessors.register(processor, "zrelpath", 0)
 
 
 # -----------------------------------------------------------------------------

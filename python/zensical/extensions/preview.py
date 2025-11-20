@@ -57,7 +57,7 @@ class PreviewProcessor(Treeprocessor):
         """
         Run the treeprocessor.
         """
-        at = self.md.treeprocessors.get_index_for_name("relpath")
+        at = self.md.treeprocessors.get_index_for_name("zrelpath")
 
         # Hack: Python Markdown has no notion of where it is, i.e., which file
         # is being processed. This seems to be a deliberate design decision, as
