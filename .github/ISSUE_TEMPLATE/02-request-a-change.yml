@@ -2,6 +2,13 @@ name: Request a change
 description: Want to submit an idea? Propose a change or feature request
 body:
 
+  - type: markdown
+    attributes:
+      value: >-
+        Please check our [public backlog](https://github.com/orgs/zensical/projects/2)
+        before creating a change request. Chances are high, that your idea is already
+        being considered or worked on, and you can subscribe to the backlog item.
+
   - type: textarea
     id: context
     attributes:
