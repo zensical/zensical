@@ -764,7 +764,7 @@ where
 {
     WalkDir::new(path)
         .follow_root_links(false)
-        .follow_links(false)
+        .follow_links(true)
         .into_iter()
         // For now we skip hidden directories to speed up the build, since we
         // do not need to watch icons, but in general we need to find a better
