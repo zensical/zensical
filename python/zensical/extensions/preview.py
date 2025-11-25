@@ -166,7 +166,7 @@ def get_filter(settings: dict, key: str):
     """
     Get file filter from settings.
     """
-    return Filter(config=settings.get(key))  # type: ignore
+    return Filter(config=settings.get(key, {}))  # type: ignore
 
 
 def resolve(processor_path: str, url_path: str) -> str:
