@@ -641,6 +641,16 @@ def _convert_markdown_extensions(value: any):
             else:
                 value[f"pymdownx.{ext}"] = config
 
+    # Same as for Python Markdown extensions, see above
+    if "zensical" in value:
+        zensical = value.pop("zensical")
+        for ext, config in zensical.items():
+            if ext == "extensions":
+                for key, config in config.items():
+                    value[f"zensical.{ext}.{key}"] = config
+            else:
+                value[f"zensical.{ext}"] = config
+
     # Extensions can be defined as a dict
     if isinstance(value, dict):
         for ext, config in value.items():
