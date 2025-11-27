@@ -23,7 +23,7 @@
     alt="Python Package Index"
   /></a>
   <a href="https://discord.com/invite/hqXRNq9CjT"><img
-    src="https://img.shields.io/discord/1289187620659789824"
+    src="https://img.shields.io/discord/1289187620659789824?logo=discord&logoColor=white&label=Discord"
     alt="Discord"
   /></a>
 </p>
