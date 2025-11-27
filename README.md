@@ -19,7 +19,7 @@
     alt="Build"
   /></a>
   <a href="https://pypi.org/project/zensical"><img
-    src="https://img.shields.io/pypi/v/zensical.svg"
+    src="https://img.shields.io/pypi/v/zensical?logo=python&logoColor=white&label=PyPI"
     alt="Python Package Index"
   /></a>
   <a href="https://discord.com/invite/hqXRNq9CjT"><img
