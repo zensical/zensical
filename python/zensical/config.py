@@ -460,8 +460,8 @@ def _apply_defaults(config: dict, path: str) -> dict:
 
 
 def set_default(
-    entry: dict, key: str, default: Any, data_type: type = None
-) -> any:
+    entry: dict, key: str, default: Any, data_type: type | None = None
+) -> Any:
     """
     Set a key to a default value if it isn't set, and optionally cast it to the specified data type.
     """
@@ -482,7 +482,7 @@ def set_default(
     return entry[key]
 
 
-def _hash(data: any) -> int:
+def _hash(data: Any) -> int:
     """
     Compute a hash for the given data.
     """
@@ -526,14 +526,14 @@ def _resolve(symbol: str):
 # -----------------------------------------------------------------------------
 
 
-def _convert_nav(nav: dict) -> dict:
+def _convert_nav(nav: list) -> list:
     """
     Convert MkDocs navigation
     """
     return [_convert_nav_item(entry) for entry in nav]
 
 
-def _convert_nav_item(item: str | dict | list) -> dict:
+def _convert_nav_item(item: str | dict | list) -> dict | list:
     """
     Convert MkDocs shorthand navigation structure into something more manageable
     as we need to annotate each item with a title, URL, icon, and children.
@@ -590,7 +590,7 @@ def _is_index(path: str) -> bool:
 # -----------------------------------------------------------------------------
 
 
-def _convert_extra_javascript(value: list[any]) -> list:
+def _convert_extra_javascript(value: list[Any]) -> list:
     """
     Ensure extra_javascript uses a structured format.
     """
@@ -619,7 +619,7 @@ def _convert_extra_javascript(value: list[any]) -> list:
 # -----------------------------------------------------------------------------
 
 
-def _convert_markdown_extensions(value: any):
+def _convert_markdown_extensions(value: Any):
     """
     Convert Markdown extensions configuration to what Python Markdown expects.
     """
@@ -674,7 +674,7 @@ def _convert_markdown_extensions(value: any):
 # ----------------------------------------------------------------------------
 
 
-def _convert_plugins(value: any, config: dict) -> list:
+def _convert_plugins(value: Any, config: dict) -> dict:
     """
     Convert plugins configuration to something we can work with.
     """
