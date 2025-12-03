@@ -461,7 +461,9 @@ def _apply_defaults(config: dict, path: str) -> dict:
     if "mkdocstrings" in config["plugins"]:
         mkdocstrings_config = config["plugins"]["mkdocstrings"]["config"]
         if mkdocstrings_config.pop("enabled", True):
-            mkdocstrings_config["markdown_extensions"] = [{ext: mdx_configs.get(ext, {})} for ext in markdown_extensions]
+            mkdocstrings_config["markdown_extensions"] = [
+                {ext: mdx_configs.get(ext, {})} for ext in markdown_extensions
+            ]
             config["markdown_extensions"].append("mkdocstrings")
             config["mdx_configs"]["mkdocstrings"] = mkdocstrings_config
 
@@ -564,11 +566,11 @@ def _convert_nav_item(item: str | dict | list) -> dict | list:
             if isinstance(value, str):
                 return {
                     "title": str(title),
-                    "url": value,
+                    "url": value.strip(),
                     "canonical_url": None,
                     "meta": None,
                     "children": [],
-                    "is_index": _is_index(value),
+                    "is_index": _is_index(value.strip()),
                     "active": False,
                 }
             elif isinstance(value, list):
