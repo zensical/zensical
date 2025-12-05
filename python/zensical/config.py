@@ -595,7 +595,7 @@ def _is_index(path: str) -> bool:
     """
     Returns, whether the given path points to a section index.
     """
-    return path.endswith(("index.md", "README.md"))
+    return os.path.basename(path) in ("index.md", "README.md")
 
 
 # -----------------------------------------------------------------------------
