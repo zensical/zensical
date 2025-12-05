@@ -150,8 +150,8 @@ def new_project(directory: str | None):
 
     """
     working_dir = Path.cwd() if directory is None else Path(directory).resolve()
-    if not working_dir.is_dir():
-        err = "Path provided is not a directory."
+    if working_dir.is_file():
+        err = "Path provided is not a directory, but a file."
         raise ClickException(err)
 
     docs_dir = working_dir / "docs"
