@@ -151,8 +151,7 @@ def new_project(directory: str | None):
     """
     working_dir = Path.cwd() if directory is None else Path(directory).resolve()
     if working_dir.is_file():
-        err = "Path provided is not a directory, but a file."
-        raise ClickException(err)
+        raise ClickException(f"{working_dir} must be a directory, not a file.")
 
     docs_dir = working_dir / "docs"
     config_file = working_dir / "zensical.toml"
@@ -162,21 +161,20 @@ def new_project(directory: str | None):
     bootstrap = package_dir / "bootstrap"
 
     if config_file.exists():
-        err = f"{config_file} already exists."
-        raise ClickException(err)
+        raise ClickException(f"{config_file} already exists.")
     if docs_dir.exists():
-        err = f"{docs_dir} already exists."
-        raise ClickException(err)
+        raise ClickException(f"{docs_dir} already exists.")
     if github_dir.exists():
-        for file in [p.relative_to(bootstrap) for p in bootstrap.rglob(".yml")]:
+        for file in bootstrap.rglob(".yml"):
+            file = file.relative_to(bootstrap)
             if (working_dir / file).exists():
-                err = f"{file} already exists."
-                raise ClickException(err)
-    working_dir.mkdir(parents=True)
+                raise ClickException(f"{file} already exists.")
+
+    working_dir.mkdir(parents=True, exist_ok=True)
 
     shutil.copy(src=(bootstrap / "zensical.toml"), dst=working_dir)
     shutil.copytree(src=(bootstrap / "docs"), dst=(working_dir / "docs"))
-    shutil.copytree(src=(bootstrap / ".github"), dst=(working_dir / ".github"))
+    shutil.copytree(src=(bootstrap / ".github"), dst=(working_dir / ".github"), dirs_exist_ok=True)
 
 
 # ----------------------------------------------------------------------------
