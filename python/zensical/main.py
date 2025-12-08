@@ -138,7 +138,7 @@ def execute_serve(config_file: str | None, **kwargs):
     type=click.Path(file_okay=False, dir_okay=True, writable=True),
     required=False,
 )
-def new_project(directory: str | None):
+def new_project(directory: str | None, **kwargs):
     """
     Create a new template project in the current directory or in the given
     directory.
