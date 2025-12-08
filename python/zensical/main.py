@@ -165,7 +165,7 @@ def new_project(directory: str | None):
     if docs_dir.exists():
         raise ClickException(f"{docs_dir} already exists.")
     if github_dir.exists():
-        for file in bootstrap.rglob(".yml"):
+        for file in bootstrap.rglob("*.yml"):
             file = file.relative_to(bootstrap)
             if (working_dir / file).exists():
                 raise ClickException(f"{file} already exists.")
