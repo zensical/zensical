@@ -26,6 +26,7 @@ from __future__ import annotations
 import click
 import os
 import shutil
+from pathlib import Path
 
 from click import ClickException
 from zensical import build, serve, version
@@ -146,35 +147,26 @@ def new_project(directory: str | None, **kwargs):
             docs directory that is not empty, as well as when the path provided
             points to something that is not a directory.
     """
+    working_dir = Path.cwd() if directory is None else Path(directory).resolve()
+    if working_dir.is_file():
+        raise ClickException(f"{working_dir} must be a directory, not a file.")
 
-    if directory is None:
-        directory = "."
-    docs_dir = os.path.join(directory, "docs")
-    config_file = os.path.join(directory, "zensical.toml")
-    github_dir = os.path.join(directory, ".github")
+    config_file = working_dir / "zensical.toml"
+    if config_file.exists():
+        raise ClickException(f"{config_file} already exists.")
 
-    if os.path.exists(directory):
-        if not os.path.isdir(directory):
-            raise (ClickException("Path provided is not a directory."))
-        if os.path.exists(config_file):
-            raise (ClickException(f"{config_file} already exists."))
-        if os.path.exists(docs_dir):
-            raise (ClickException(f"{docs_dir} already exists."))
-        if os.path.exists(github_dir):
-            raise (ClickException(f"{github_dir} already exists."))
-    else:
-        os.makedirs(directory)
+    working_dir.mkdir(parents=True, exist_ok=True)
 
-    package_dir = os.path.dirname(os.path.abspath(__file__))
-    shutil.copy(os.path.join(package_dir, "bootstrap/zensical.toml"), directory)
-    shutil.copytree(
-        os.path.join(package_dir, "bootstrap/docs"),
-        os.path.join(directory, "docs"),
-    )
-    shutil.copytree(
-        os.path.join(package_dir, "bootstrap/.github"),
-        os.path.join(directory, ".github"),
-    )
+    package_dir = Path(__file__).resolve().parent
+    bootstrap = package_dir / "bootstrap"
+
+    for src_file in bootstrap.rglob("*"):
+        if src_file.is_file():
+            rel_path = src_file.relative_to(bootstrap)
+            dest_file = working_dir / rel_path
+            if not dest_file.exists():
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src_file, dest_file)
 
 
 # ----------------------------------------------------------------------------
