@@ -81,8 +81,3 @@ include = [
   "python/zensical/templates/**/*",
   "LICENSE.md",
 ]
-
-[tool.ruff]
-line-length = 80
-fix = true
-
