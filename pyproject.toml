@@ -69,7 +69,10 @@ zensical = "zensical.main:cli"
 [dependency-groups]
 dev = [
     "maturin>=1.9.3",
+    "mypy>=1.19.0",
     "ruff>=0.12.8",
+    "types-markdown>=3.10.0",
+    "types-pyyaml>=6.0.12",
 ]
 
 [tool.maturin]
