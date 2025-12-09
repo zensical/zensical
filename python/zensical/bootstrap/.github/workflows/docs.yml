@@ -22,6 +22,7 @@ jobs:
           python-version: 3.x
       - run: pip install zensical
       - run: zensical build --clean
+      - run: touch site/.nojekyll
       - uses: actions/upload-pages-artifact@v4
         with:
           path: site
