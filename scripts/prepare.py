@@ -25,17 +25,16 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
-import os, subprocess  # noqa: E401
+import os
+import subprocess
 
 # ----------------------------------------------------------------------------
 # Program
 # ----------------------------------------------------------------------------
 
 
-def main():
-    """
-    Prepare production build.
-    """
+def main() -> None:
+    """Prepare production build."""
     os.makedirs("tmp", exist_ok=True)
 
     # Clone UI repository into tmp directory

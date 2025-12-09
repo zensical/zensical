@@ -26,21 +26,22 @@ from __future__ import annotations
 import codecs
 import functools
 import os
-
 from glob import iglob
-from markdown import Markdown
-from pymdownx import emoji, twemoji_db
+from typing import TYPE_CHECKING
 from xml.etree.ElementTree import Element
+
+from pymdownx import emoji, twemoji_db
+
+if TYPE_CHECKING:
+    from markdown import Markdown
 
 # -----------------------------------------------------------------------------
 # Functions
 # -----------------------------------------------------------------------------
 
 
-def twemoji(options: object, md: Markdown):
-    """
-    Create twemoji index.
-    """
+def twemoji(options: dict, md: Markdown) -> dict:  # noqa: ARG001
+    """Create twemoji index."""
     paths = options.get("custom_icons", [])[:]
     return _load_twemoji_index(tuple(paths))
 
@@ -53,12 +54,10 @@ def to_svg(
     alt: str,
     title: str,
     category: str,
-    options: object,
+    options: dict,
     md: Markdown,
-):
-    """
-    Load icon.
-    """
+) -> Element[str]:
+    """Load icon."""
     if not uc:
         icons = md.inlinePatterns["emoji"].emoji_index["emoji"]
 
@@ -78,20 +77,16 @@ def to_svg(
 # -----------------------------------------------------------------------------
 
 
-@functools.lru_cache(maxsize=None)
-def _load(file: str):
-    """
-    Load icon from file.
-    """
+@functools.cache
+def _load(file: str) -> str:
+    """Load icon from file."""
     with codecs.open(file, encoding="utf-8") as f:
         return f.read()
 
 
-@functools.lru_cache(maxsize=None)
-def _load_twemoji_index(paths):
-    """
-    Load twemoji index and add icons.
-    """
+@functools.cache
+def _load_twemoji_index(paths: tuple[str, ...]) -> dict:
+    """Load twemoji index and add icons."""
     index = {
         "name": "twemoji",
         "emoji": twemoji_db.emoji,

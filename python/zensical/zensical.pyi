@@ -25,20 +25,14 @@
 # Functions
 # ----------------------------------------------------------------------------
 
-def build(config_file: str, clean: bool):
-    """
-    Builds the project.
-    """
+def build(config_file: str, clean: bool) -> None:
+    """Builds the project."""
 
-def serve(config_file: str, dev_addr: str):
-    """
-    Builds and serves the project.
-    """
+def serve(config_file: str, dev_addr: str) -> None:
+    """Builds and serves the project."""
 
 def version() -> str:
-    """
-    Returns the current version.
-    """
+    """Returns the current version."""
 
 # ----------------------------------------------------------------------------
 

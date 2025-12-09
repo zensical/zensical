@@ -24,14 +24,17 @@
 from __future__ import annotations
 
 import posixpath
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from markdown import Extension, Markdown
 from markdown.treeprocessors import Treeprocessor
-from urllib.parse import urlparse
-from xml.etree.ElementTree import Element
 
-from .links import LinksProcessor
-from .utilities.filter import Filter
+from zensical.extensions.links import LinksProcessor
+from zensical.extensions.utilities.filter import Filter
+
+if TYPE_CHECKING:
+    from xml.etree.ElementTree import Element
 
 # -----------------------------------------------------------------------------
 # Classes
@@ -39,24 +42,19 @@ from .utilities.filter import Filter
 
 
 class PreviewProcessor(Treeprocessor):
-    """
-    A Markdown treeprocessor to enable instant previews on links.
+    """A Markdown treeprocessor to enable instant previews on links.
 
     Note that this treeprocessor is dependent on the `links` treeprocessor
     registered programmatically before rendering a page.
     """
 
     def __init__(self, md: Markdown, config: dict):
-        """
-        Initialize the treeprocessor.
-        """
+        """Initialize the treeprocessor."""
         super().__init__(md)
         self.config = config
 
-    def run(self, root: Element):
-        """
-        Run the treeprocessor.
-        """
+    def run(self, root: Element) -> None:
+        """Run the treeprocessor."""
         at = self.md.treeprocessors.get_index_for_name("zrelpath")
 
         # Hack: Python Markdown has no notion of where it is, i.e., which file
@@ -84,9 +82,10 @@ class PreviewProcessor(Treeprocessor):
         # Walk through all configurations - @todo refactor so that we don't
         # iterate multiple times over the same elements
         for configuration in configurations:
-            if not configuration.get("sources"):
-                if not configuration.get("targets"):
-                    continue
+            if not configuration.get("sources") and not configuration.get(
+                "targets"
+            ):
+                continue
 
             # Skip if page should not be considered
             filter = get_filter(configuration, "sources")
@@ -123,8 +122,7 @@ class PreviewProcessor(Treeprocessor):
 
 
 class PreviewExtension(Extension):
-    """
-    A Markdown extension to enable instant previews on links.
+    """A Markdown extension to enable instant previews on links.
 
     This extensions allows to automatically add the `data-preview` attribute to
     internal links matching specific criteria, so Material for MkDocs renders a
@@ -132,10 +130,8 @@ class PreviewExtension(Extension):
     add previews to links in a programmatic way.
     """
 
-    def __init__(self, *args, **kwargs):
-        """
-        Initialize the extension.
-        """
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Initialize the extension."""
         self.config = {
             "configurations": [[], "Filter configurations"],
             "sources": [{}, "Link sources"],
@@ -143,10 +139,8 @@ class PreviewExtension(Extension):
         }
         super().__init__(*args, **kwargs)
 
-    def extendMarkdown(self, md: Markdown):
-        """
-        Register Markdown extension.
-        """
+    def extendMarkdown(self, md: Markdown) -> None:  # noqa: N802
+        """Register Markdown extension."""
         md.registerExtension(self)
 
         # Create and register treeprocessor - we use the same priority as the
@@ -162,17 +156,13 @@ class PreviewExtension(Extension):
 # -----------------------------------------------------------------------------
 
 
-def get_filter(settings: dict, key: str):
-    """
-    Get file filter from settings.
-    """
-    return Filter(config=settings.get(key, {}))  # type: ignore
+def get_filter(settings: dict, key: str) -> Filter:
+    """Get file filter from settings."""
+    return Filter(config=settings.get(key, {}))
 
 
 def resolve(processor_path: str, url_path: str) -> str:
-    """
-    Resolve a relative URL path against the processor path.
-    """
+    """Resolve a relative URL path against the processor path."""
     # Remove the file name from the processor path to get the directory
     base_path = posixpath.dirname(processor_path)
 
@@ -194,8 +184,6 @@ def resolve(processor_path: str, url_path: str) -> str:
     return posixpath.join(*base_segments)
 
 
-def makeExtension(**kwargs):
-    """
-    Register Markdown extension.
-    """
+def makeExtension(**kwargs: Any) -> PreviewExtension:  # noqa: N802
+    """Register Markdown extension."""
     return PreviewExtension(**kwargs)

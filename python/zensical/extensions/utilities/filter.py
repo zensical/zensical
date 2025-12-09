@@ -31,13 +31,10 @@ from fnmatch import fnmatch
 
 
 class Filter:
-    """
-    A filter.
-    """
+    """A filter."""
 
     def __init__(self, config: dict):
-        """
-        Initialize the filter.
+        """Initialize the filter.
 
         Arguments:
             config: The filter configuration.
@@ -45,8 +42,7 @@ class Filter:
         self.config = config
 
     def __call__(self, value: str) -> bool:
-        """
-        Filter a value.
+        """Filter a value.
 
         First, the inclusion patterns are checked. Regardless of whether they
         are present, the exclusion patterns are checked afterwards. This allows
@@ -59,7 +55,6 @@ class Filter:
         Returns:
             Whether the value should be included.
         """
-
         # Check if value matches one of the inclusion patterns
         if "include" in self.config:
             for pattern in self.config["include"]:

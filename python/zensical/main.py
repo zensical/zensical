@@ -23,14 +23,15 @@
 
 from __future__ import annotations
 
-import click
 import os
 import shutil
 from pathlib import Path
+from typing import Any
 
+import click
 from click import ClickException
-from zensical import build, serve, version
 
+from zensical import build, serve, version
 
 # ----------------------------------------------------------------------------
 # Commands
@@ -39,8 +40,8 @@ from zensical import build, serve, version
 
 @click.version_option(version=version(), message="%(version)s")
 @click.group()
-def cli():
-    """Zensical - A modern static site generator"""
+def cli() -> None:
+    """Zensical - A modern static site generator."""
 
 
 @cli.command(name="build")
@@ -65,10 +66,8 @@ def cli():
     is_flag=True,
     help="Strict mode (currently unsupported).",
 )
-def execute_build(config_file: str | None, **kwargs):
-    """
-    Build a project.
-    """
+def execute_build(config_file: str | None, **kwargs: Any) -> None:
+    """Build a project."""
     if config_file is None:
         for file in ["zensical.toml", "mkdocs.yml", "mkdocs.yaml"]:
             if os.path.exists(file):
@@ -112,10 +111,8 @@ def execute_build(config_file: str | None, **kwargs):
     is_flag=True,
     help="Strict mode (currently unsupported).",
 )
-def execute_serve(config_file: str | None, **kwargs):
-    """
-    Build and serve a project.
-    """
+def execute_serve(config_file: str | None, **kwargs: Any) -> None:
+    """Build and serve a project."""
     if config_file is None:
         for file in ["zensical.toml", "mkdocs.yml", "mkdocs.yaml"]:
             if os.path.exists(file):
@@ -137,10 +134,8 @@ def execute_serve(config_file: str | None, **kwargs):
     type=click.Path(file_okay=False, dir_okay=True, writable=True),
     required=False,
 )
-def new_project(directory: str | None, **kwargs):
-    """
-    Create a new template project in the current directory or in the given
-    directory.
+def new_project(directory: str | None, **kwargs: Any) -> None:  # noqa: ARG001
+    """Create a new template project in the current directory or in the given directory.
 
     Raises:
         ClickException: if the directory already contains a zensical.toml or a

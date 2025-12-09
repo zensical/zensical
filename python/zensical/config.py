@@ -27,21 +27,22 @@ import hashlib
 import importlib
 import os
 import pickle
+from typing import IO, Any
+from urllib.parse import urlparse
+
 import yaml
+from click import ClickException
+from deepmerge import always_merger
+from yaml import BaseLoader, Loader, YAMLError
+from yaml.constructor import ConstructorError
+
+from zensical.extensions.emoji import to_svg, twemoji
 
 try:
     import tomllib
 except ModuleNotFoundError:
-    import tomli as tomllib  # type: ignore
+    import tomli as tomllib
 
-from click import ClickException
-from deepmerge import always_merger
-from typing import Any, IO
-from yaml import BaseLoader, Loader, YAMLError
-from yaml.constructor import ConstructorError
-from urllib.parse import urlparse
-
-from .extensions.emoji import to_svg, twemoji
 
 # ----------------------------------------------------------------------------
 # Globals
@@ -64,9 +65,7 @@ side, and use it directly when needed. It's a hack but will do for now.
 
 
 class ConfigurationError(ClickException):
-    """
-    Configuration resolution or validation failed.
-    """
+    """Configuration resolution or validation failed."""
 
 
 # ----------------------------------------------------------------------------
@@ -75,22 +74,17 @@ class ConfigurationError(ClickException):
 
 
 def parse_config(path: str) -> dict:
-    """
-    Parse configuration file.
-    """
+    """Parse configuration file."""
     # Decide by extension; no need to convert to Path
     _, ext = os.path.splitext(path)
     if ext.lower() == ".toml":
         return parse_zensical_config(path)
-    else:
-        return parse_mkdocs_config(path)
+    return parse_mkdocs_config(path)
 
 
 def parse_zensical_config(path: str) -> dict:
-    """
-    Parse zensical.toml configuration file.
-    """
-    global _CONFIG
+    """Parse zensical.toml configuration file."""
+    global _CONFIG  # noqa: PLW0603
     with open(path, "rb") as f:
         config = tomllib.load(f)
     if "project" in config:
@@ -102,11 +96,9 @@ def parse_zensical_config(path: str) -> dict:
 
 
 def parse_mkdocs_config(path: str) -> dict:
-    """
-    Parse mkdocs.yml configuration file.
-    """
-    global _CONFIG
-    with open(path, "r") as f:
+    """Parse mkdocs.yml configuration file."""
+    global _CONFIG  # noqa: PLW0603
+    with open(path) as f:
         config = _yaml_load(f)
 
     # Apply defaults and return parsed configuration
@@ -114,24 +106,19 @@ def parse_mkdocs_config(path: str) -> dict:
     return _CONFIG
 
 
-def get_config():
-    """
-    Return configuration.
-    """
+def get_config() -> dict | None:
+    """Return configuration."""
     return _CONFIG
 
 
 def get_theme_dir() -> str:
-    """
-    Return the theme directory.
-    """
+    """Return the theme directory."""
     path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(path, "templates")
 
 
 def _apply_defaults(config: dict, path: str) -> dict:
-    """
-    Apply default settings in configuration.
+    """Apply default settings in configuration.
 
     Note that this is loosely based on the defaults that MkDocs sets in its own
     configuration system, which we won't port for compatibility right now, as
@@ -473,9 +460,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
 def set_default(
     entry: dict, key: str, default: Any, data_type: type | None = None
 ) -> Any:
-    """
-    Set a key to a default value if it isn't set, and optionally cast it to the specified data type.
-    """
+    """Set a key to a default value if it isn't set, and optionally cast it to the specified data type."""
     if key in entry and entry[key] is None:
         del entry[key]
 
@@ -487,24 +472,22 @@ def set_default(
         try:
             entry[key] = data_type(entry[key])
         except (ValueError, TypeError) as e:
-            raise ValueError(f"Failed to cast key '{key}' to {data_type}: {e}")
+            raise ValueError(
+                f"Failed to cast key '{key}' to {data_type}: {e}"
+            ) from e
 
     # Return the resulting value
     return entry[key]
 
 
 def _hash(data: Any) -> int:
-    """
-    Compute a hash for the given data.
-    """
-    hash = hashlib.sha1(pickle.dumps(data))
+    """Compute a hash for the given data."""
+    hash = hashlib.sha1(pickle.dumps(data))  # noqa: S324
     return int(hash.hexdigest(), 16) % (2**64)
 
 
 def _convert_extra(data: dict | list) -> dict | list:
-    """
-    Recursively convert all None values in a dictionary or list to empty strings.
-    """
+    """Recursively convert all None values in a dictionary or list to empty strings."""
     if isinstance(data, dict):
         # Process each key-value pair in the dictionary
         return {
@@ -513,7 +496,7 @@ def _convert_extra(data: dict | list) -> dict | list:
             else ("" if value is None else value)
             for key, value in data.items()
         }
-    elif isinstance(data, list):
+    if isinstance(data, list):
         # Process each item in the list
         return [
             _convert_extra(item)
@@ -521,14 +504,11 @@ def _convert_extra(data: dict | list) -> dict | list:
             else ("" if item is None else item)
             for item in data
         ]
-    else:
-        return data
+    return data
 
 
-def _resolve(symbol: str):
-    """
-    Resolve a symbol to its corresponding Python object.
-    """
+def _resolve(symbol: str) -> Any:
+    """Resolve a symbol to its corresponding Python object."""
     module_path, func_name = symbol.rsplit(".", 1)
     module = importlib.import_module(module_path)
     return getattr(module, func_name)
@@ -538,16 +518,14 @@ def _resolve(symbol: str):
 
 
 def _convert_nav(nav: list) -> list:
-    """
-    Convert MkDocs navigation
-    """
+    """Convert MkDocs navigation."""
     return [_convert_nav_item(entry) for entry in nav]
 
 
 def _convert_nav_item(item: str | dict | list) -> dict | list:
-    """
-    Convert MkDocs shorthand navigation structure into something more manageable
-    as we need to annotate each item with a title, URL, icon, and children.
+    """Convert MkDocs shorthand navigation structure into something more manageable.
+
+    We need to annotate each item with a title, URL, icon, and children.
     """
     if isinstance(item, str):
         return {
@@ -561,7 +539,7 @@ def _convert_nav_item(item: str | dict | list) -> dict | list:
         }
 
     # Handle Title: URL
-    elif isinstance(item, dict):
+    if isinstance(item, dict):
         for title, value in item.items():
             if isinstance(value, str):
                 return {
@@ -573,7 +551,7 @@ def _convert_nav_item(item: str | dict | list) -> dict | list:
                     "is_index": _is_index(value.strip()),
                     "active": False,
                 }
-            elif isinstance(value, list):
+            if isinstance(value, list):
                 return {
                     "title": str(title),
                     "url": None,
@@ -583,28 +561,25 @@ def _convert_nav_item(item: str | dict | list) -> dict | list:
                     "is_index": False,
                     "active": False,
                 }
+            raise TypeError(f"Unknown nav item value type: {type(value)}")
 
     # Handle a list of items
     elif isinstance(item, list):
         return [_convert_nav_item(child) for child in item]
-    else:
-        raise ValueError(f"Unknown nav item type: {type(item)}")
+
+    raise TypeError(f"Unknown nav item type: {type(item)}")
 
 
 def _is_index(path: str) -> bool:
-    """
-    Returns, whether the given path points to a section index.
-    """
+    """Returns, whether the given path points to a section index."""
     return os.path.basename(path) in ("index.md", "README.md")
 
 
 # -----------------------------------------------------------------------------
 
 
-def _convert_extra_javascript(value: list[Any]) -> list:
-    """
-    Ensure extra_javascript uses a structured format.
-    """
+def _convert_extra_javascript(value: list) -> list:
+    """Ensure extra_javascript uses a structured format."""
     for i, item in enumerate(value):
         if isinstance(item, str):
             value[i] = {
@@ -619,9 +594,7 @@ def _convert_extra_javascript(value: list[Any]) -> list:
             item.setdefault("async", False)
             item.setdefault("defer", False)
         else:
-            raise ValueError(
-                f"Unknown extra_javascript item type: {type(item)}"
-            )
+            raise TypeError(f"Unknown extra_javascript item type: {type(item)}")
 
     # Return resulting value
     return value
@@ -630,10 +603,8 @@ def _convert_extra_javascript(value: list[Any]) -> list:
 # -----------------------------------------------------------------------------
 
 
-def _convert_markdown_extensions(value: Any):
-    """
-    Convert Markdown extensions configuration to what Python Markdown expects.
-    """
+def _convert_markdown_extensions(value: Any) -> tuple[list[str], dict]:
+    """Convert Markdown extensions configuration to what Python Markdown expects."""
     markdown_extensions = ["toc", "tables"]
     mdx_configs = {"toc": {}, "tables": {}}
 
@@ -643,24 +614,24 @@ def _convert_markdown_extensions(value: Any):
     # actually parse the configuration.
     if "pymdownx" in value:
         pymdownx = value.pop("pymdownx")
-        for ext, config in pymdownx.items():
+        for ext, conf in pymdownx.items():
             # Special case for blocks extension, which has another level of
             # nesting. This is the only extension that requires this.
             if ext == "blocks":
-                for block, config in config.items():
+                for block, config in conf.items():
                     value[f"pymdownx.{ext}.{block}"] = config
             else:
-                value[f"pymdownx.{ext}"] = config
+                value[f"pymdownx.{ext}"] = conf
 
     # Same as for Python Markdown extensions, see above
     if "zensical" in value:
         zensical = value.pop("zensical")
-        for ext, config in zensical.items():
+        for ext, conf in zensical.items():
             if ext == "extensions":
-                for key, config in config.items():
+                for key, config in conf.items():
                     value[f"zensical.{ext}.{key}"] = config
             else:
-                value[f"zensical.{ext}"] = config
+                value[f"zensical.{ext}"] = conf
 
     # Extensions can be defined as a dict
     if isinstance(value, dict):
@@ -686,15 +657,12 @@ def _convert_markdown_extensions(value: Any):
 
 
 def _convert_plugins(value: Any, config: dict) -> dict:
-    """
-    Convert plugins configuration to something we can work with.
-    """
+    """Convert plugins configuration to something we can work with."""
     plugins = {}
 
     # Plugins can be defined as a dict
     if isinstance(value, dict):
-        for name, data in value.items():
-            plugins[name] = data
+        plugins.update(value)
 
     # Plugins can also be defined as a list
     else:
@@ -751,8 +719,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
 def _yaml_load(
     source: IO, loader: type[BaseLoader] | None = None
 ) -> dict[str, Any]:
-    """
-    Load configuration file and resolve environment variables and parent files.
+    """Load configuration file and resolve environment variables and parent files.
 
     Note that INHERIT is only a bandaid that was introduced to allow for some
     degree of modularity, but with serious shortcomings. Zensical will use a
@@ -767,12 +734,12 @@ def _yaml_load(
             source.read()
             .replace("material.extensions", "zensical.extensions")
             .replace("materialx", "zensical.extensions"),
-            Loader=Loader,
+            Loader=Loader,  # noqa: S506
         )
     except YAMLError as e:
         raise ConfigurationError(
             f"Encountered an error parsing the configuration file: {e}"
-        )
+        ) from e
     if config is None:
         return {}
 
@@ -786,7 +753,7 @@ def _yaml_load(
             raise ConfigurationError(
                 f"Inherited config file '{relpath}' doesn't exist at '{abspath}'."
             )
-        with open(abspath, "r") as fd:
+        with open(abspath) as fd:
             parent = _yaml_load(fd, loader)
         config = always_merger.merge(parent, config)
 
@@ -794,9 +761,8 @@ def _yaml_load(
     return config
 
 
-def _construct_env_tag(loader: yaml.Loader, node: yaml.Node):
-    """
-    Assign value of ENV variable referenced at node.
+def _construct_env_tag(loader: yaml.Loader, node: yaml.Node) -> Any:
+    """Assign value of ENV variable referenced at node.
 
     MkDocs supports the use of !ENV to reference environment variables in YAML
     configuration files. We won't likely support this in Zensical, but for now

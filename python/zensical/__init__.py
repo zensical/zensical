@@ -21,8 +21,8 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
-from .zensical import *
+from zensical.zensical import *  # noqa: F403
 
-__doc__ = zensical.__doc__
-if hasattr(zensical, "__all__"):
-    __all__ = zensical.__all__
+__doc__ = zensical.__doc__  # noqa: F405
+if hasattr(zensical, "__all__"):  # noqa: F405
+    __all__ = zensical.__all__  # noqa: F405
