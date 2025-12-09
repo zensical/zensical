@@ -23,6 +23,6 @@
 
 from zensical.zensical import *  # noqa: F403
 
-__doc__ = zensical.__doc__  # noqa: F405
-if hasattr(zensical, "__all__"):  # noqa: F405
-    __all__ = zensical.__all__  # noqa: F405
+__doc__ = zensical.__doc__  # type: ignore[name-defined]  # noqa: F405
+if hasattr(zensical, "__all__"):  # type: ignore[name-defined]  # noqa: F405
+    __all__ = zensical.__all__  # type: ignore[name-defined]  # noqa: F405

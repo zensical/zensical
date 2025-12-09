@@ -68,7 +68,7 @@ class LinksProcessor(Treeprocessor):
             # Extract value - Python Markdown does some weird stuff where it
             # replaces mailto: links with double encoded entities. MkDocs just
             # skips if it detects that, so we do the same.
-            value = el.get(key)
+            value = el.get(key, "")
             if AMP_SUBSTITUTE in value:
                 continue
 
@@ -131,5 +131,5 @@ class LinksExtension(Extension):
 
 def get_name(path: str) -> str:
     """Get the name of a file from a given path."""
-    path = PurePosixPath(path)
-    return path.name
+    pure_path = PurePosixPath(path)
+    return pure_path.name

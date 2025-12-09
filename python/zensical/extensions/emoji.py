@@ -59,7 +59,7 @@ def to_svg(
 ) -> Element[str]:
     """Load icon."""
     if not uc:
-        icons = md.inlinePatterns["emoji"].emoji_index["emoji"]
+        icons = md.inlinePatterns["emoji"].emoji_index["emoji"]  # type: ignore[attr-defined]
 
         # Create and return element to host icon
         el = Element("span", {"class": options.get("classes", index)})
@@ -101,8 +101,8 @@ def _load_twemoji_index(paths: tuple[str, ...]) -> dict:
 
         # Index icons provided by the theme and via custom icons
         glob = os.path.join(base, "**", "*.svg")
-        glob = iglob(os.path.normpath(glob), recursive=True)
-        for file in glob:
+        svgs = iglob(os.path.normpath(glob), recursive=True)
+        for file in svgs:
             icon = file[len(base) + 1 : -4].replace(os.path.sep, "-")
 
             # Add icon to index

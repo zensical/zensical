@@ -119,7 +119,7 @@ class Message:
 def resolve(directory: str) -> dict[str, str] | None:
     """Return commit scopes for a cargo project.
 
-    This function checks, if the given directory contains a `Cargo.toml` file,
+    This function checks if the given directory contains a `Cargo.toml` file,
     and if so, parses it to extract the workspace members. It then resolves the
     valid scopes, which are the names of the crates defined in the respective
     `Cargo.toml` files.
@@ -198,11 +198,11 @@ ANSI escape code to reset formatting.
 # ----------------------------------------------------------------------------
 
 
-def main() -> None:
+def main() -> int:
     """Commit message linter."""
     if len(sys.argv) < 2:
         print("No commit message provided.")
-        sys.exit(1)
+        return 1
 
     # Commit message might be passed as string, or in a file
     commit = sys.argv[1]
@@ -214,27 +214,30 @@ def main() -> None:
 
     # Skip merge commits
     if message.startswith("Merge branch"):
-        return sys.exit(0)
+        return 0
 
     # Resolve cargo workspace members and parse commit message
     scopes = resolve(os.path.curdir)
-    scopes["workspace"] = "."
-    try:
-        msg = Message.parse(message)
-        msg.validate(scopes)
+    if scopes:
+        scopes["workspace"] = "."
+        try:
+            msg = Message.parse(message)
+            msg.validate(scopes)
 
-    # If an error happened, print it
-    except ValueError as e:
-        print(f"{FG_RED}✘{RESET} {BG_RED} Error {RESET} {e}")
-        print()
-        print("   Commit rejected.")
-        print()
+        # If an error happened, print it
+        except ValueError as e:
+            print(f"{FG_RED}✘{RESET} {BG_RED} Error {RESET} {e}")
+            print()
+            print("   Commit rejected.")
+            print()
 
-        # Exit with error
-        return sys.exit(1)
+            # Exit with error
+            return 1
+
+    return 0
 
 
 # ----------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

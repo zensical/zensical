@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from markdown import Markdown
@@ -34,6 +34,9 @@ from yaml import SafeLoader
 from zensical.config import get_config
 from zensical.extensions.links import LinksExtension
 from zensical.extensions.search import SearchExtension
+
+if TYPE_CHECKING:
+    from zensical.extensions.search import SearchProcessor
 
 # ----------------------------------------------------------------------------
 # Constants
@@ -77,8 +80,8 @@ def render(content: str, path: str) -> dict:
     links.extendMarkdown(md)
 
     # Register search extension, which extracts text for search indexing
-    search = SearchExtension()
-    search.extendMarkdown(md)
+    search_extension = SearchExtension()
+    search_extension.extendMarkdown(md)
 
     # First, extract metadata - the Python Markdown parser brings a metadata
     # extension, but the implementation is broken, as it does not support full
@@ -106,15 +109,15 @@ def render(content: str, path: str) -> dict:
             meta[key] = value.isoformat()
 
     # Obtain search index data, unless page is excluded
-    search = md.postprocessors["search"]
+    search_processor: SearchProcessor = md.postprocessors["search"]  # type: ignore[assignment]
     if meta.get("search", {}).get("exclude", False):
-        search.data = []
+        search_processor.data = []
 
     # Return Markdown with metadata
     return {
         "meta": meta,
         "content": content,
-        "search": search.data,
+        "search": search_processor.data,
         "title": "",
         "toc": [_convert_toc(item) for item in getattr(md, "toc_tokens", [])],
     }

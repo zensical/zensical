@@ -80,7 +80,7 @@ def execute_build(config_file: str | None, **kwargs: Any) -> None:
 
     # Build project in Rust runtime, calling back into Python when necessary,
     # e.g., to parse MkDocs configuration format or render Markdown
-    build(os.path.abspath(config_file), kwargs.get("clean"))
+    build(os.path.abspath(config_file), kwargs.get("clean", False))
 
 
 @cli.command(name="serve")

@@ -41,7 +41,7 @@ from zensical.extensions.emoji import to_svg, twemoji
 try:
     import tomllib
 except ModuleNotFoundError:
-    import tomli as tomllib
+    import tomli as tomllib  # type: ignore[no-redef]
 
 
 # ----------------------------------------------------------------------------
@@ -106,9 +106,10 @@ def parse_mkdocs_config(path: str) -> dict:
     return _CONFIG
 
 
-def get_config() -> dict | None:
+def get_config() -> dict:
     """Return configuration."""
-    return _CONFIG
+    # We assume this function is only called after populating `_CONFIG`.
+    return _CONFIG  # type: ignore[return-value]
 
 
 def get_theme_dir() -> str:
@@ -133,12 +134,12 @@ def _apply_defaults(config: dict, path: str) -> dict:
 
     # Set site directory
     set_default(config, "site_dir", "site", str)
-    if ".." in config.get("site_dir"):
+    if ".." in config.get("site_dir", ""):
         raise ConfigurationError("site_dir must not contain '..'")
 
     # Set docs directory
     set_default(config, "docs_dir", "docs", str)
-    if ".." in config.get("docs_dir"):
+    if ".." in config.get("docs_dir", ""):
         raise ConfigurationError("docs_dir must not contain '..'")
 
     # Set defaults for core settings
@@ -606,7 +607,7 @@ def _convert_extra_javascript(value: list) -> list:
 def _convert_markdown_extensions(value: Any) -> tuple[list[str], dict]:
     """Convert Markdown extensions configuration to what Python Markdown expects."""
     markdown_extensions = ["toc", "tables"]
-    mdx_configs = {"toc": {}, "tables": {}}
+    mdx_configs: dict[str, dict[str, Any]] = {"toc": {}, "tables": {}}
 
     # In case of Python Markdown Extensions, we allow to omit the necessary
     # quotes around the extension names, so we need to hoist the extensions
@@ -761,7 +762,10 @@ def _yaml_load(
     return config
 
 
-def _construct_env_tag(loader: yaml.Loader, node: yaml.Node) -> Any:
+def _construct_env_tag(
+    loader: yaml.Loader,
+    node: yaml.ScalarNode | yaml.SequenceNode | yaml.MappingNode,
+) -> Any:
     """Assign value of ENV variable referenced at node.
 
     MkDocs supports the use of !ENV to reference environment variables in YAML
@@ -791,7 +795,7 @@ def _construct_env_tag(loader: yaml.Loader, node: yaml.Node) -> Any:
     else:
         raise ConstructorError(
             context=f"expected a scalar or sequence node, but found {node.id}",
-            start_mark=node.start_mark,
+            context_mark=node.start_mark,
         )
 
     # Resolve environment variable

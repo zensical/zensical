@@ -38,7 +38,7 @@ class SearchProcessor(Postprocessor):
 
     def __init__(self, md: Markdown) -> None:
         super().__init__(md)
-        self.data = []
+        self.data: list[dict[str, Any]] = []
 
     def run(self, html: str) -> str:
         """Process the rendered HTML and extract text length."""
@@ -140,13 +140,13 @@ class Section:
     # Initialize HTML section
     def __init__(self, el: Element, level: int, depth: int = 0) -> None:
         self.el = el
-        self.depth = depth
+        self.depth: int | float = depth
         self.level = level
 
         # Initialize section data
-        self.text = []
-        self.title = []
-        self.id = None
+        self.text: list[str] = []
+        self.title: list[str] = []
+        self.id: str | None = None
 
     # String representation
     def __repr__(self):
@@ -177,18 +177,18 @@ class Parser(HTMLParser):
         super().__init__(*args, **kwargs)
 
         # Tags to skip
-        self.skip = {
+        self.skip: set[str | Element] = {
             "object",  # Objects
             "script",  # Scripts
             "style",  # Styles
         }
 
         # Current context and section
-        self.context = []
-        self.section = None
+        self.context: list[Element] = []
+        self.section: Section | None = None
 
         # All parsed sections
-        self.data = []
+        self.data: list[Section] = []
 
     # Called at the start of every HTML tag
     def handle_starttag(
@@ -256,6 +256,7 @@ class Parser(HTMLParser):
         # a headline is nested in another element. In that case, we close the
         # current section, continuing to append data to the previous section,
         # which could also be a nested section – see https://bit.ly/3IxxIJZ
+        assert self.section is not None  # noqa: S101
         if self.section.depth > len(self.context):
             for section in reversed(self.data):
                 if section.depth <= len(self.context):

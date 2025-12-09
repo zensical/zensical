@@ -28,7 +28,7 @@
 def build(config_file: str, clean: bool) -> None:
     """Builds the project."""
 
-def serve(config_file: str, dev_addr: str) -> None:
+def serve(config_file: str, options: dict) -> None:
     """Builds and serves the project."""
 
 def version() -> str:

@@ -34,7 +34,7 @@ import subprocess
 # ----------------------------------------------------------------------------
 
 
-def main() -> None:
+def main() -> int:
     """Set up development environment.
 
     This script clones the Zensical UI repository, and symbolically links the
@@ -72,8 +72,10 @@ def main() -> None:
         with open(path, "w") as f:
             f.write("templates\n")
 
+    return 0
+
 
 # ----------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -33,7 +33,7 @@ import subprocess
 # ----------------------------------------------------------------------------
 
 
-def main() -> None:
+def main() -> int:
     """Prepare production build."""
     os.makedirs("tmp", exist_ok=True)
 
@@ -63,8 +63,10 @@ def main() -> None:
             subprocess.run(["rm", "-rf", path], check=True)
         subprocess.run(["cp", "-r", dist_dir, path], check=True)
 
+    return 0
+
 
 # ----------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
