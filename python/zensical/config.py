@@ -448,8 +448,8 @@ def _apply_defaults(config: dict, path: str) -> dict:
     for fence in superfences.get("custom_fences", []):
         if isinstance(fence.get("format"), str):
             fence["format"] = _resolve(fence.get("format"))
-            if isinstance(fence.get("validator"), str):
-                fence["validator"] = _resolve(fence.get("validator"))
+        if isinstance(fence.get("validator"), str):
+            fence["validator"] = _resolve(fence.get("validator"))
 
     # Ensure the table of contents title is initialized, as it's used inside
     # the template, and the table of contents extension is always defined
