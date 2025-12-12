@@ -292,73 +292,13 @@ def _apply_defaults(config: dict, path: str) -> dict:
             set_default(toggle, "name", None, str)
 
     # Set defaults for extra settings
+    if "extra" in config and not isinstance(config["extra"], dict):
+        raise ConfigurationError("The 'extra' setting must be a mapping/dictionary.")
     extra = set_default(config, "extra", {}, dict)
-    set_default(extra, "homepage", None, str)
-    set_default(extra, "scope", None, str)
-    set_default(extra, "annotate", {}, dict)
-    set_default(extra, "tags", {}, dict)
-    set_default(extra, "generator", True, bool)
+
+    if "polyfills" in extra and not isinstance(extra["polyfills"], list):
+        raise ConfigurationError("The 'extra.polyfills' setting must be a list.")
     set_default(extra, "polyfills", [], list)
-    set_default(extra, "analytics", None, dict)
-
-    # Set defaults for extra analytics settings
-    analytics = extra.get("analytics")
-    if analytics:
-        set_default(analytics, "provider", None, str)
-        set_default(analytics, "property", None, str)
-        set_default(analytics, "feedback", None, dict)
-
-        # Set defaults for extra analytics feedback settings
-        feedback = analytics.get("feedback")
-        if feedback:
-            set_default(feedback, "title", None, str)
-            set_default(feedback, "ratings", [], list)
-
-            # Set defaults for each rating entry
-            ratings = feedback.setdefault("ratings", [])
-            for entry in ratings:
-                set_default(entry, "icon", None, str)
-                set_default(entry, "name", None, str)
-                set_default(entry, "data", None, str)
-                set_default(entry, "note", None, str)
-
-    # Set defaults for extra consent settings
-    consent = extra.setdefault("consent", None)
-    if consent:
-        set_default(consent, "title", None, str)
-        set_default(consent, "description", None, str)
-        set_default(consent, "actions", [], list)
-
-        # Set defaults for extra consent cookie settings
-        cookies = consent.setdefault("cookies", {})
-        for key, value in cookies.items():
-            if isinstance(value, str):
-                cookies[key] = {"name": value, "checked": False}
-
-            # Set defaults for each cookie entry
-            set_default(cookies[key], "name", None, str)
-            set_default(cookies[key], "checked", False, bool)
-
-    # Set defaults for extra social settings
-    social = extra.setdefault("social", [])
-    for entry in social:
-        set_default(entry, "icon", None, str)
-        set_default(entry, "name", None, str)
-        set_default(entry, "link", None, str)
-
-    # Set defaults for extra alternate settings
-    alternate = extra.setdefault("alternate", [])
-    for entry in alternate:
-        set_default(entry, "name", None, str)
-        set_default(entry, "link", None, str)
-        set_default(entry, "lang", None, str)
-
-    # Set defaults for extra version settings
-    version = extra.setdefault("version", None)
-    if version:
-        set_default(version, "provider", None, str)
-        set_default(version, "default", None, str)
-        set_default(version, "alias", False, bool)
 
     # Ensure all non-existent values are all empty strings (for now)
     config["extra"] = _convert_extra(extra)
