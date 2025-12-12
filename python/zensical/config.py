@@ -157,19 +157,24 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(config, "edit_uri", None, str)
 
     # Set defaults for repository name settings
+    docs_dir = config.get("docs_dir")
+    repo_names = {
+        "github.com": "GitHub",
+        "gitlab.com": "Gitlab",
+        "bitbucket.org": "Bitbucket"
+    }
+    edit_uris = {
+        "github.com": f"edit/master/{docs_dir}",
+        "gitlab.com": f"edit/master/{docs_dir}",
+        "bitbucket.org": f"src/default/{docs_dir}"
+    }
     repo_url = config.get("repo_url")
-    if repo_url and not config.get("repo_name"):
-        docs_dir = config.get("docs_dir")
+    if repo_url:
         host = urlparse(repo_url).hostname or ""
-        if host == "github.com":
-            set_default(config, "repo_name", "GitHub", str)
-            set_default(config, "edit_uri", f"edit/master/{docs_dir}", str)
-        elif host == "gitlab.com":
-            set_default(config, "repo_name", "GitLab", str)
-            set_default(config, "edit_uri", f"edit/master/{docs_dir}", str)
-        elif host == "bitbucket.org":
-            set_default(config, "repo_name", "Bitbucket", str)
-            set_default(config, "edit_uri", f"src/default/{docs_dir}", str)
+        if not config.get("repo_name") and host in repo_names:
+            set_default(config, "repo_name", repo_names[host], str)
+        if host in edit_uris:
+            set_default(config, "edit_uri", edit_uris[host], str)
         elif host:
             config["repo_name"] = host.split(".")[0].title()
 
