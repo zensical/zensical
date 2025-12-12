@@ -21,5 +21,84 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
+target-version = "py310"
 line-length = 80
 fix = true
+
+[lint]
+select = ["ALL"]
+ignore = [
+    # Whole categories
+    "AIR",  # We're not using Airflow
+    "ASYNC",  # We're not using async code
+    "DJ",  # We're not using Django
+    "EM",  # We're fine with literal (f-)strings when raising exceptions
+    "FAST",  # We're not using FastAPI
+    "FIX",  # We allow ourselves to add TODO or HACK comments
+    "ICN",  # We're not using packages targeted by these rules
+    "INT",  # We're not using gettext
+    "NPY",  # We're not using NumPy
+    "PD",  # We're not using Pandas
+    "PTH",  # We're fine with using `os.path` for now
+    # Individual rules
+    "A001",  # Variable is shadowing a Python builtin
+    "ANN204",  # Missing return type annotation for special method __str__
+    "ANN401",  # Dynamically typed expressions (typing.Any) are disallowed
+    "ARG005",  # Unused lambda argument
+    "C901",  # Too complex
+    "COM812",  # Conflicts with formatting
+    "D100",  # Missing docstring in public module
+    "D102",  # Missing docstring in public method
+    "D104",  # Missing docstring in public package
+    "D105",  # Missing docstring in magic method
+    "D107",  # Missing docstring in `__init__` method
+    "D417",  # Missing argument description in the docstring
+    "E501",  # Line too long
+    "ERA001",  # Commented out code
+    "FBT001",  # Boolean positional parameter in function signature
+    "FBT003",  # Boolean positional value in function call
+    "G004",  # Logging statement uses f-string
+    "PLR0911",  # Too many return statements
+    "PLR0912",  # Too many branches
+    "PLR0913",  # Too many arguments to function call
+    "PLR0915",  # Too many statements
+    "RUF003",  # Ambiguous emdash/endash
+    "SIM108",  # Consider ternary operator
+    "SLF001", # Private member accessed
+    "TRY003",  # Avoid specifying long messages outside the exception class
+]
+
+[lint.per-file-ignores]
+"python/**.py" = [
+    "S110",  # Consider logging exceptions
+]
+"python/zensical/main.py" = [
+    "T201",  # Print statements
+]
+"python/**.pyi" = [
+    "PYI021",  # Docstrings in stubs
+]
+"scripts/*.py" = [
+    "PLR2004",  # Magic value used in comparison
+    "S603",  # Possible untrusted input
+    "S605",  # Starting process with shell=True
+    "S607",  # Subprocess with partial executable path
+    "T201",  # Print statements
+]
+
+[lint.flake8-quotes]
+docstring-quotes = "double"
+
+[lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[lint.isort]
+known-first-party = ["zensical"]
+
+[lint.pydocstyle]
+convention = "google"
+
+[format]
+docstring-code-format = true
+docstring-code-line-length = 80
+

@@ -48,6 +48,20 @@ jobs:
       - name: Run rustfmt
         run: find crates -name "*.rs" -exec rustfmt --check {} \;
 
+      - name: Set up Python
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run ruff
+        run: uv run ruff check --no-fix-only .
+
+      - name: Run mypy
+        run: uv run mypy .
+
   security:
     name: Security audit
     runs-on: ubuntu-latest

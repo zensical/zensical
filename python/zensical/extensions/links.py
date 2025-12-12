@@ -23,12 +23,17 @@
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
+from typing import TYPE_CHECKING
+from urllib.parse import urlparse
+
 from markdown import Extension, Markdown
 from markdown.treeprocessors import Treeprocessor
 from markdown.util import AMP_SUBSTITUTE
-from pathlib import PurePosixPath
-from xml.etree.ElementTree import Element
-from urllib.parse import urlparse
+
+if TYPE_CHECKING:
+    from xml.etree.ElementTree import Element
+
 
 # -----------------------------------------------------------------------------
 # Classes
@@ -36,8 +41,7 @@ from urllib.parse import urlparse
 
 
 class LinksProcessor(Treeprocessor):
-    """
-    Tree processor to replace links in Markdown with URLs.
+    """Tree processor to replace links in Markdown with URLs.
 
     Note that we view this as a bandaid until we can do processing on proper
     HTML ASTs in Rust. In the meantime, we just replace them as we find them.
@@ -50,7 +54,7 @@ class LinksProcessor(Treeprocessor):
         self.path = path  # Current page
         self.use_directory_urls = use_directory_urls
 
-    def run(self, root: Element):
+    def run(self, root: Element) -> None:
         # Now, we determine whether the current page is an index page, as we
         # must apply slightly different handling in case of directory URLs
         current_is_index = get_name(self.path) in ("index.md", "README.md")
@@ -64,7 +68,7 @@ class LinksProcessor(Treeprocessor):
             # Extract value - Python Markdown does some weird stuff where it
             # replaces mailto: links with double encoded entities. MkDocs just
             # skips if it detects that, so we do the same.
-            value = el.get(key)
+            value = el.get(key, "")
             if AMP_SUBSTITUTE in value:
                 continue
 
@@ -101,21 +105,15 @@ class LinksProcessor(Treeprocessor):
 
 
 class LinksExtension(Extension):
-    """
-    A Markdown extension to resolve links to other Markdown files.
-    """
+    """A Markdown extension to resolve links to other Markdown files."""
 
     def __init__(self, path: str, use_directory_urls: bool):
-        """
-        Initialize the extension.
-        """
+        """Initialize the extension."""
         self.path = path  # Current page
         self.use_directory_urls = use_directory_urls
 
-    def extendMarkdown(self, md: Markdown):
-        """
-        Register Markdown extension.
-        """
+    def extendMarkdown(self, md: Markdown) -> None:  # noqa: N802
+        """Register Markdown extension."""
         md.registerExtension(self)
 
         # Create and register treeprocessor - we use the same priority as the
@@ -132,8 +130,6 @@ class LinksExtension(Extension):
 
 
 def get_name(path: str) -> str:
-    """
-    Get the name of a file from a given path.
-    """
-    path = PurePosixPath(path)
-    return path.name
+    """Get the name of a file from a given path."""
+    pure_path = PurePosixPath(path)
+    return pure_path.name

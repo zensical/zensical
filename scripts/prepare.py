@@ -25,17 +25,16 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
-import os, subprocess  # noqa: E401
+import os
+import subprocess
 
 # ----------------------------------------------------------------------------
 # Program
 # ----------------------------------------------------------------------------
 
 
-def main():
-    """
-    Prepare production build.
-    """
+def main() -> int:
+    """Prepare production build."""
     os.makedirs("tmp", exist_ok=True)
 
     # Clone UI repository into tmp directory
@@ -64,8 +63,10 @@ def main():
             subprocess.run(["rm", "-rf", path], check=True)
         subprocess.run(["cp", "-r", dist_dir, path], check=True)
 
+    return 0
+
 
 # ----------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

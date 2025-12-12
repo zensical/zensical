@@ -25,10 +25,13 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
-import os, re, sys, tomllib  # noqa: E401
-
+import os
+import re
+import sys
 from dataclasses import dataclass
 from glob import glob
+
+import tomllib
 
 # ----------------------------------------------------------------------------
 # Classes
@@ -48,8 +51,7 @@ class TypeError(ValueError):
 
 @dataclass
 class Message:
-    """
-    Commit message.
+    """Commit message.
 
     This class represents a commit message with a scope, type, and description.
     It provides methods to parse and validate commit messages according to our
@@ -59,9 +61,7 @@ class Message:
 
     @classmethod
     def parse(cls, message: str) -> "Message":
-        """
-        Parse a commit message string into an object.
-        """
+        """Parse a commit message string into an object."""
         match = re.match(r"^([^:]+):([^\s]+) - (.+)$", message)
         if not match:
             raise ValueError("Required format: <scope>:<type> - <description>")
@@ -71,9 +71,7 @@ class Message:
         return cls(scope=scope, type=type, description=description)
 
     def validate(self, scopes: dict[str, str]) -> None:
-        """
-        Validate the commit message against the given scopes and types.
-        """
+        """Validate the commit message against the given scopes and types."""
         if self.scope not in scopes:
             raise ScopeError(f"Invalid scope: {self.scope}")
 
@@ -119,17 +117,16 @@ class Message:
 
 
 def resolve(directory: str) -> dict[str, str] | None:
-    """
-    Return commit scopes for a cargo project.
+    """Return commit scopes for a cargo project.
 
-    This function checks, if the given directory contains a `Cargo.toml` file,
+    This function checks if the given directory contains a `Cargo.toml` file,
     and if so, parses it to extract the workspace members. It then resolves the
     valid scopes, which are the names of the crates defined in the respective
     `Cargo.toml` files.
     """
     path = os.path.join(directory, "Cargo.toml")
     if not os.path.isfile(path):
-        return
+        return None
 
     # Open and parse the Cargo.toml file
     with open(path, "rb") as f:
@@ -154,6 +151,8 @@ def resolve(directory: str) -> dict[str, str] | None:
     package = content.get("package")
     if package and "name" in package:
         return {package["name"]: directory}
+
+    return None
 
 
 # ----------------------------------------------------------------------------
@@ -199,45 +198,46 @@ ANSI escape code to reset formatting.
 # ----------------------------------------------------------------------------
 
 
-def main():
-    """
-    Commit message linter.
-    """
+def main() -> int:
+    """Commit message linter."""
     if len(sys.argv) < 2:
         print("No commit message provided.")
-        sys.exit(1)
+        return 1
 
     # Commit message might be passed as string, or in a file
     commit = sys.argv[1]
     if os.path.isfile(commit):
-        with open(sys.argv[1], "r") as f:
+        with open(sys.argv[1]) as f:
             message = f.read().strip()
     else:
         message = commit.strip()
 
     # Skip merge commits
     if message.startswith("Merge branch"):
-        return sys.exit(0)
+        return 0
 
     # Resolve cargo workspace members and parse commit message
     scopes = resolve(os.path.curdir)
-    scopes["workspace"] = "."
-    try:
-        msg = Message.parse(message)
-        msg.validate(scopes)
+    if scopes:
+        scopes["workspace"] = "."
+        try:
+            msg = Message.parse(message)
+            msg.validate(scopes)
 
-    # If an error happened, print it
-    except ValueError as e:
-        print(f"{FG_RED}✘{RESET} {BG_RED} Error {RESET} {e}")
-        print("")
-        print("   Commit rejected.")
-        print("")
+        # If an error happened, print it
+        except ValueError as e:
+            print(f"{FG_RED}✘{RESET} {BG_RED} Error {RESET} {e}")
+            print()
+            print("   Commit rejected.")
+            print()
 
-        # Exit with error
-        return sys.exit(1)
+            # Exit with error
+            return 1
+
+    return 0
 
 
 # ----------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

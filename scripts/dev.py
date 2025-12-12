@@ -25,16 +25,17 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
-import os, shutil, subprocess  # noqa: E401
+import os
+import shutil
+import subprocess
 
 # ----------------------------------------------------------------------------
 # Program
 # ----------------------------------------------------------------------------
 
 
-def main():
-    """
-    Set up development environment.
+def main() -> int:
+    """Set up development environment.
 
     This script clones the Zensical UI repository, and symbolically links the
     build artifacts into the Python package directory for development use.
@@ -71,8 +72,10 @@ def main():
         with open(path, "w") as f:
             f.write("templates\n")
 
+    return 0
+
 
 # ----------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

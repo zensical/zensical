@@ -23,8 +23,9 @@
 
 from html import escape
 from html.parser import HTMLParser
+from typing import Any
 
-from markdown import Extension
+from markdown import Extension, Markdown
 from markdown.postprocessors import Postprocessor
 
 # -----------------------------------------------------------------------------
@@ -33,17 +34,14 @@ from markdown.postprocessors import Postprocessor
 
 
 class SearchProcessor(Postprocessor):
-    """
-    Post processor that extracts searchable content from the rendered HTML.
-    """
+    """Post processor that extracts searchable content from the rendered HTML."""
 
-    def __init__(self, md):
+    def __init__(self, md: Markdown) -> None:
         super().__init__(md)
-        self.data = []
+        self.data: list[dict[str, Any]] = []
 
-    def run(self, html):
+    def run(self, html: str) -> str:
         """Process the rendered HTML and extract text length."""
-
         # Divide page content into sections
         parser = Parser()
         parser.feed(html)
@@ -76,17 +74,17 @@ class SearchProcessor(Postprocessor):
 class SearchExtension(Extension):
     """Markdown extension for search indexing."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         self.config = {"keep": [set(), "Set of HTML tags to keep in output"]}
         super().__init__(**kwargs)
 
-    def extendMarkdown(self, md):
+    def extendMarkdown(self, md: Markdown) -> None:  # noqa: N802
         """Register the PostProcessor with Markdown."""
         processor = SearchProcessor(md)
         md.postprocessors.register(processor, "search", 0)
 
 
-def makeExtension(**kwargs):
+def makeExtension(**kwargs: Any) -> SearchExtension:  # noqa: N802
     """Factory function for creating the extension."""
     return SearchExtension(**kwargs)
 
@@ -96,13 +94,16 @@ def makeExtension(**kwargs):
 
 # HTML element
 class Element:
-    """
+    """HTML element.
+
     An element with attributes, essentially a small wrapper object for the
     parser to access attributes in other callbacks than handle_starttag.
     """
 
     # Initialize HTML element
-    def __init__(self, tag, attrs=None):
+    def __init__(
+        self, tag: str, attrs: dict[str, str | None] | None = None
+    ) -> None:
         self.tag = tag
         self.attrs = attrs or {}
 
@@ -111,18 +112,17 @@ class Element:
         return self.tag
 
     # Support comparison (compare by tag only)
-    def __eq__(self, other):
-        if other is Element:
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, Element):
             return self.tag == other.tag
-        else:
-            return self.tag == other
+        return self.tag == other
 
     # Support set operations
     def __hash__(self):
         return hash(self.tag)
 
     # Check whether the element should be excluded
-    def is_excluded(self):
+    def is_excluded(self) -> bool:
         return "data-search-exclude" in self.attrs
 
 
@@ -131,31 +131,31 @@ class Element:
 
 # HTML section
 class Section:
-    """
+    """HTML section.
+
     A block of text with markup, preceded by a title (with markup), i.e., a
     headline with a certain level (h1-h6). Internally used by the parser.
     """
 
     # Initialize HTML section
-    def __init__(self, el, level, depth=0):
+    def __init__(self, el: Element, level: int, depth: int = 0) -> None:
         self.el = el
-        self.depth = depth
+        self.depth: int | float = depth
         self.level = level
 
         # Initialize section data
-        self.text = []
-        self.title = []
-        self.id = None
+        self.text: list[str] = []
+        self.title: list[str] = []
+        self.id: str | None = None
 
     # String representation
     def __repr__(self):
         if self.id:
-            return "#".join([self.el.tag, self.id])
-        else:
-            return self.el.tag
+            return f"{self.el.tag}#{self.id}"
+        return self.el.tag
 
     # Check whether the section should be excluded
-    def is_excluded(self):
+    def is_excluded(self) -> bool:
         return self.el.is_excluded()
 
 
@@ -164,7 +164,8 @@ class Section:
 
 # HTML parser
 class Parser(HTMLParser):
-    """
+    """Section divider.
+
     This parser divides the given string of HTML into a list of sections, each
     of which are preceded by a h1-h6 level heading. A white- and blacklist of
     tags dictates which tags should be preserved as part of the index, and
@@ -172,31 +173,31 @@ class Parser(HTMLParser):
     """
 
     # Initialize HTML parser
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
         # Tags to skip
-        self.skip = set(
-            [
-                "object",  # Objects
-                "script",  # Scripts
-                "style",  # Styles
-            ]
-        )
+        self.skip: set[str | Element] = {
+            "object",  # Objects
+            "script",  # Scripts
+            "style",  # Styles
+        }
 
         # Current context and section
-        self.context = []
-        self.section = None
+        self.context: list[Element] = []
+        self.section: Section | None = None
 
         # All parsed sections
-        self.data = []
+        self.data: list[Section] = []
 
     # Called at the start of every HTML tag
-    def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
+    def handle_starttag(
+        self, tag: str, attrs: list[tuple[str, str | None]]
+    ) -> None:
+        attrs_dict = dict(attrs)
 
         # Ignore self-closing tags
-        el = Element(tag, attrs)
+        el = Element(tag, attrs_dict)
         if tag not in void:
             self.context.append(el)
         else:
@@ -205,7 +206,7 @@ class Parser(HTMLParser):
         # Handle heading
         if tag in ([f"h{x}" for x in range(1, 7)]):
             depth = len(self.context)
-            if "id" in attrs:
+            if "id" in attrs_dict:
                 # Ensure top-level section
                 if tag != "h1" and not self.data:
                     self.section = Section(Element("hx"), 1, depth)
@@ -214,7 +215,7 @@ class Parser(HTMLParser):
                 # Set identifier, if not first section
                 self.section = Section(el, int(tag[1:2]), depth)
                 if self.data:
-                    self.section.id = attrs["id"]
+                    self.section.id = attrs_dict["id"]
 
                 # Append section to list
                 self.data.append(self.section)
@@ -225,7 +226,7 @@ class Parser(HTMLParser):
             self.data.append(self.section)
 
         # Handle special cases to skip
-        for key, value in attrs.items():
+        for key, value in attrs_dict.items():
             # Skip block if explicitly excluded from search
             if key == "data-search-exclude":
                 self.skip.add(el)
@@ -247,7 +248,7 @@ class Parser(HTMLParser):
             data.append(f"<{tag}>")
 
     # Called at the end of every HTML tag
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if not self.context or self.context[-1] != tag:
             return
 
@@ -255,6 +256,7 @@ class Parser(HTMLParser):
         # a headline is nested in another element. In that case, we close the
         # current section, continuing to append data to the previous section,
         # which could also be a nested section – see https://bit.ly/3IxxIJZ
+        assert self.section is not None  # noqa: S101
         if self.section.depth > len(self.context):
             for section in reversed(self.data):
                 if section.depth <= len(self.context):
@@ -295,7 +297,7 @@ class Parser(HTMLParser):
                 data.append(f"</{tag}>")
 
     # Called for the text contents of each tag
-    def handle_data(self, data):
+    def handle_data(self, data: str) -> None:
         if self.skip.intersection(self.context):
             return
 
@@ -324,9 +326,11 @@ class Parser(HTMLParser):
 
         # Collapse adjacent whitespace
         elif data.isspace():
-            if not self.section.text or not self.section.text[-1].isspace():
-                self.section.text.append(data)
-            elif "pre" in self.context:
+            if (
+                not self.section.text
+                or not self.section.text[-1].isspace()
+                or "pre" in self.context
+            ):
                 self.section.text.append(data)
 
         # Handle everything else
@@ -339,35 +343,31 @@ class Parser(HTMLParser):
 # -----------------------------------------------------------------------------
 
 # Tags to keep
-keep = set(
-    [
-        "p",
-        "code",
-        "pre",
-        "li",
-        "ol",
-        "ul",
-        "sub",
-        "sup",
-    ]
-)
+keep = {
+    "p",
+    "code",
+    "pre",
+    "li",
+    "ol",
+    "ul",
+    "sub",
+    "sup",
+}
 
 # Tags that are self-closing
-void = set(
-    [
-        "area",
-        "base",
-        "br",
-        "col",
-        "embed",
-        "hr",
-        "img",
-        "input",
-        "link",
-        "meta",
-        "param",
-        "source",
-        "track",
-        "wbr",
-    ]
-)
+void = {
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
+}

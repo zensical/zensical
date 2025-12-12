@@ -24,15 +24,19 @@
 from __future__ import annotations
 
 import re
-import yaml
-
 from datetime import date, datetime
+from typing import TYPE_CHECKING, Any
+
+import yaml
 from markdown import Markdown
 from yaml import SafeLoader
 
-from .config import get_config
-from .extensions.links import LinksExtension
-from .extensions.search import SearchExtension
+from zensical.config import get_config
+from zensical.extensions.links import LinksExtension
+from zensical.extensions.search import SearchExtension
+
+if TYPE_CHECKING:
+    from zensical.extensions.search import SearchProcessor
 
 # ----------------------------------------------------------------------------
 # Constants
@@ -53,8 +57,7 @@ Regex pattern to extract front matter.
 
 
 def render(content: str, path: str) -> dict:
-    """
-    Render Markdown and return HTML.
+    """Render Markdown and return HTML.
 
     This function returns rendered HTML as well as the table of contents and
     metadata. Now, this is the part where Zensical needs to call into Python,
@@ -77,8 +80,8 @@ def render(content: str, path: str) -> dict:
     links.extendMarkdown(md)
 
     # Register search extension, which extracts text for search indexing
-    search = SearchExtension()
-    search.extendMarkdown(md)
+    search_extension = SearchExtension()
+    search_extension.extendMarkdown(md)
 
     # First, extract metadata - the Python Markdown parser brings a metadata
     # extension, but the implementation is broken, as it does not support full
@@ -91,7 +94,7 @@ def render(content: str, path: str) -> dict:
                 content = content[match.end() :].lstrip("\n")
             else:
                 meta = {}
-        except Exception:
+        except Exception:  # noqa: BLE001
             pass
 
     # Convert Markdown and set nullish metadata to empty string, since we
@@ -106,24 +109,22 @@ def render(content: str, path: str) -> dict:
             meta[key] = value.isoformat()
 
     # Obtain search index data, unless page is excluded
-    search = md.postprocessors["search"]
+    search_processor: SearchProcessor = md.postprocessors["search"]  # type: ignore[assignment]
     if meta.get("search", {}).get("exclude", False):
-        search.data = []
+        search_processor.data = []
 
     # Return Markdown with metadata
     return {
         "meta": meta,
         "content": content,
-        "search": search.data,
+        "search": search_processor.data,
         "title": "",
         "toc": [_convert_toc(item) for item in getattr(md, "toc_tokens", [])],
     }
 
 
-def _convert_toc(item: any):
-    """
-    Convert a table of contents item to navigation item format.
-    """
+def _convert_toc(item: Any) -> dict:
+    """Convert a table of contents item to navigation item format."""
     toc_item = {
         "title": item["data-toc-label"] or item["name"],
         "id": item["id"],
