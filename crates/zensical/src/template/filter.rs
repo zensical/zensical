@@ -105,13 +105,19 @@ pub fn url_filter(state: &State, url: String) -> String {
 /// is non-sensical, but we mirror behavior to stay compatible.
 pub fn script_tag_filter(state: &State, value: Value) -> String {
     let path = value.get_attr("path").unwrap_or(Value::from(""));
+    let path = path.to_string();
     let mut html =
-        format!("<script src=\"{}\"", url_filter(state, path.into()));
+        format!("<script src=\"{}\"", url_filter(state, path.clone()));
 
     // Set `type` attribute, if given
     if let Ok(kind) = value.get_attr("type") {
         if !kind.is_none() {
             write!(html, " type=\"{kind}\"").expect("invariant");
+        } else if let Some(ext) = Path::new(&path).extension() {
+            // Always add `type="module"` for `.mjs` files
+            if ext.eq_ignore_ascii_case("mjs") {
+                html.push_str(" type=\"module\"");
+            }
         }
     }
 
