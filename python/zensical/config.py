@@ -98,7 +98,7 @@ def parse_zensical_config(path: str) -> dict:
 def parse_mkdocs_config(path: str) -> dict:
     """Parse mkdocs.yml configuration file."""
     global _CONFIG  # noqa: PLW0603
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         config = _yaml_load(f)
 
     # Apply defaults and return parsed configuration
@@ -756,7 +756,7 @@ def _yaml_load(
             raise ConfigurationError(
                 f"Inherited config file '{relpath}' doesn't exist at '{abspath}'."
             )
-        with open(abspath) as fd:
+        with open(abspath, encoding="utf-8") as fd:
             parent = _yaml_load(fd, loader)
         config = always_merger.merge(parent, config)
 
