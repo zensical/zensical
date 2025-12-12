@@ -173,10 +173,10 @@ def _apply_defaults(config: dict, path: str) -> dict:
         host = urlparse(repo_url).hostname or ""
         if not config.get("repo_name") and host in repo_names:
             set_default(config, "repo_name", repo_names[host], str)
-        if host in edit_uris:
-            set_default(config, "edit_uri", edit_uris[host], str)
         elif host:
             config["repo_name"] = host.split(".")[0].title()
+        if host in edit_uris:
+            set_default(config, "edit_uri", edit_uris[host], str)
 
     # Remove trailing slash from edit_uri if present
     edit_uri = config.get("edit_uri")
