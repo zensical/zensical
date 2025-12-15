@@ -381,8 +381,15 @@ def _apply_defaults(config: dict, path: str) -> dict:
     for fence in superfences.get("custom_fences", []):
         if isinstance(fence.get("format"), str):
             fence["format"] = _resolve(fence.get("format"))
+        elif isinstance(fence.get("format"), dict):
+            object = fence["format"].get("object", "pymdownx.superfences.fence_code_format")
+            fence["format"] = _resolve(object)(**fence["format"].get("kwds", {}))
         if isinstance(fence.get("validator"), str):
             fence["validator"] = _resolve(fence.get("validator"))
+        elif isinstance(fence.get("validator"), dict):
+            object = fence["validator"].get("object")
+            callable_object = _resolve(object) if object else lambda *args, **kwargs: True
+            fence["validator"] = callable_object(**fence["validator"].get("kwds", {}))
 
     # Ensure the table of contents title is initialized, as it's used inside
     # the template, and the table of contents extension is always defined
