@@ -368,13 +368,13 @@ def _apply_defaults(config: dict, path: str) -> dict:
     tabbed = config["mdx_configs"].get("pymdownx.tabbed", {})
     if isinstance(tabbed.get("slugify"), dict):
         object = tabbed["slugify"].get("object", "pymdownx.slugs.slugify")
-        tabbed["slugify"] = _resolve(object)(**tabbed["slugify"].get("kwds"))
+        tabbed["slugify"] = _resolve(object)(**tabbed["slugify"].get("kwds", {}))
 
     # Table of contents extension configuration - resolve slugification function
     toc = config["mdx_configs"]["toc"]
     if isinstance(toc.get("slugify"), dict):
         object = toc["slugify"].get("object", "pymdownx.slugs.slugify")
-        toc["slugify"] = _resolve(object)(**toc["slugify"].get("kwds"))
+        toc["slugify"] = _resolve(object)(**toc["slugify"].get("kwds", {}))
 
     # Superfences extension configuration - resolve format function
     superfences = config["mdx_configs"].get("pymdownx.superfences", {})
