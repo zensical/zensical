@@ -74,7 +74,7 @@ class LinksProcessor(Treeprocessor):
 
             # Parse URL and skip everything that is not a relative link
             url = urlparse(value)
-            if url.scheme or url.netloc or value.startswith("/"):
+            if url.scheme or url.netloc:
                 continue
 
             # Leave anchors that go to the same page as they are
