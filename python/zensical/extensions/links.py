@@ -92,10 +92,13 @@ class LinksProcessor(Treeprocessor):
                     elif path.endswith(".html"):
                         path = path[: -len(".html")] + "/"
 
-            # If the current page is not an index page, and we should render
-            # directory URLs, we need to prepend a "../" to all links
-            if not current_is_index and self.use_directory_urls:
-                path = f"../{path}"
+            # If the current page is not an index page,
+            # and if the link is not using an absolute link syntax
+            # and we should render directory URLs, 
+            # then we need to prepend a "../" to all links
+            if not (current_is_index or path.startswith("/")):
+                if self.use_directory_urls:
+                    path = f"../{path}"
 
             # Reassemble URL and update link
             el.set(key, url._replace(path=path).geturl())
