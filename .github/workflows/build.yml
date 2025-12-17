@@ -114,6 +114,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: 3.x
+          architecture: ${{ matrix.target }}
 
       - name: Prepare build
         run: python scripts/prepare.py
