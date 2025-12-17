@@ -36,10 +36,6 @@ on:
         required: true
         type: string
 
-permissions:
-  attestations: write # Required for attestations
-  id-token: write     # Required for OIDC
-
 jobs:
   linux:
     name: Wheel (Linux, ${{ matrix.platform.target }})
@@ -74,12 +70,6 @@ jobs:
           args: --release --out artifacts
           sccache: >
             ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
-
-      - name: Create artifact attestation
-        uses: actions/attest-build-provenance@v1
-        with:
-          show-summary: false
-          subject-path: artifacts/*
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -121,12 +111,6 @@ jobs:
           sccache: >
             ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
 
-      - name: Create artifact attestation
-        uses: actions/attest-build-provenance@v1
-        with:
-          show-summary: false
-          subject-path: artifacts/*
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -164,12 +148,6 @@ jobs:
           args: --release --out artifacts
           sccache: >
             ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
-
-      - name: Create artifact attestation
-        uses: actions/attest-build-provenance@v1
-        with:
-          show-summary: false
-          subject-path: artifacts/*
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -209,12 +187,6 @@ jobs:
           args: --release --out artifacts
           sccache: >
             ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
-
-      - name: Create artifact attestation
-        uses: actions/attest-build-provenance@v1
-        with:
-          show-summary: false
-          subject-path: artifacts/*
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
