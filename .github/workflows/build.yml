@@ -24,140 +24,91 @@
 name: Build
 
 on:
-  pull_request:
   push:
     branches:
       - master
-    tags:
-      - '*'
+  pull_request:
+    branches:
+      - master
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
 
 permissions:
-  contents: read
+  attestations: write # Required for attestations
+  id-token: write     # Required for OIDC
 
 jobs:
-  linux:
-    name: Build wheels (Linux, ${{ matrix.platform.target }})
-    runs-on: ubuntu-latest
+  build:
+    name: Wheel (${{ matrix.name }}, ${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        platform:
-          - target: x86_64
-          - target: x86
-          - target: aarch64
-          - target: armv7
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: 3.x
-
-      - name: Prepare build
-        run: python scripts/prepare.py
-
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.platform.target }}
-          args: --release --out dist
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          manylinux: auto
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-linux-${{ matrix.platform.target }}
-          path: dist
-
-  musllinux:
-    name: Build wheels (Linux Musl, ${{ matrix.platform.target }})
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        platform:
-          - target: x86_64
-          - target: x86
-          - target: aarch64
-          - target: armv7
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: 3.x
-
-      - name: Prepare build
-        run: python scripts/prepare.py
-
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.platform.target }}
-          args: --release --out dist
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          manylinux: musllinux_1_2
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-musllinux-${{ matrix.platform.target }}
-          path: dist
-
-  windows:
-    name: Build wheels (Windows, ${{ matrix.platform.target }})
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        platform:
-          - target: x64
-          - target: x86
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: 3.x
-          architecture: ${{ matrix.platform.target }}
-
-      - name: Prepare build
-        run: python scripts/prepare.py
-
-      - name: Build wheels
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.platform.target }}
-          args: --release --out dist
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-
-      - name: Upload wheels
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-windows-${{ matrix.platform.target }}
-          path: dist
-
-  macos:
-    name: Build wheels (macOS, ${{ matrix.platform.target }})
-    runs-on: ${{ matrix.platform.runner }}
-    strategy:
-      matrix:
-        platform:
-          - runner: macos-15-intel
+        include:
+          - name: Linux
+            platform: linux
+            os: ubuntu-latest
             target: x86_64
-          - runner: macos-15
+            manylinux: auto
+          - name: Linux
+            platform: linux
+            os: ubuntu-latest
+            target: x86
+            manylinux: auto
+          - name: Linux
+            platform: linux
+            os: ubuntu-latest
+            target: aarch64
+            manylinux: auto
+          - name: Linux
+            platform: linux
+            os: ubuntu-latest
+            target: armv7
+            manylinux: auto
+          - name: Linux Musl
+            platform: musllinux
+            os: ubuntu-latest
+            target: x86_64
+            manylinux: musllinux_1_2
+          - name: Linux Musl
+            platform: musllinux
+            os: ubuntu-latest
+            target: x86
+            manylinux: musllinux_1_2
+          - name: Linux Musl
+            platform: musllinux
+            os: ubuntu-latest
+            target: aarch64
+            manylinux: musllinux_1_2
+          - name: Linux Musl
+            platform: musllinux
+            os: ubuntu-latest
+            target: armv7
+            manylinux: musllinux_1_2
+          - name: Windows
+            platform: windows
+            os: windows-latest
+            target: x64
+          - name: Windows
+            platform: windows
+            os: windows-latest
+            target: x86
+          - name: macOS
+            platform: macos
+            os: macos-15-intel
+            target: x86_64
+          - name: macOS
+            platform: macos
+            os: macos-15
             target: aarch64
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -167,72 +118,22 @@ jobs:
       - name: Prepare build
         run: python scripts/prepare.py
 
-      - name: Build wheels
+      - name: Build artifact
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.platform.target }}
-          args: --release --out dist
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          target: ${{ matrix.target }}
+          args: --release --out artifacts
+          sccache: >
+            ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
 
-      - name: Upload wheels
+      - name: Create artifact attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          show-summary: false
+          subject-path: artifacts/*
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-macos-${{ matrix.platform.target }}
-          path: dist
-
-  sdist:
-    name: Build source distribution
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: 3.x
-
-      - name: Prepare build
-        run: python scripts/prepare.py
-
-      - name: Build sdist
-        uses: PyO3/maturin-action@v1
-        with:
-          command: sdist
-          args: --out dist
-
-      - name: Upload sdist
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-sdist
-          path: dist
-
-  release:
-    name: Release
-    runs-on: ubuntu-latest
-    if: >-
-      ${{
-        startsWith(github.ref, 'refs/tags/') ||
-        github.event_name == 'workflow_dispatch'
-      }}
-    needs: [linux, musllinux, windows, macos, sdist]
-    permissions:
-      id-token: write                  # Sign the release artifacts
-      contents: write                  # Upload release artifacts
-      attestations: write              # Generate artifact attestation
-
-    steps:
-      - name: Download wheels and sdist
-        uses: actions/download-artifact@v4
-
-      - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: 'wheels-*/*'
-
-      - name: Publish to PyPI
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
-        uses: PyO3/maturin-action@v1
-        with:
-          command: upload
-          args: --non-interactive --skip-existing wheels-*/*
+          name: wheel-${{ matrix.platform }}-${{ matrix.target }}
+          path: artifacts/*
