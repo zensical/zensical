@@ -121,8 +121,9 @@ jobs:
       - name: Build artifact
         uses: PyO3/maturin-action@v1
         with:
-          target: ${{ matrix.target }}
           args: --release --out artifacts
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
           sccache: >
             ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
 
