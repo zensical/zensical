@@ -24,19 +24,28 @@
 name: Build
 
 on:
-  pull_request:
   push:
     branches:
       - master
-    tags:
-      - '*'
+  pull_request:
+    branches:
+      - master
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+      attestations:
+        required: true
+        type: boolean
 
 permissions:
-  contents: read
+  attestations: write # Required for attestations
+  id-token: write     # Required for OIDC
 
 jobs:
   linux:
-    name: Build wheels (Linux, ${{ matrix.platform.target }})
+    name: Wheel (Linux, ${{ matrix.platform.target }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -49,6 +58,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -58,22 +69,30 @@ jobs:
       - name: Prepare build
         run: python scripts/prepare.py
 
-      - name: Build wheels
+      - name: Build artifact
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: auto
+          args: --release --out artifacts
+          sccache: >
+            ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
 
-      - name: Upload wheels
+      - name: Create artifact attestation
+        if: inputs.attestations == true
+        uses: actions/attest-build-provenance@v1
+        with:
+          show-summary: false
+          subject-path: artifacts/*
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-linux-${{ matrix.platform.target }}
-          path: dist
+          name: wheel-linux-${{ matrix.platform.target }}
+          path: artifacts/*
 
   musllinux:
-    name: Build wheels (Linux Musl, ${{ matrix.platform.target }})
+    name: Wheel (Linux Musl, ${{ matrix.platform.target }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -86,6 +105,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -95,22 +116,30 @@ jobs:
       - name: Prepare build
         run: python scripts/prepare.py
 
-      - name: Build wheels
+      - name: Build artifact
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: musllinux_1_2
+          args: --release --out artifacts
+          sccache: >
+            ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
 
-      - name: Upload wheels
+      - name: Create artifact attestation
+        if: inputs.attestations == true
+        uses: actions/attest-build-provenance@v1
+        with:
+          show-summary: false
+          subject-path: artifacts/*
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-musllinux-${{ matrix.platform.target }}
-          path: dist
+          name: wheel-musllinux-${{ matrix.platform.target }}
+          path: artifacts/*
 
   windows:
-    name: Build wheels (Windows, ${{ matrix.platform.target }})
+    name: Wheel (Windows, ${{ matrix.platform.target }})
     runs-on: windows-latest
     strategy:
       matrix:
@@ -121,6 +150,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -131,21 +162,29 @@ jobs:
       - name: Prepare build
         run: python scripts/prepare.py
 
-      - name: Build wheels
+      - name: Build artifact
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          args: --release --out artifacts
+          sccache: >
+            ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
 
-      - name: Upload wheels
+      - name: Create artifact attestation
+        if: inputs.attestations == true
+        uses: actions/attest-build-provenance@v1
+        with:
+          show-summary: false
+          subject-path: artifacts/*
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-windows-${{ matrix.platform.target }}
-          path: dist
+          name: wheel-windows-${{ matrix.platform.target }}
+          path: artifacts/*
 
   macos:
-    name: Build wheels (macOS, ${{ matrix.platform.target }})
+    name: Wheel (macOS, ${{ matrix.platform.target }})
     runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
@@ -158,6 +197,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -167,25 +208,35 @@ jobs:
       - name: Prepare build
         run: python scripts/prepare.py
 
-      - name: Build wheels
+      - name: Build artifact
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          args: --release --out artifacts
+          sccache: >
+            ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
 
-      - name: Upload wheels
+      - name: Create artifact attestation
+        if: inputs.attestations == true
+        uses: actions/attest-build-provenance@v1
+        with:
+          show-summary: false
+          subject-path: artifacts/*
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-macos-${{ matrix.platform.target }}
-          path: dist
+          name: wheel-macos-${{ matrix.platform.target }}
+          path: artifacts/*
 
   sdist:
-    name: Build source distribution
+    name: Source distribution
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -195,44 +246,21 @@ jobs:
       - name: Prepare build
         run: python scripts/prepare.py
 
-      - name: Build sdist
+      - name: Build artifact
         uses: PyO3/maturin-action@v1
         with:
           command: sdist
-          args: --out dist
+          args: --out artifacts
+
+      - name: Create artifact attestation
+        if: inputs.attestations == true
+        uses: actions/attest-build-provenance@v1
+        with:
+          show-summary: false
+          subject-path: artifacts/*
 
       - name: Upload sdist
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-sdist
-          path: dist
-
-  release:
-    name: Release
-    runs-on: ubuntu-latest
-    if: >-
-      ${{
-        startsWith(github.ref, 'refs/tags/') ||
-        github.event_name == 'workflow_dispatch'
-      }}
-    needs: [linux, musllinux, windows, macos, sdist]
-    permissions:
-      id-token: write                  # Sign the release artifacts
-      contents: write                  # Upload release artifacts
-      attestations: write              # Generate artifact attestation
-
-    steps:
-      - name: Download wheels and sdist
-        uses: actions/download-artifact@v4
-
-      - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v2
-        with:
-          subject-path: 'wheels-*/*'
-
-      - name: Publish to PyPI
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
-        uses: PyO3/maturin-action@v1
-        with:
-          command: upload
-          args: --non-interactive --skip-existing wheels-*/*
+          name: wheel-sdist
+          path: artifacts/*

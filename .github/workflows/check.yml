@@ -24,18 +24,22 @@
 name: Check
 
 on:
-  pull_request:
   push:
+    branches:
+      - master
+  pull_request:
     branches:
       - master
 
 jobs:
-  checks:
-    name: Lint and format
+  clippy:
+    name: Clippy
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@master
@@ -45,8 +49,14 @@ jobs:
       - name: Run clippy
         run: cargo clippy
 
-      - name: Run rustfmt
-        run: find crates -name "*.rs" -exec rustfmt --check {} \;
+  python:
+    name: Python
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
 
       - name: Set up Python
         uses: astral-sh/setup-uv@v7
@@ -62,12 +72,31 @@ jobs:
       - name: Run mypy
         run: uv run mypy .
 
-  security:
-    name: Security audit
+  format:
+    name: Format
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+
+      - name: Run rustfmt
+        run: find crates -name "*.rs" -exec rustfmt --check {} \;
+
+  security:
+    name: Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
 
       - name: Set up Rust cache
         uses: Swatinem/rust-cache@v2
@@ -78,3 +107,24 @@ jobs:
       - name: Audit dependencies
         run: cargo audit
 
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    if: |
+      startsWith(github.event.pull_request.head.ref, 'release/')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Check commit count
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          COMMITS=$(git rev-list --count $HEAD ^$BASE)
+          if [ "$COMMITS" -ne 1 ]; then
+            echo "Release branch must contain exactly one commit, found $COMMITS"
+            exit 1
+          fi

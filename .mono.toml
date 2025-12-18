@@ -1,5 +1,3 @@
-#!/usr/bin/env bash
-
 # Copyright (c) 2025 Zensical and contributors
 
 # SPDX-License-Identifier: MIT
@@ -23,4 +21,6 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
-exec python3 "$(git rev-parse --show-toplevel)/scripts/commit.py" "$@"
+[changeset.scopes]
+compat = "python"
+ui = "scripts"

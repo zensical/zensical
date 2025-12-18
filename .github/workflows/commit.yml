@@ -31,31 +31,28 @@ on:
       - reopened
 
 jobs:
-  lint:
-    name: Lint commit messages
+  validate:
+    name: Validate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: 3.x
+      - name: Set up mono
+        uses: zensical/mono@v0
 
       - name: Get commit messages
         run: |
-          base="${{ github.event.pull_request.base.sha }}"
-          head="${{ github.event.pull_request.head.sha }}"
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          git log "$BASE..$HEAD" --format=%h > commits.txt
 
-          echo "Getting commits from ${base}..${head}"
-          git log "${base}..${head}" --pretty=format:"%s" > commits.txt
-
-      # - name: Run commit message linter
-      #   run: |
-      #     while IFS= read -r commit; do
-      #       echo "Linting commit message: $commit"
-      #       scripts/commit.py "$commit"
-      #     done < commits.txt
+      - name: Validate commit messages
+        run: |
+          while IFS= read -r id; do
+            [ -z "$id" ] && continue
+            mono validate commit --id $id
+          done < commits.txt
