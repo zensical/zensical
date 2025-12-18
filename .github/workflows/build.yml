@@ -35,6 +35,13 @@ on:
       ref:
         required: true
         type: string
+      attestations:
+        required: true
+        type: boolean
+
+permissions:
+  attestations: write # Required for attestations
+  id-token: write     # Required for OIDC
 
 jobs:
   linux:
@@ -70,6 +77,13 @@ jobs:
           args: --release --out artifacts
           sccache: >
             ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
+
+      - name: Create artifact attestation
+        if: inputs.attestations == true
+        uses: actions/attest-build-provenance@v1
+        with:
+          show-summary: false
+          subject-path: artifacts/*
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -111,6 +125,13 @@ jobs:
           sccache: >
             ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
 
+      - name: Create artifact attestation
+        if: inputs.attestations == true
+        uses: actions/attest-build-provenance@v1
+        with:
+          show-summary: false
+          subject-path: artifacts/*
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -148,6 +169,13 @@ jobs:
           args: --release --out artifacts
           sccache: >
             ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
+
+      - name: Create artifact attestation
+        if: inputs.attestations == true
+        uses: actions/attest-build-provenance@v1
+        with:
+          show-summary: false
+          subject-path: artifacts/*
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -188,6 +216,13 @@ jobs:
           sccache: >
             ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
 
+      - name: Create artifact attestation
+        if: inputs.attestations == true
+        uses: actions/attest-build-provenance@v1
+        with:
+          show-summary: false
+          subject-path: artifacts/*
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -216,6 +251,13 @@ jobs:
         with:
           command: sdist
           args: --out artifacts
+
+      - name: Create artifact attestation
+        if: inputs.attestations == true
+        uses: actions/attest-build-provenance@v1
+        with:
+          show-summary: false
+          subject-path: artifacts/*
 
       - name: Upload sdist
         uses: actions/upload-artifact@v4
