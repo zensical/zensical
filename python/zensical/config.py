@@ -171,10 +171,11 @@ def _apply_defaults(config: dict, path: str) -> dict:
     repo_url = config.get("repo_url")
     if repo_url:
         host = urlparse(repo_url).hostname or ""
-        if not config.get("repo_name") and host in repo_names:
-            set_default(config, "repo_name", repo_names[host], str)
-        elif host:
-            config["repo_name"] = host.split(".")[0].title()
+        if not config.get("repo_name"):
+            if host in repo_names:
+                set_default(config, "repo_name", repo_names[host], str)
+            elif host:
+                config["repo_name"] = host.split(".")[0].title()
         if host in edit_uris:
             set_default(config, "edit_uri", edit_uris[host], str)
 
