@@ -74,13 +74,6 @@ jobs:
           git tag -a $VERSION -m "Release $VERSION"
           git push origin $VERSION
 
-      - name: Create and push major version tag
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          MAJOR_VERSION="${VERSION%%.*}"
-          git tag -f $MAJOR_VERSION $VERSION
-          git push -f origin $MAJOR_VERSION
-
   release:
     name: Create release
     runs-on: ubuntu-latest
