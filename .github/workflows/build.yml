@@ -271,6 +271,7 @@ jobs:
     env:
       IMAGE: ${{ github.event.repository.full_name }}
       DOCKER_BUILDKIT: 1
+      DOCKER_BUILD_SUMMARY: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -279,6 +280,8 @@ jobs:
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          buildkitd-flags: --debug
 
       - name: Build image
         uses: docker/build-push-action@v6
