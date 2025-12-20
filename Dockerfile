@@ -1,4 +1,7 @@
-# Copyright (c) 2016-2025 Martin Donath <martin.donath@squidfunk.com>
+# Copyright (c) 2025 Zensical and contributors
+
+# SPDX-License-Identifier: MIT
+# Third-party contributions licensed under DCO
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to
@@ -64,6 +67,10 @@ COPY uv.lock uv.lock
 # Install dependencies
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --dev --no-install-project
+
+# Install additional dependencies
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system mkdocstrings-python
 
 # Copy files to build project
 COPY crates crates

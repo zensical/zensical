@@ -39,6 +39,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IMAGE: ${{ github.event.repository.full_name }}
+      DOCKER_BUILDKIT: 1
+      DOCKER_BUILD_SUMMARY: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
