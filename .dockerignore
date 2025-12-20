@@ -21,9 +21,4 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
-.git
-.github
-.vscode
 python/zensical/templates
-target
-tmp

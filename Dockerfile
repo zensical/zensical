@@ -62,24 +62,28 @@ COPY README.md README.md
 COPY uv.lock uv.lock
 
 # Install dependencies
-RUN --mount=type=cache,target=/root/.cargo/registry \
-    --mount=type=cache,target=/root/.cargo/git \
-    --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --dev --no-install-project
 
 # Copy files to build project
-COPY . .
+COPY crates crates
+COPY python python
+COPY Cargo.lock Cargo.lock
+COPY Cargo.toml Cargo.toml
 
 # Build project
 RUN . /.venv/bin/activate
-RUN uv pip install --system . -v
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=target \
+    uv pip install --system . -v
 
 # -----------------------------------------------------------------------------
 
-FROM scratch as image
+FROM scratch AS image
 
 # Copy relevant files from build
-COPY --from=build /bin/ls /bin/ls
 COPY --from=build /bin/sh /bin/sh
 COPY --from=build /sbin/tini /sbin/tini
 COPY --from=build /lib /lib
