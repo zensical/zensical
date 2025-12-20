@@ -62,7 +62,10 @@ COPY README.md README.md
 COPY uv.lock uv.lock
 
 # Install dependencies
-RUN uv sync --dev --no-install-project
+RUN --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
+    --mount=type=cache,target=/root/.cache/uv \
+    uv sync --dev --no-install-project
 
 # Copy files to build project
 COPY . .
