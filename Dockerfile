@@ -31,13 +31,13 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # Install build dependencies
 RUN apk upgrade --update-cache -a
 RUN apk add --no-cache \
-  curl \
-  git \
-  gcc \
-  libffi-dev \
-  musl-dev \
-  tini \
-  uv
+    curl \
+    git \
+    gcc \
+    libffi-dev \
+    musl-dev \
+    tini \
+    uv
 
 # Install Rust toolchain
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
