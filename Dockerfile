@@ -1,4 +1,7 @@
-# Copyright (c) 2016-2025 Martin Donath <martin.donath@squidfunk.com>
+# Copyright (c) 2025 Zensical and contributors
+
+# SPDX-License-Identifier: MIT
+# Third-party contributions licensed under DCO
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to
