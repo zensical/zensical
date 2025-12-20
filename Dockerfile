@@ -28,12 +28,17 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # Install build dependencies
 RUN apk upgrade --update-cache -a
 RUN apk add --no-cache \
+  curl \
   git \
   gcc \
   libffi-dev \
   musl-dev \
   tini \
   uv
+
+# Install Rust toolchain
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Copy files to prepare build
 COPY scripts scripts
@@ -42,17 +47,36 @@ COPY scripts scripts
 RUN mkdir -p python/zensical
 RUN python scripts/prepare.py
 
+# Create a stub project, which will allow us to install dependencies and have
+# them properly cached while changes to sources won't invalidate the cache
+RUN mkdir crates
+RUN cargo new --lib crates/zensical
+RUN cargo add pyo3 \
+    --manifest-path crates/zensical/Cargo.toml \
+    --features extension-module
+
+# Copy files to install dependencies - these will get installed into a virtual
+# environment, which is fine, since uv can later reuse the cached versions
+COPY pyproject.toml pyproject.toml
+COPY README.md README.md
+COPY uv.lock uv.lock
+
+# Install dependencies
+RUN uv sync --dev --no-install-project
+
 # Copy files to build project
 COPY . .
 
 # Build project
-RUN uv pip install --system .
+RUN . /.venv/bin/activate
+RUN uv pip install --system . -v
 
 # -----------------------------------------------------------------------------
 
 FROM scratch as image
 
 # Copy relevant files from build
+COPY --from=build /bin/ls /bin/ls
 COPY --from=build /bin/sh /bin/sh
 COPY --from=build /sbin/tini /sbin/tini
 COPY --from=build /lib /lib
