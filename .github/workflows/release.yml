@@ -123,8 +123,6 @@ jobs:
     needs:
       - tag
       - release
-    env:
-      VERSION: ${{ needs.tag.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5

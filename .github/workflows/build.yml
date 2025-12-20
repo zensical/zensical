@@ -264,3 +264,21 @@ jobs:
         with:
           name: wheel-sdist
           path: artifacts/*
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ${{ github.event.repository.full_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.IMAGE }}:latest
