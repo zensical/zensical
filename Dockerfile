@@ -25,38 +25,41 @@ FROM python:3.14-alpine3.23 AS build
 # Disable bytecode caching during build
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Copy files necessary for build
+# Install build dependencies
+RUN apk upgrade --update-cache -a
+RUN apk add --no-cache \
+  git \
+  gcc \
+  libffi-dev \
+  musl-dev \
+  tini \
+  uv
+
+# Copy files to prepare build
+COPY scripts scripts
+
+# Prepare build
+RUN mkdir -p python/zensical
+RUN python scripts/prepare.py
+
+# Copy files to build project
 COPY . .
 
-# Perform build and cleanup artifacts and caches
-RUN apk upgrade --update-cache -a \
-    && apk add --no-cache git \
-      gcc \
-      libffi-dev \
-      musl-dev \
-      tini \
-      uv
-
-RUN ls -lha .
-RUN python scripts/prepare.py
-RUN uv pip install --system --no-cache-dir .
-    # && \
-    #   find /usr/local/lib/python3.14/site-packages \
-    #     -type f \
-    #     -path "*/__pycache__/*" \
-    #     -exec rm -f {} \;
+# Build project
+RUN uv pip install --system .
 
 # -----------------------------------------------------------------------------
 
-FROM scratch
+FROM scratch as image
 
 # Copy relevant files from build
-COPY --from=build /usr/local /usr/local
+COPY --from=build /bin/sh /bin/sh
+COPY --from=build /sbin/tini /sbin/tini
 COPY --from=build /lib /lib
 COPY --from=build /usr/lib /usr/lib
-COPY --from=build /sbin/tini /sbin/tini
+COPY --from=build /usr/local /usr/local
 
-# Set working directory and expose Zensical's preview server port
+# Set working directory and expose preview server port
 WORKDIR /docs
 EXPOSE 8000
 

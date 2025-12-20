@@ -24,5 +24,6 @@
 .git
 .github
 .vscode
+python/zensical/templates
 target
 tmp
