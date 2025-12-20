@@ -68,6 +68,10 @@ COPY uv.lock uv.lock
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --dev --no-install-project
 
+# Install additional dependencies
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system mkdocstrings-python
+
 # Copy files to build project
 COPY crates crates
 COPY python python
