@@ -264,3 +264,27 @@ jobs:
         with:
           name: wheel-sdist
           path: artifacts/*
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ${{ github.event.repository.full_name }}
+      DOCKER_BUILDKIT: 1
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
