@@ -118,13 +118,13 @@ features = [
     # https://zensical.org/docs/setup/header/#announcement-bar
     "announce.dismiss",
 
-    # If you have a repository configured and turn feature this on, Zensical
+    # If you have a repository configured and turn on this feature, Zensical
     # will generate an edit button for the page. This works for common
     # repository hosting services.
     # https://zensical.org/docs/setup/repository/#code-actions
     #"content.action.edit",
 
-    # If you have a repository configured and turn feature this on, Zensical
+    # If you have a repository configured and turn on this feature, Zensical
     # will generate a button that allows the user to view the Markdown
     # code for the current page.
     # https://zensical.org/docs/setup/repository/#code-actions
