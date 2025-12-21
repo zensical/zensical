@@ -22,5 +22,6 @@
 # IN THE SOFTWARE.
 
 [changeset.scopes]
-compat = "python"
-ui = "scripts"
+compat = "python/**"
+docker = "Dockerfile"
+ui = "scripts/**"
