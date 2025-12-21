@@ -127,6 +127,8 @@ jobs:
           docker buildx imagetools inspect $IMAGE:$VERSION
 
       - name: Inspect image
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           docker pull $IMAGE:$VERSION
           docker image inspect $IMAGE:$VERSION
