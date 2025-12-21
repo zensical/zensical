@@ -121,7 +121,11 @@ def get_theme_dir() -> str:
 def get_custom_theme_dir(config: dict) -> str | None:
     """Return the custom theme directory."""
     path = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(path, config["theme"]["custom_dir"])
+    if config["theme"].get("custom_dir"):
+        return os.path.join(path, config["theme"].get("custom_dir"))
+
+    # Otherwise, return no path
+    return None
 
 
 def _apply_defaults(config: dict, path: str) -> dict:
