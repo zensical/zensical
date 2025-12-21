@@ -25,17 +25,17 @@ name: Docker
 
 on:
   pull_request:
-    types:
-      - closed
+    # types:
+    #   - closed
     branches:
       - master
 
 jobs:
   docker:
     name: Build and push
-    if: |
-      github.event.pull_request.merged == true &&
-      startsWith(github.event.pull_request.head.ref, 'release/')
+    # if: |
+    #   github.event.pull_request.merged == true &&
+    #   startsWith(github.event.pull_request.head.ref, 'release/')
     runs-on: ubuntu-latest
     env:
       IMAGE: ${{ github.event.repository.full_name }}
@@ -100,7 +100,7 @@ jobs:
             linux/amd64
             linux/arm64
             linux/arm/v7
-          push: true
+          # push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
