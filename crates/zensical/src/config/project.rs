@@ -88,4 +88,6 @@ pub struct Project {
     pub plugins: Plugins,
     /// Navigation structure.
     pub nav: Vec<NavigationItem>,
+    /// Template hash.
+    pub template_hash: u64,
 }

@@ -118,6 +118,12 @@ def get_theme_dir() -> str:
     return os.path.join(path, "templates")
 
 
+def get_custom_theme_dir(config: dict) -> str | None:
+    """Return the custom theme directory."""
+    path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(path, config["theme"]["custom_dir"])
+
+
 def _apply_defaults(config: dict, path: str) -> dict:
     """Apply default settings in configuration.
 
@@ -161,12 +167,12 @@ def _apply_defaults(config: dict, path: str) -> dict:
     repo_names = {
         "github.com": "GitHub",
         "gitlab.com": "Gitlab",
-        "bitbucket.org": "Bitbucket"
+        "bitbucket.org": "Bitbucket",
     }
     edit_uris = {
         "github.com": f"edit/master/{docs_dir}",
         "gitlab.com": f"edit/master/{docs_dir}",
-        "bitbucket.org": f"src/default/{docs_dir}"
+        "bitbucket.org": f"src/default/{docs_dir}",
     }
     repo_url = config.get("repo_url")
     if repo_url:
@@ -287,11 +293,15 @@ def _apply_defaults(config: dict, path: str) -> dict:
 
     # Set defaults for extra settings
     if "extra" in config and not isinstance(config["extra"], dict):
-        raise ConfigurationError("The 'extra' setting must be a mapping/dictionary.")
+        raise ConfigurationError(
+            "The 'extra' setting must be a mapping/dictionary."
+        )
     extra = set_default(config, "extra", {}, dict)
 
     if "polyfills" in extra and not isinstance(extra["polyfills"], list):
-        raise ConfigurationError("The 'extra.polyfills' setting must be a list.")
+        raise ConfigurationError(
+            "The 'extra.polyfills' setting must be a list."
+        )
     set_default(extra, "polyfills", [], list)
 
     # Ensure all non-existent values are all empty strings (for now)
@@ -369,7 +379,9 @@ def _apply_defaults(config: dict, path: str) -> dict:
     tabbed = config["mdx_configs"].get("pymdownx.tabbed", {})
     if isinstance(tabbed.get("slugify"), dict):
         object = tabbed["slugify"].get("object", "pymdownx.slugs.slugify")
-        tabbed["slugify"] = _resolve(object)(**tabbed["slugify"].get("kwds", {}))
+        tabbed["slugify"] = _resolve(object)(
+            **tabbed["slugify"].get("kwds", {})
+        )
 
     # Table of contents extension configuration - resolve slugification function
     toc = config["mdx_configs"]["toc"]
@@ -383,14 +395,22 @@ def _apply_defaults(config: dict, path: str) -> dict:
         if isinstance(fence.get("format"), str):
             fence["format"] = _resolve(fence.get("format"))
         elif isinstance(fence.get("format"), dict):
-            object = fence["format"].get("object", "pymdownx.superfences.fence_code_format")
-            fence["format"] = _resolve(object)(**fence["format"].get("kwds", {}))
+            object = fence["format"].get(
+                "object", "pymdownx.superfences.fence_code_format"
+            )
+            fence["format"] = _resolve(object)(
+                **fence["format"].get("kwds", {})
+            )
         if isinstance(fence.get("validator"), str):
             fence["validator"] = _resolve(fence.get("validator"))
         elif isinstance(fence.get("validator"), dict):
             object = fence["validator"].get("object")
-            callable_object = _resolve(object) if object else lambda *args, **kwargs: True
-            fence["validator"] = callable_object(**fence["validator"].get("kwds", {}))
+            callable_object = (
+                _resolve(object) if object else lambda *args, **kwargs: True
+            )
+            fence["validator"] = callable_object(
+                **fence["validator"].get("kwds", {})
+            )
 
     # Ensure the table of contents title is initialized, as it's used inside
     # the template, and the table of contents extension is always defined
@@ -400,7 +420,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     # Convert plugins configuration
     config["plugins"] = _convert_plugins(config.get("plugins", []), config)
 
-    # mkdocstrings configuration
+    # Set up mkdocstrings, which touches plugins and Markdown extensions
     if "mkdocstrings" in config["plugins"]:
         mkdocstrings_config = config["plugins"]["mkdocstrings"]["config"]
         if mkdocstrings_config.pop("enabled", True):
@@ -410,6 +430,8 @@ def _apply_defaults(config: dict, path: str) -> dict:
             config["markdown_extensions"].append("mkdocstrings")
             config["mdx_configs"]["mkdocstrings"] = mkdocstrings_config
 
+    # Hash all templates, so we rebuild if something changes
+    config["template_hash"] = _hash(_list_templates(config))
     return config
 
 
@@ -440,6 +462,29 @@ def _hash(data: Any) -> int:
     """Compute a hash for the given data."""
     hash = hashlib.sha1(pickle.dumps(data))  # noqa: S324
     return int(hash.hexdigest(), 16) % (2**64)
+
+
+def _list_templates(config: dict) -> list[tuple[str, int]]:
+    """List all template files in the theme directories."""
+    dirs = [get_theme_dir()]
+    if "custom_dir" in config["theme"]:
+        custom_dir = get_custom_theme_dir(config)
+        if custom_dir is not None:
+            dirs.append(custom_dir)
+
+    # Collect file paths and their mtimes
+    files_with_mtime = []
+    for directory in dirs:
+        for path, _, files in os.walk(directory):
+            if ".icons" in path:
+                continue
+            for file in files:
+                file_path = os.path.join(path, file)
+                mtime = os.path.getsize(file_path)
+                files_with_mtime.append((file_path, mtime))
+
+    # Sort by file path for deterministic order
+    return sorted(files_with_mtime)
 
 
 def _convert_extra(data: dict | list) -> dict | list:
