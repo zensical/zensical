@@ -23,7 +23,7 @@
 
 [package]
 name = "zensical"
-version = "0.0.13"
+version = "0.0.14"
 description = "Zensical"
 edition.workspace = true
 rust-version.workspace = true
