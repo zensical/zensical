@@ -109,7 +109,7 @@ jobs:
           docker run --rm -i -v $PWD:/docs $IMAGE:$VERSION new .
           docker run --rm -i -v $PWD:/docs $IMAGE:$VERSION build
 
-      - name: Build and publish image
+      - name: Build and push image
         uses: docker/build-push-action@v6
         with:
           context: .
