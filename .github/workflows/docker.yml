@@ -47,6 +47,13 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
 
+      - name: Determine version
+        id: version
+        run: |
+          BRANCH="${{ github.event.pull_request.head.ref }}"
+          VERSION=${BRANCH#release/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -62,14 +69,24 @@ jobs:
       - name: Generate tags and labels
         id: meta
         uses: docker/metadata-action@v5
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=semver,value=${{ env.VERSION }},pattern={{version}}
+            type=semver,value=${{ env.VERSION }},pattern={{major}}.{{minor}}
+            type=semver,value=${{ env.VERSION }},pattern={{major}}
             type=ref,event=branch
             type=ref,event=pr
+          labels: |
+            org.opencontainers.image.title=Zensical
+            org.opencontainers.image.description=A modern static site generator
+            org.opencontainers.image.documentation=https://zensical.org/docs/
+            org.opencontainers.image.url=https://zensical.org
+            org.opencontainers.image.vendor=Zensical
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.licenses=MIT
 
       - name: Prepare build
         run: python scripts/prepare.py
@@ -99,12 +116,9 @@ jobs:
           platforms: |
             linux/amd64
             linux/arm64
-            linux/arm/v7
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
 
       - name: Inspect manifest
         env:

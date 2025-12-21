@@ -90,19 +90,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 FROM scratch AS image
 
-# Set version argument
-ARG VERSION
-
-# Annotate image with metadata
-LABEL org.opencontainers.image.title="Zensical"
-LABEL org.opencontainers.image.description="A modern static site generator"
-LABEL org.opencontainers.image.documentation="https://zensical.org/docs/"
-LABEL org.opencontainers.image.source="https://github.com/zensical/zensical"
-LABEL org.opencontainers.image.url="https://zensical.org"
-LABEL org.opencontainers.image.vendor="zensical"
-LABEL org.opencontainers.image.version="${VERSION}"
-LABEL org.opencontainers.image.license="MIT"
-
 # Copy relevant files from build
 COPY --from=build /bin/sh /bin/sh
 COPY --from=build /sbin/tini /sbin/tini
