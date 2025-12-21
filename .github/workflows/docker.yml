@@ -77,7 +77,6 @@ jobs:
             type=semver,value=${{ env.VERSION }},pattern={{version}}
             type=semver,value=${{ env.VERSION }},pattern={{major}}.{{minor}}
             type=semver,value=${{ env.VERSION }},pattern={{major}}
-            type=ref,event=branch
             type=ref,event=pr
           labels: |
             org.opencontainers.image.title=Zensical
