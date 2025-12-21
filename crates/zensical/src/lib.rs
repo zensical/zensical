@@ -33,6 +33,7 @@
 use crossbeam::channel::unbounded;
 use pyo3::prelude::*;
 use std::path::PathBuf;
+use std::thread;
 use std::time::{Duration, Instant};
 use zrx::scheduler::action::Report;
 use zrx::scheduler::Scheduler;
@@ -157,6 +158,16 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     };
     let watcher = Watcher::new(&config, session, sender, waker.clone())?;
 
+    // Hack: the scheduler and file agent are currently not synchronized, which
+    // can lead to cases where the file agent is still busy reading the contents
+    // of the docs directory before starting to emit anything, and the scheduler
+    // starting off while having nothing to do. We need to improve communication
+    // between both parts of the system. In the meantime, we wait until the
+    // scheduler has something to do, before kicking off work.
+    while scheduler.is_empty() {
+        thread::sleep(Duration::from_millis(10));
+    }
+
     // Start event loop after a short delay - once we tightly integrated the
     // file agent with the scheduler, the sleep can be removed
     println!("Build started");
@@ -165,10 +176,8 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         match mode {
             // Build mode - just exit when we're done
             Mode::Build(..) => {
-                handle(scheduler.tick());
-                // @todo this is a hack to ensure we don't exit too early, as
-                // we need to improve the interop between scheduler and agent
-                if scheduler.is_empty() && scheduler.total() > 100 {
+                handle(scheduler.tick_timeout(Duration::from_millis(100)));
+                if scheduler.is_empty() {
                     let elapsed = time.elapsed().as_secs_f32();
                     println!("Build finished in {elapsed:.2}s");
                     break;
