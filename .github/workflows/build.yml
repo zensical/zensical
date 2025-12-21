@@ -92,7 +92,7 @@ jobs:
           path: artifacts/*
 
   musllinux:
-    name: Wheel (Linux Musl, ${{ matrix.platform.target }})
+    name: Wheel (Linux, musl, ${{ matrix.platform.target }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
