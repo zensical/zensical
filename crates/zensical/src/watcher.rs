@@ -27,6 +27,7 @@
 
 use crossbeam::channel::Sender;
 use mio::Waker;
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -78,9 +79,11 @@ impl Watcher {
         sources.push((config.get_site_dir(), config.project.site_dir.clone()));
         sources.push((path, String::from(".")));
 
+        // Track seen files to restart on config or template change
+        let mut seen = BTreeSet::new();
+
         // Initialize file agent - we use a debounce interval of 20ms, which
         // should be sufficient to correctly determine rename events
-        let mut initial = false;
         let agent = Agent::new(Duration::from_millis(20), {
             let config = config.clone();
             move |res| {
@@ -93,11 +96,20 @@ impl Watcher {
 
                     // Check if the config file reloaded, and terminate agent,
                     // as we need to kick off the entire pipeline again
-                    if *event.path() == config.path {
-                        if initial {
+                    if *event.path() == config.path
+                        && !seen.insert(config.path.clone())
+                    {
+                        return Err(Error::Disconnected);
+                    }
+
+                    // Check if the event is in any of the theme directories
+                    // and restart the build if we've already seen the file
+                    for dir in &config.theme_dirs {
+                        if event.path().starts_with(dir)
+                            && !seen.insert((*event.path()).clone())
+                        {
                             return Err(Error::Disconnected);
                         }
-                        initial = true;
                     }
 
                     // Ignore events in the site directory, since they are files
