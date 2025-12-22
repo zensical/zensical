@@ -135,7 +135,7 @@ def execute_serve(config_file: str | None, **kwargs: Any) -> None:
     required=False,
 )
 def new_project(directory: str | None, **kwargs: Any) -> None:  # noqa: ARG001
-    """Create a new template project in the current directory or in the given directory.
+    """Create a new template project in the current or given directory.
 
     Raises:
         ClickException: if the directory already contains a zensical.toml or a
