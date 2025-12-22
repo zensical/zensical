@@ -442,7 +442,10 @@ def _apply_defaults(config: dict, path: str) -> dict:
 def set_default(
     entry: dict, key: str, default: Any, data_type: type | None = None
 ) -> Any:
-    """Set a key to a default value if it isn't set, and optionally cast it to the specified data type."""
+    """Set a key to a default value if it isn't set.
+
+    Optionally cast it to the specified data type.
+    """
     if key in entry and entry[key] is None:
         del entry[key]
 
@@ -492,7 +495,7 @@ def _list_templates(config: dict) -> list[tuple[str, int]]:
 
 
 def _convert_extra(data: dict | list) -> dict | list:
-    """Recursively convert all None values in a dictionary or list to empty strings."""
+    """Recursively convert None values in a dictionary/list to empty strings."""
     if isinstance(data, dict):
         # Process each key-value pair in the dictionary
         return {
@@ -528,7 +531,7 @@ def _convert_nav(nav: list) -> list:
 
 
 def _convert_nav_item(item: str | dict | list) -> dict | list:
-    """Convert MkDocs shorthand navigation structure into something more manageable.
+    """Convert MkDocs shorthand navigation structure into something manageable.
 
     We need to annotate each item with a title, URL, icon, and children.
     """
@@ -609,7 +612,7 @@ def _convert_extra_javascript(value: list) -> list:
 
 
 def _convert_markdown_extensions(value: Any) -> tuple[list[str], dict]:
-    """Convert Markdown extensions configuration to what Python Markdown expects."""
+    """Convert Markdown extensions to what Python Markdown expects."""
     markdown_extensions = ["toc", "tables"]
     mdx_configs: dict[str, dict[str, Any]] = {"toc": {}, "tables": {}}
 
@@ -724,7 +727,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
 def _yaml_load(
     source: IO, loader: type[BaseLoader] | None = None
 ) -> dict[str, Any]:
-    """Load configuration file and resolve environment variables and parent files.
+    """Load configuration file, resolve environment variables and parent files.
 
     Note that INHERIT is only a bandaid that was introduced to allow for some
     degree of modularity, but with serious shortcomings. Zensical will use a
@@ -756,7 +759,8 @@ def _yaml_load(
         )
         if not os.path.exists(abspath):
             raise ConfigurationError(
-                f"Inherited config file '{relpath}' doesn't exist at '{abspath}'."
+                f"Inherited config file '{relpath}' "
+                f"doesn't exist at '{abspath}'."
             )
         with open(abspath, encoding="utf-8") as fd:
             parent = _yaml_load(fd, loader)

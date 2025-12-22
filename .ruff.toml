@@ -53,7 +53,6 @@ ignore = [
     "D105",  # Missing docstring in magic method
     "D107",  # Missing docstring in `__init__` method
     "D417",  # Missing argument description in the docstring
-    "E501",  # Line too long
     "ERA001",  # Commented out code
     "FBT001",  # Boolean positional parameter in function signature
     "FBT003",  # Boolean positional value in function call
