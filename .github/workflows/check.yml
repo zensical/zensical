@@ -47,7 +47,7 @@ jobs:
           toolchain: stable
 
       - name: Run clippy
-        run: cargo clippy
+        run: cargo clippy -- -D warnings
 
   python:
     name: Python
