@@ -1,7 +1,7 @@
-# Copyright (c) 2025 Zensical and contributors
+# Copyright (c) 2025-2026 Zensical and contributors
 
 # SPDX-License-Identifier: MIT
-# Third-party contributions licensed under DCO
+# All contributions are certified under the DCO
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to
