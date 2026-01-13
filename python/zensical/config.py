@@ -262,18 +262,10 @@ def _apply_defaults(config: dict, path: str) -> dict:
 
     # Set defaults for theme admonition icons
     admonition = set_default(icon, "admonition", {}, dict)
-    set_default(admonition, "note", None, str)
-    set_default(admonition, "abstract", None, str)
-    set_default(admonition, "info", None, str)
-    set_default(admonition, "tip", None, str)
-    set_default(admonition, "success", None, str)
-    set_default(admonition, "question", None, str)
-    set_default(admonition, "warning", None, str)
-    set_default(admonition, "failure", None, str)
-    set_default(admonition, "danger", None, str)
-    set_default(admonition, "bug", None, str)
-    set_default(admonition, "example", None, str)
-    set_default(admonition, "quote", None, str)
+    if isinstance(admonition, dict):
+        icon["admonition"] = {
+            key: value for key, value in admonition.items() if value is not None
+        }
 
     # Set defaults for theme palette settings and normalize to list
     palette = theme.setdefault("palette", [])
