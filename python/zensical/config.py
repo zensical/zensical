@@ -264,7 +264,9 @@ def _apply_defaults(config: dict, path: str) -> dict:
     admonition = set_default(icon, "admonition", {}, dict)
     if isinstance(admonition, dict):
         icon["admonition"] = {
-            key: value for key, value in admonition.items() if value is not None
+            str(key): str(value)
+            for key, value in admonition.items()
+            if value is not None
         }
 
     # Set defaults for theme palette settings and normalize to list
