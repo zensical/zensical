@@ -118,39 +118,9 @@ pub struct Icon {
     /// Next page icon.
     pub next: Option<String>,
     /// Admonition icons.
-    pub admonition: Option<AdmonitionIcon>,
+    pub admonition: BTreeMap<String, String>,
     /// Tag icons.
     pub tag: BTreeMap<String, String>,
-}
-
-/// Admonition icons.
-#[derive(Debug, Hash, FromPyObject, Serialize)]
-#[pyo3(from_item_all)]
-pub struct AdmonitionIcon {
-    /// Admonition `note` icon.
-    pub note: Option<String>,
-    /// Admonition `abstract` icon.
-    pub r#abstract: Option<String>,
-    /// Admonition `info` icon.
-    pub info: Option<String>,
-    /// Admonition `tip` icon.
-    pub tip: Option<String>,
-    /// Admonition `success` icon.
-    pub success: Option<String>,
-    /// Admonition `question` icon.
-    pub question: Option<String>,
-    /// Admonition `warning` icon.
-    pub warning: Option<String>,
-    /// Admonition `failure` icon.
-    pub failure: Option<String>,
-    /// Admonition `danger` icon.
-    pub danger: Option<String>,
-    /// Admonition `bug` icon.
-    pub bug: Option<String>,
-    /// Admonition `example` icon.
-    pub example: Option<String>,
-    /// Admonition `quote` icon.
-    pub quote: Option<String>,
 }
 
 // ----------------------------------------------------------------------------
