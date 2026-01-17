@@ -47,6 +47,8 @@ use super::template::Template;
 mod cached;
 
 use cached::cached;
+use pyo3::types::PyAnyMethods;
+use pyo3::Python;
 
 // ----------------------------------------------------------------------------
 // Functions
@@ -197,7 +199,30 @@ pub fn generate_nav(
     })
 }
 
-/// Generte search index
+/// Generate object inventory
+pub fn generate_object_inventory(
+    config: &Config, nav: &Stream<Id, Navigation>,
+    pages: &Stream<Id, Chunk<Id, Page>>,
+) {
+    // Retrieve inventory from Python interpreter using pyo3
+    let config = config.clone();
+    pages.product(nav).delta_map(with_splat(move |_, _| {
+        let data = Python::attach(|py| {
+            let module = py.import("mkdocstrings._internal.extension")?;
+            module.call_method0("_get_inventory")?.extract::<Vec<u8>>()
+        });
+
+        // Write object inventory to disk
+        let site_dir = config.get_site_dir();
+        if let Ok(data) = data {
+            let path = site_dir.join("objects.inv");
+            let _ = fs::create_dir_all(path.parent().expect("invariant"));
+            let _ = fs::write(path, &data);
+        }
+    }));
+}
+
+/// Generate search index
 pub fn generate_search_index(
     config: &Config, nav: &Stream<Id, Navigation>,
     pages: &Stream<Id, Chunk<Id, Page>>,
@@ -344,6 +369,9 @@ pub fn create_workspace(config: &Config) -> Workspace<Id> {
     // Generate navigation and search index
     let nav = generate_nav(&config, &pages);
     generate_search_index(&config, &nav, &pages);
+
+    // Generate object inventory
+    generate_object_inventory(&config, &nav, &pages);
 
     // Render static and extra templates, as well as pages
     render_templates(&config, &files, &nav);
