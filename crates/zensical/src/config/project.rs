@@ -27,6 +27,7 @@
 
 use pyo3::FromPyObject;
 use serde::Serialize;
+use std::path::PathBuf;
 
 use crate::structure::dynamic::Dynamic;
 use crate::structure::nav::NavigationItem;
@@ -90,4 +91,6 @@ pub struct Project {
     pub nav: Vec<NavigationItem>,
     /// Template hash.
     pub template_hash: u64,
+    /// Source files.
+    pub source_files: Vec<(PathBuf, u64)>,
 }

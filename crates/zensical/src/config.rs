@@ -112,7 +112,6 @@ impl Config {
             let hash = {
                 let mut hasher = DefaultHasher::default();
                 project.hash(&mut hasher);
-                hasher.write_u64(project.template_hash);
                 hasher.finish()
             };
 
