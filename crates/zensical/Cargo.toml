@@ -54,6 +54,7 @@ minijinja = { workspace = true, features = [
 minijinja-contrib = { workspace = true, features = ["html_entities"] }
 mio = { workspace = true, features = ["net", "os-poll"] }
 pyo3.workspace = true
+regex.workspace = true
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
 thiserror.workspace = true

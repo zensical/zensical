@@ -26,7 +26,7 @@
 //! Workflow definitions
 
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::{fs, io};
 use zrx::id::{Id, Matcher};
@@ -146,9 +146,50 @@ pub fn process_markdown(
         .map_concurrency(
             with_id(move |id: &Id, path: String| {
                 let data = fs::read_to_string(path)?;
-                cached(&config, id, (config.hash, data), |(_, data)| {
-                    Markdown::new(id, data)
-                })
+
+                // Compute URL using same logic as Page::new()
+                let site_dir = config.project.site_dir.clone();
+                let use_directory_urls = config.project.use_directory_urls;
+
+                let builder = id.to_builder().with_context(&site_dir);
+                let url_id = builder.clone().build().expect("invariant");
+
+                let mut url_path: PathBuf =
+                    url_id.location().to_string().into();
+                let is_index = url_path.ends_with("index.md")
+                    || url_path.ends_with("README.md");
+
+                if url_path.ends_with("README.md") {
+                    url_path.pop();
+                    url_path = url_path.join("index.md");
+                }
+
+                if !use_directory_urls || is_index {
+                    url_path.set_extension("html");
+                } else {
+                    url_path.set_extension("");
+                    url_path.push("index.html");
+                }
+
+                let url_path = url_path.to_string_lossy().into_owned();
+                let url_id = builder
+                    .with_location(url_path.replace('\\', "/"))
+                    .build()
+                    .expect("invariant");
+
+                let url = url_id.as_uri().to_string();
+                let url = if use_directory_urls {
+                    url.trim_end_matches("index.html").to_string()
+                } else {
+                    url
+                };
+
+                cached(
+                    &config,
+                    id,
+                    (config.hash, data.clone(), url.clone()),
+                    |(_, data, url)| Markdown::new(id, url, data),
+                )
                 .into_report()
             }),
             1,

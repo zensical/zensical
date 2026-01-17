@@ -35,6 +35,7 @@ use zrx::id::Id;
 use zrx::scheduler::Value;
 
 use crate::config::Config;
+use crate::structure::markdown::Autorefs;
 use crate::template::{Template, GENERATOR};
 
 use super::dynamic::Dynamic;
@@ -76,6 +77,8 @@ pub struct Page {
     pub toc: Vec<Section>,
     /// Search index.
     pub search: Vec<SearchItem>,
+    /// Autorefs (mkdocstrings).
+    pub autorefs: Option<Autorefs>,
     /// Ancestor pages.
     pub ancestors: Vec<NavigationItem>,
     /// Previous page.
@@ -183,6 +186,7 @@ impl Page {
             content: markdown.content,
             toc: markdown.toc,
             search: markdown.search,
+            autorefs: markdown.autorefs,
             path: path.to_string_lossy().into_owned(),
             ancestors: Vec::new(),
             previous_page: None,
@@ -212,7 +216,7 @@ impl Page {
         self.next_page = nav.next_page(self);
 
         // Create context and render template
-        template.render_with_context(context! {
+        let output = template.render_with_context(context! {
             generator => GENERATOR,
             nav => nav,
             base_url => config.get_base_url(&self.url),
@@ -221,7 +225,10 @@ impl Page {
             config => config.project.clone(),
             tags => self.tags(),
             page => self,
-        })
+        })?;
+
+        // Replace autorefs, if any
+        Ok(nav.autorefs.replace_in(output, &self.url))
     }
 
     /// Returns the tags of the page.
