@@ -159,6 +159,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(config, "use_directory_urls", True, bool)
     set_default(config, "dev_addr", "localhost:8000", str)
     set_default(config, "copyright", None, str)
+    set_default(config, "minify", False, bool)
 
     # Set defaults for repository settings
     set_default(config, "repo_url", None, str)

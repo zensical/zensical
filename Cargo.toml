@@ -44,6 +44,7 @@ zensical-serve = { version = "0.0.1", path = "crates/zensical-serve" }
 zensical-watch = { version = "0.0.1", path = "crates/zensical-watch" }
 
 ahash = "0.8"
+minify-html = "0.16"
 base64 = "0.22"
 crossbeam = "0.8"
 file-id = "0.2"

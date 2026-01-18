@@ -90,4 +90,6 @@ pub struct Project {
     pub nav: Vec<NavigationItem>,
     /// Template hash.
     pub template_hash: u64,
+    /// Whether to minify HTML output.
+    pub minify: bool,
 }

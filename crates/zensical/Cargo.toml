@@ -47,6 +47,7 @@ zensical-watch.workspace = true
 
 ahash.workspace = true
 crossbeam.workspace = true
+minify-html.workspace = true
 fluent-uri.workspace = true
 minijinja = { workspace = true, features = [
   "json", "loader", "builtins", "urlencode"

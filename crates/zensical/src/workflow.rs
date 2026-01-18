@@ -29,6 +29,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 use std::str::FromStr;
 use std::{fs, io};
+use minify_html::{Cfg, minify};
 use zrx::id::{Id, Matcher};
 use zrx::scheduler::action::report::IntoReport;
 use zrx::stream::barrier::Condition;
@@ -51,6 +52,20 @@ use cached::cached;
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
+
+/// Minify HTML content if minification is enabled.
+fn minify_html(config: &Config, html: &str) -> Vec<u8> {
+    if config.project.minify {
+        let cfg = Cfg {
+            minify_css: true,
+            minify_js: true,
+            ..Cfg::default()
+        };
+        minify(html.as_bytes(), &cfg)
+    } else {
+        html.as_bytes().to_vec()
+    }
+}
 
 /// Create a stream to process static assets.
 pub fn process_assets(config: &Config, files: &Stream<Id, String>) {
@@ -278,7 +293,13 @@ pub fn render_templates(
                 .and_then(|report| {
                     let path = site_dir.join(name);
                     fs::create_dir_all(path.parent().expect("invariant"))?;
-                    fs::write(path, &report.data).map_err(Into::into)
+                    let data = if path.extension().is_some_and(|ext| ext == "html")
+                    {
+                        minify_html(&config, &report.data)
+                    } else {
+                        report.data.as_bytes().to_vec()
+                    };
+                    fs::write(path, data).map_err(Into::into)
                 })
         },
     ))
@@ -309,7 +330,8 @@ pub fn render_pages(
                 .and_then(|report| {
                     let path = Path::new(&page.path);
                     fs::create_dir_all(path.parent().expect("invariant"))?;
-                    fs::write(path, &report.data)
+                    let data = minify_html(&config, &report.data);
+                    fs::write(path, data)
                         .map_err(Into::into)
                         .inspect(|()| println!("+ /{}", page.url))
                 })

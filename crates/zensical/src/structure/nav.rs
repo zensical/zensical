@@ -238,7 +238,7 @@ impl Navigation {
                 }
                 continue;
             }
-            if item.url.as_deref() == Some(&page.url) {
+            if item.url.as_deref() == Some(page.url.as_str()) {
                 found = true;
             }
         }
@@ -249,7 +249,7 @@ impl Navigation {
     pub fn previous_page(&self, page: &Page) -> Option<NavigationItem> {
         let mut prev: Option<NavigationItem> = None;
         for item in self {
-            if item.url.as_deref() == Some(&page.url) {
+            if item.url.as_deref() == Some(page.url.as_str()) {
                 return prev;
             }
             if item.url.is_some() {
