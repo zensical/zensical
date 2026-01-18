@@ -30,14 +30,18 @@ use pyo3::{FromPyObject, PyErr, Python};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use zrx::id::Id;
-use zrx::scheduler::action::report::IntoReport;
-use zrx::scheduler::action::Error;
 use zrx::scheduler::Value;
+use zrx::scheduler::action::Error;
+use zrx::scheduler::action::report::IntoReport;
 
 use crate::structure::dynamic::Dynamic;
 use crate::structure::nav::to_title;
 use crate::structure::search::SearchItem;
 use crate::structure::toc::Section;
+
+mod autorefs;
+
+pub use autorefs::Autorefs;
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -57,6 +61,8 @@ pub struct Markdown {
     pub title: String,
     /// Table of contents.
     pub toc: Vec<Section>,
+    /// Autorefs (mkdocstrings).
+    pub autorefs: Option<Autorefs>,
 }
 
 // ----------------------------------------------------------------------------
@@ -66,12 +72,14 @@ pub struct Markdown {
 impl Markdown {
     /// Renders Markdown using Python Markdown.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
-    pub fn new(id: &Id, content: String) -> impl IntoReport<Markdown> {
+    pub fn new(
+        id: &Id, url: String, content: String,
+    ) -> impl IntoReport<Markdown> {
         let id = id.clone();
         Python::attach(|py| {
             let module = py.import("zensical.markdown")?;
             module
-                .call_method1("render", (content, id.location()))?
+                .call_method1("render", (content, id.location(), url))?
                 .extract::<Markdown>()
         })
         .map_err(|err: PyErr| Error::from(Box::new(err) as Box<_>))
@@ -81,6 +89,7 @@ impl Markdown {
             content: markdown.content,
             search: markdown.search,
             toc: markdown.toc,
+            autorefs: markdown.autorefs,
         })
     }
 }

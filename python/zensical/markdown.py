@@ -28,7 +28,9 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 import yaml
+from markdown import Extension as MarkdownExtension
 from markdown import Markdown
+from markdown.preprocessors import Preprocessor
 from yaml import SafeLoader
 
 from zensical.config import get_config
@@ -51,12 +53,46 @@ FRONT_MATTER_RE = re.compile(
 Regex pattern to extract front matter.
 """
 
+
+# ----------------------------------------------------------------------------
+# Classes
+# ----------------------------------------------------------------------------
+
+
+class CurrentPageData(Preprocessor):
+    """Preprocessor to store current page URL and path."""
+
+    def __init__(self, md: Markdown, url: str, path: str):
+        super().__init__(md)
+        self.url = url
+        self.path = path
+
+    def run(self, lines: list[str]) -> list[str]:
+        return lines
+
+
+class CurrentPageExtension(MarkdownExtension):
+    """Markdown extension to store current page URL and path."""
+
+    def __init__(self, url: str, path: str):
+        super().__init__()
+        self.url = url
+        self.path = path
+
+    def extendMarkdown(self, md: Markdown) -> None:  # noqa: N802
+        md.preprocessors.register(
+            CurrentPageData(md, self.url, self.path),
+            "zensical_current_page",
+            0,
+        )
+
+
 # ----------------------------------------------------------------------------
 # Functions
 # ----------------------------------------------------------------------------
 
 
-def render(content: str, path: str) -> dict:
+def render(content: str, path: str, url: str) -> dict:
     """Render Markdown and return HTML.
 
     This function returns rendered HTML as well as the table of contents and
@@ -66,9 +102,14 @@ def render(content: str, path: str) -> dict:
     """
     config = get_config()
 
+    # Insert current page extension at the beginning
+    extensions = [CurrentPageExtension(url, path)] + config[
+        "markdown_extensions"
+    ]
+
     # Initialize Markdown parser
     md = Markdown(
-        extensions=config["markdown_extensions"],
+        extensions=extensions,
         extension_configs=config["mdx_configs"],
     )
 
@@ -113,6 +154,24 @@ def render(content: str, path: str) -> dict:
     if meta.get("search", {}).get("exclude", False):
         search_processor.data = []
 
+    # Extract URL map from extension if available
+    for extension in md.registeredExtensions:
+        if type(extension).__qualname__ == "MkdocstringsExtension":
+            autorefs = {
+                "primary": extension._autorefs._primary_url_map,  # type: ignore[attr-defined]
+                "secondary": extension._autorefs._secondary_url_map,  # type: ignore[attr-defined]
+                "inventory": extension._autorefs._abs_url_map,  # type: ignore[attr-defined]
+                "titles": extension._autorefs._title_map,  # type: ignore[attr-defined]
+            }
+            break
+    else:
+        autorefs = {
+            "primary": {},
+            "secondary": {},
+            "inventory": {},
+            "titles": {},
+        }
+
     # Return Markdown with metadata
     return {
         "meta": meta,
@@ -120,6 +179,7 @@ def render(content: str, path: str) -> dict:
         "search": search_processor.data,
         "title": "",
         "toc": [_convert_toc(item) for item in getattr(md, "toc_tokens", [])],
+        "autorefs": autorefs,
     }
 
 
