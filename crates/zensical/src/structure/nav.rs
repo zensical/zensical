@@ -76,7 +76,7 @@ impl Navigation {
 
         // Create a map of pages for easy lookup, so we can resolve titles and
         // icons from the file location of the respective page.
-        let mut pages = pages
+        let pages = pages
             .into_iter()
             .map(|item| {
                 let id = item.id.location().to_string();
