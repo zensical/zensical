@@ -224,12 +224,13 @@ fn build(py: Python, config_file: PathBuf, clean: bool) -> PyResult<()> {
 /// Builds and serves the project.
 #[pyfunction]
 fn serve(
-    py: Python, config_file: PathBuf, options: ServeOptions,
+    py: Python, config_file: PathBuf, mut options: ServeOptions,
 ) -> PyResult<()> {
     let mut seq = 0;
     py.detach(|| loop {
         match run(&config_file, Mode::Serve(options.clone(), seq)) {
             Ok(true) => {
+                options.open = false;
                 seq += 1;
             }
             other => return other.map(|_| ()),
