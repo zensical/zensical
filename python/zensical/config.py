@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import os
+from pathlib import Path
 import pickle
 from typing import IO, Any
 from urllib.parse import urlparse
@@ -428,6 +429,9 @@ def _apply_defaults(config: dict, path: str) -> dict:
             config["markdown_extensions"].append("mkdocstrings")
             config["mdx_configs"]["mkdocstrings"] = mkdocstrings_config
 
+    # List all source files for mkdocstrings
+    config["source_files"] = _list_sources(config, path)
+
     # Hash all templates, so we rebuild if something changes
     config["template_hash"] = _hash(_list_templates(config))
     return config
@@ -465,6 +469,31 @@ def _hash(data: Any) -> int:
     return int(hash.hexdigest(), 16) % (2**64)
 
 
+def _list_sources(config: dict, config_file: str) -> list[tuple[str, int]]:
+    """List all absolute links to source files for mkdocstrings."""
+    python_paths = (
+        config["plugins"]
+        .get("mkdocstrings", {})
+        .get("config", {})
+        .get("handlers", {})
+        .get("python", {})
+        .get("paths", ())
+    )
+    roots_with_hash = []
+    for python_path in python_paths:
+        path = Path(config_file).parent.joinpath(python_path).resolve()
+
+        # Collect all files under this root with modification times to detect
+        # changes. We'll replace this with proper dependency tracking later.
+        files = [(path, int(os.path.getmtime(path)))]
+        if path.is_dir():
+            for subpath in path.rglob("*"):
+                files.extend([(subpath, int(os.path.getmtime(subpath)))])
+        roots_with_hash.append((str(path), _hash(files)))
+
+    return sorted(roots_with_hash)
+
+
 def _list_templates(config: dict) -> list[tuple[str, int]]:
     """List all template files in the theme directories."""
     dirs = [get_theme_dir()]
@@ -481,7 +510,7 @@ def _list_templates(config: dict) -> list[tuple[str, int]]:
                 continue
             for file in files:
                 file_path = os.path.join(path, file)
-                mtime = os.path.getsize(file_path)
+                mtime = int(os.path.getmtime(file_path))
                 files_with_mtime.append((file_path, mtime))
 
     # Sort by file path for deterministic order

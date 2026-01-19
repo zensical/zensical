@@ -112,6 +112,19 @@ impl Watcher {
                         }
                     }
 
+                    // Check if one of the source files managed by mkdocstrings
+                    // changed, and restart the build
+                    let mut iter = config
+                        .project
+                        .source_files
+                        .iter()
+                        .filter(|(path, _)| path.is_dir());
+                    if iter.any(|(dir, _)| event.path().starts_with(dir))
+                        && !seen.insert((*event.path()).clone())
+                    {
+                        return Err(Error::Disconnected);
+                    }
+
                     // Ignore events in the site directory, since they are files
                     // that were generated and should not trigger a rebuild. We
                     // forward them to the reload channel in the server instead,
@@ -182,6 +195,11 @@ impl Watcher {
         agent.watch(&config.path)?;
         for theme_dir in &config.theme_dirs {
             agent.watch(theme_dir)?;
+        }
+
+        // Watch source files managed by mkdocstrings
+        for (path, _) in &config.project.source_files {
+            agent.watch(path)?;
         }
 
         // Watch site directory, ensuring it exists
