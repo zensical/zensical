@@ -488,7 +488,7 @@ def _list_sources(config: dict, config_file: str) -> list[tuple[str, int]]:
         files = [(path, int(os.path.getmtime(path)))]
         if path.is_dir():
             for subpath in path.rglob("*"):
-                files += (subpath, int(os.path.getmtime(subpath)))
+                files.extend([(subpath, int(os.path.getmtime(subpath)))])
         roots_with_hash.append((str(path), _hash(files)))
 
     return sorted(roots_with_hash)
