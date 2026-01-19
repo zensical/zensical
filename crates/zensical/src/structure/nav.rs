@@ -34,6 +34,8 @@ use zrx::id::Id;
 use zrx::scheduler::Value;
 use zrx::stream::value::Chunk;
 
+use crate::structure::markdown::Autorefs;
+
 use super::page::Page;
 
 mod item;
@@ -59,6 +61,8 @@ pub struct Navigation {
     pub items: Vec<NavigationItem>,
     /// Homepage, if defined.
     pub homepage: Option<NavigationItem>,
+    /// Autorefs (mkdocstrings).
+    pub autorefs: Autorefs,
     /// Precomputed hash.
     pub hash: u64,
 }
@@ -83,6 +87,14 @@ impl Navigation {
                 (id, item.data)
             })
             .collect::<HashMap<_, _>>();
+
+        // Consolidate autorefs from all pages
+        let mut autorefs = Autorefs::default();
+        for page in pages.clone().into_values() {
+            if let Some(page_autorefs) = page.autorefs {
+                autorefs.extend(page_autorefs);
+            }
+        }
 
         // Since a navigation structure is given, we just need to add titles and
         // icons where necessary and defined in page metadata
@@ -148,7 +160,12 @@ impl Navigation {
         };
 
         // Return navigation
-        Self { items, homepage, hash }
+        Self {
+            items,
+            homepage,
+            autorefs,
+            hash,
+        }
     }
 
     /// Returns a copy of the navigation with the active item set based on the
@@ -182,6 +199,7 @@ impl Navigation {
         Self {
             items,
             homepage: self.homepage.clone(),
+            autorefs: self.autorefs.clone(),
             hash: self.hash,
         }
     }
@@ -285,6 +303,7 @@ impl From<Chunk<Id, Page>> for Navigation {
 
         // There can only be pages, no URLs, since we're auto-populating the
         // navigation from the files in the docs directory
+        let mut autorefs = Autorefs::default();
         for page in pages {
             let location = page.id.location();
 
@@ -337,6 +356,11 @@ impl From<Chunk<Id, Page>> for Navigation {
                 is_index: is_index(&file),
                 active: false,
             });
+
+            // Consolidate autorefs
+            if let Some(value) = page.data.autorefs {
+                autorefs.extend(value);
+            }
         }
 
         // Precompute hash
@@ -349,6 +373,7 @@ impl From<Chunk<Id, Page>> for Navigation {
         // Determine homepage and return navigation
         Self {
             homepage: items.iter().find(|item| item.is_index).cloned(),
+            autorefs,
             items,
             hash,
         }
