@@ -98,21 +98,21 @@ impl Navigation {
                 if let Some(url) = &item.url {
                     // Try to obtain a page for the given url. Users might also
                     // refer to non-existing pages, which we just ignore for now
-                    if let Some(page) = pages.remove(url) {
+                    if let Some(page) = pages.get(url) {
                         // Set URLs from page - we currently resolve the final
                         // URL during rendering, so we just need to set it here.
                         // Once we start working on the component and module
                         // system, all of this is going to change anyway
-                        item.url = Some(page.url);
-                        item.canonical_url = page.canonical_url;
+                        item.url = Some(page.url.clone());
+                        item.canonical_url = page.canonical_url.clone();
 
                         // Set item title from page if not set
                         if item.title.is_none() {
-                            item.title = Some(page.title);
+                            item.title = Some(page.title.clone());
                         }
 
                         // Extract page metadata for selected keys
-                        item.meta = Some(page.meta.into());
+                        item.meta = Some(page.meta.clone().into());
                     }
                 }
 
@@ -127,12 +127,12 @@ impl Navigation {
         // is why we try to obtain it from the remaining pages
         let mut homepage = items.iter().find(|item| item.is_index).cloned();
         if homepage.is_none() {
-            if let Some(page) = pages.remove("index.md") {
+            if let Some(page) = pages.get("index.md") {
                 homepage = Some(NavigationItem {
-                    title: Some(page.title),
-                    url: Some(page.url),
-                    canonical_url: page.canonical_url,
-                    meta: Some(page.meta.into()),
+                    title: Some(page.title.clone()),
+                    url: Some(page.url.clone()),
+                    canonical_url: page.canonical_url.clone(),
+                    meta: Some(page.meta.clone().into()),
                     children: Vec::new(),
                     is_index: true,
                     active: false,
