@@ -84,12 +84,14 @@ where
     // continue and compute the artifact.
     let path = config.get_cache_dir().join(id_hash.to_string());
     if let Ok(data) = fs::read(&path) {
-        let cached: Cached<U> =
-            serde_json::from_slice(&data).expect("invariant");
-
-        // In case content hashes match, return cached data
-        if cached.hash == hash {
-            return cached.data.into_report();
+        // Right now, the product operator might lead to a race condition, since
+        // a page might be double-processed for some reason. We need to fix this
+        // in ZRX, but in the meantime, we just ignore the cache if it happens.
+        if let Ok(cached) = serde_json::from_slice::<Cached<U>>(&data) {
+            // In case content hashes match, return cached data
+            if cached.hash == hash {
+                return cached.data.into_report();
+            }
         }
     }
 

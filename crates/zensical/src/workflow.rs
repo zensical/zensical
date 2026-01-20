@@ -28,6 +28,7 @@
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::Arc;
 use std::{fs, io};
 use zrx::id::{Id, Matcher};
 use zrx::scheduler::action::report::IntoReport;
@@ -56,8 +57,9 @@ use cached::cached;
 pub fn process_assets(config: &Config, files: &Stream<Id, String>) {
     let extra_templates = config.project.extra_templates.clone();
     let docs_dir = config.project.docs_dir.clone();
-    let matcher =
-        Matcher::from_str(&format!("zrs::::{docs_dir}::")).expect("invariant");
+    let matcher = Arc::new(
+        Matcher::from_str(&format!("zrs::::{docs_dir}::")).expect("invariant"),
+    );
 
     // Create pipeline to copy static assets
     let site_dir = config.project.site_dir.clone();
@@ -91,7 +93,8 @@ pub fn process_assets(config: &Config, files: &Stream<Id, String>) {
 
 /// Create a stream to process static assets in theme.
 pub fn process_theme_assets(config: &Config, files: &Stream<Id, String>) {
-    let matcher = Matcher::from_str("zrs::::templates/*::").expect("invariant");
+    let matcher =
+        Arc::new(Matcher::from_str("zrs::::templates/*::").expect("invariant"));
 
     // Create pipeline to copy static assets
     let site_dir = config.project.site_dir.clone();
@@ -131,7 +134,8 @@ fn copy_file(
 pub fn process_markdown(
     config: &Config, files: &Stream<Id, String>,
 ) -> Stream<Id, Markdown> {
-    let matcher = Matcher::from_str("zrs:::::**/*.md:").expect("invariant");
+    let matcher =
+        Arc::new(Matcher::from_str("zrs:::::**/*.md:").expect("invariant"));
 
     // Create pipeline to render Markdown files
     let config = config.clone();
@@ -201,9 +205,10 @@ pub fn wait_for_markdown(
     config: &Config, files: &Stream<Id, String>,
 ) -> Stream<Id, Condition<Id>> {
     let name = config.path.file_name().expect("invariant");
-    let matcher =
+    let matcher = Arc::new(
         Matcher::from_str(&format!("zrs:::::{}:", name.to_string_lossy()))
-            .expect("invariant");
+            .expect("invariant"),
+    );
 
     // Set up matcher to filter for the configuration file, and return a new
     // stream that emits a condition in order to implement barriers
@@ -285,14 +290,14 @@ pub fn render_templates(
     // differentiate here.
     let mut builder = Matcher::builder();
     builder
-        .add(format!("zrs::::templates/*:{{{static_templates}}}:"))
+        .add(&format!("zrs::::templates/*:{{{static_templates}}}:"))
         .expect("invariant");
     builder
-        .add(format!("zrs::::{docs_dir}:{{{extra_templates}}}:"))
+        .add(&format!("zrs::::{docs_dir}:{{{extra_templates}}}:"))
         .expect("invariant");
 
     // Create matcher from builder, and filter templates
-    let matcher = builder.build().expect("invariant");
+    let matcher = Arc::new(builder.build().expect("invariant"));
     let templates = files.filter(with_id(move |id: &Id, _: &String| {
         matcher.is_match(id).expect("invariant")
     }));
