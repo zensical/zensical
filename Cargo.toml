@@ -69,7 +69,7 @@ tracing-chrome = "0.7"
 tracing-subscriber = "0.3"
 walkdir = "2.5"
 webbrowser = "1.0"
-zrx = "0.0.5"
+zrx = "0.0.9"
 
 [workspace.dependencies.pyo3]
 version = "0.27.1"
