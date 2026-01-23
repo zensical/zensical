@@ -26,8 +26,8 @@ from __future__ import annotations
 import hashlib
 import importlib
 import os
-from pathlib import Path
 import pickle
+from pathlib import Path
 from typing import IO, Any
 from urllib.parse import urlparse
 
@@ -480,9 +480,10 @@ def _list_sources(config: dict, config_file: str) -> list[tuple[str, int]]:
         .get("paths", ())
     )
     files_with_hash = []
+    root = Path(config_file).parent.resolve()
     for python_path in python_paths:
-        path = Path(config_file).parent.joinpath(python_path).resolve()
-        if path.is_dir():
+        path = root.joinpath(python_path).resolve()
+        if path.is_dir() and path.is_relative_to(root):
             for subpath in path.rglob("*"):
                 # Path.rglob can't do patterns, so we need to filter here
                 if subpath.suffix in {
@@ -492,8 +493,8 @@ def _list_sources(config: dict, config_file: str) -> list[tuple[str, int]]:
                     ".so",
                     ".dll",
                 }:
-                    files_with_hash.extend(
-                        [(str(subpath), int(os.path.getmtime(subpath)))]
+                    files_with_hash.append(  # noqa: PERF401
+                        (str(subpath), int(os.path.getmtime(subpath)))
                     )
     return sorted(files_with_hash)
 
