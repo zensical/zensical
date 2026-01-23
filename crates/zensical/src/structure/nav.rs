@@ -25,7 +25,6 @@
 
 //! Navigation.
 
-use std::collections::BTreeMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use ahash::HashMap;
@@ -124,7 +123,7 @@ impl Navigation {
                         }
 
                         // Extract page metadata for selected keys
-                        item.meta = page.meta.clone();
+                        item.meta = Some(page.meta.clone());
                     }
                 }
 
@@ -144,7 +143,7 @@ impl Navigation {
                     title: Some(page.title.clone()),
                     url: Some(page.url.clone()),
                     canonical_url: page.canonical_url.clone(),
-                    meta: page.meta.clone(),
+                    meta: Some(page.meta.clone()),
                     children: Vec::new(),
                     is_index: true,
                     active: false,
@@ -334,7 +333,7 @@ impl From<Chunk<Id, Page>> for Navigation {
                         title: Some(title),
                         url: None,
                         canonical_url: None,
-                        meta: BTreeMap::default(),
+                        meta: None,
                         children: Vec::new(),
                         is_index: false,
                         active: false,
@@ -351,7 +350,7 @@ impl From<Chunk<Id, Page>> for Navigation {
                 title: Some(page.data.title),
                 url: Some(page.data.url),
                 canonical_url: page.data.canonical_url,
-                meta: page.data.meta.clone(),
+                meta: Some(page.data.meta.clone()),
                 children: Vec::new(),
                 is_index: is_index(&file),
                 active: false,

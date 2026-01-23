@@ -45,7 +45,7 @@ pub struct NavigationItem {
     /// Item canonical URL.
     pub canonical_url: Option<String>,
     /// Item metadata.
-    pub meta: PageMeta,
+    pub meta: Option<PageMeta>,
     /// Item children.
     pub children: Vec<NavigationItem>,
     /// Whether this item is an index page.
