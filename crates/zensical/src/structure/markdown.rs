@@ -61,8 +61,6 @@ pub struct Markdown {
     pub title: String,
     /// Table of contents.
     pub toc: Vec<Section>,
-    /// Autorefs (mkdocstrings).
-    pub autorefs: Option<Autorefs>,
 }
 
 // ----------------------------------------------------------------------------
@@ -89,7 +87,6 @@ impl Markdown {
             content: markdown.content,
             search: markdown.search,
             toc: markdown.toc,
-            autorefs: markdown.autorefs,
         })
     }
 }

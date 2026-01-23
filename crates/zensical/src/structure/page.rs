@@ -35,7 +35,6 @@ use zrx::id::Id;
 use zrx::scheduler::Value;
 
 use crate::config::Config;
-use crate::structure::markdown::Autorefs;
 use crate::template::{Template, GENERATOR};
 
 use super::dynamic::Dynamic;
@@ -77,8 +76,6 @@ pub struct Page {
     pub toc: Vec<Section>,
     /// Search index.
     pub search: Vec<SearchItem>,
-    /// Autorefs (mkdocstrings).
-    pub autorefs: Option<Autorefs>,
     /// Ancestor pages.
     pub ancestors: Vec<NavigationItem>,
     /// Previous page.
@@ -186,7 +183,6 @@ impl Page {
             content: markdown.content,
             toc: markdown.toc,
             search: markdown.search,
-            autorefs: markdown.autorefs,
             path: path.to_string_lossy().into_owned(),
             ancestors: Vec::new(),
             previous_page: None,

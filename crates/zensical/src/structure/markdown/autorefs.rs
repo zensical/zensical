@@ -434,22 +434,6 @@ impl Autorefs {
         ))
     }
 
-    /// Extends autorefs with another instance.
-    pub fn extend(&mut self, other: Autorefs) {
-        for (key, values) in other.primary {
-            self.primary.entry(key).or_default().extend(values);
-        }
-        for (key, values) in other.secondary {
-            self.secondary.entry(key).or_default().extend(values);
-        }
-        for (key, value) in other.inventory {
-            self.inventory.insert(key, value);
-        }
-        for (key, value) in other.titles {
-            self.titles.insert(key, value);
-        }
-    }
-
     /// Replaces autorefs in the given content.
     pub fn replace_in(&self, content: String, from_url: &str) -> String {
         let output = AUTOREF_RE.replace_all(&content, |captures: &Captures| {
