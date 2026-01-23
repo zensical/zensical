@@ -114,12 +114,8 @@ impl Watcher {
 
                     // Check if one of the source files managed by mkdocstrings
                     // changed, and restart the build
-                    let mut iter = config
-                        .project
-                        .source_files
-                        .iter()
-                        .filter(|(path, _)| path.is_dir());
-                    if iter.any(|(dir, _)| event.path().starts_with(dir))
+                    let mut iter = config.project.source_files.iter();
+                    if iter.any(|(path, _)| &*event.path() == path)
                         && !seen.insert((*event.path()).clone())
                     {
                         return Err(Error::Disconnected);

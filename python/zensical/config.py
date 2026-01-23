@@ -479,20 +479,23 @@ def _list_sources(config: dict, config_file: str) -> list[tuple[str, int]]:
         .get("python", {})
         .get("paths", ())
     )
-    roots_with_hash = []
+    files_with_hash = []
     for python_path in python_paths:
         path = Path(config_file).parent.joinpath(python_path).resolve()
-
-        # Collect all files under this root with modification times to detect
-        # changes. We'll replace this with proper dependency tracking later.
-        files = []
         if path.is_dir():
-            for subpath in path.rglob("*.{py,py?,so,dll}"):
-                files.extend([(subpath, int(os.path.getmtime(subpath)))])
-        if files:
-            roots_with_hash.append((str(path), _hash(files)))
-
-    return sorted(roots_with_hash)
+            for subpath in path.rglob("*"):
+                # Path.rglob can't do patterns, so we need to filter here
+                if subpath.suffix in {
+                    ".py",
+                    ".pyc",
+                    ".pyi",
+                    ".so",
+                    ".dll",
+                }:
+                    files_with_hash.extend(
+                        [(str(subpath), int(os.path.getmtime(subpath)))]
+                    )
+    return sorted(files_with_hash)
 
 
 def _list_templates(config: dict) -> list[tuple[str, int]]:
