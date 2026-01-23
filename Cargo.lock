@@ -1416,7 +1416,7 @@ dependencies = [
 
 [[package]]
 name = "zensical"
-version = "0.0.17"
+version = "0.0.18"
 dependencies = [
  "ahash",
  "crossbeam",
