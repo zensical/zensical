@@ -28,7 +28,7 @@
 use pyo3::FromPyObject;
 use serde::Serialize;
 
-use super::meta::NavigationMeta;
+use crate::structure::page::PageMeta;
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -45,7 +45,7 @@ pub struct NavigationItem {
     /// Item canonical URL.
     pub canonical_url: Option<String>,
     /// Item metadata.
-    pub meta: Option<NavigationMeta>,
+    pub meta: PageMeta,
     /// Item children.
     pub children: Vec<NavigationItem>,
     /// Whether this item is an index page.
