@@ -485,11 +485,12 @@ def _list_sources(config: dict, config_file: str) -> list[tuple[str, int]]:
 
         # Collect all files under this root with modification times to detect
         # changes. We'll replace this with proper dependency tracking later.
-        files = [(path, int(os.path.getmtime(path)))]
+        files = []
         if path.is_dir():
-            for subpath in path.rglob("*"):
+            for subpath in path.rglob("*.{py,py?,so,dll}"):
                 files.extend([(subpath, int(os.path.getmtime(subpath)))])
-        roots_with_hash.append((str(path), _hash(files)))
+        if files:
+            roots_with_hash.append((str(path), _hash(files)))
 
     return sorted(roots_with_hash)
 
