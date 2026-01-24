@@ -25,6 +25,8 @@
 
 //! Workflow definitions
 
+use pyo3::types::PyAnyMethods;
+use pyo3::Python;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -48,8 +50,6 @@ use super::template::Template;
 mod cached;
 
 use cached::cached;
-use pyo3::types::PyAnyMethods;
-use pyo3::Python;
 
 // ----------------------------------------------------------------------------
 // Functions
