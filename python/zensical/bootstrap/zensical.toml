@@ -114,7 +114,7 @@ language = "en"
 # of the documentation site.
 features = [
     # Zensical includes an announcement bar. This feature allows users to
-    # dismiss it then they have read the announcement.
+    # dismiss it when they have read the announcement.
     # https://zensical.org/docs/setup/header/#announcement-bar
     "announce.dismiss",
 
