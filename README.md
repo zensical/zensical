@@ -18,6 +18,10 @@
     src="https://github.com/zensical/zensical/actions/workflows/build.yml/badge.svg"
     alt="Build"
   /></a>
+  <a href="https://pypistats.org/packages/zensical"><img
+    src="https://img.shields.io/pypi/dm/zensical.svg"
+    alt="Downloads"
+  /></a>
   <a href="https://pypi.org/project/zensical"><img
     src="https://img.shields.io/pypi/v/zensical?logo=python&logoColor=white&label=PyPI"
     alt="Python Package Index"
@@ -25,6 +29,10 @@
   <a href="https://discord.com/invite/hqXRNq9CjT"><img
     src="https://img.shields.io/discord/1289187620659789824?logo=discord&logoColor=white&label=Discord"
     alt="Discord"
+  /></a>
+  <a href="https://hub.docker.com/r/zensical/zensical/"><img
+    src="https://img.shields.io/docker/pulls/zensical/zensical"
+    alt="Docker Pulls"
   /></a>
 </p>
 
