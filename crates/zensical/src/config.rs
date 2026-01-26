@@ -162,7 +162,7 @@ impl Config {
         path.pop();
 
         // Ensure directory exists
-        let path = path.join(".cache");
+        let path = path.join(".cache").join("zensical");
         fs::create_dir_all(&path)
             .and_then(|()| path.canonicalize())
             .inspect(|path| {
