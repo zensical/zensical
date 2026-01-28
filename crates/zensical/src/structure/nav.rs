@@ -436,8 +436,10 @@ pub(crate) fn to_title(component: &str) -> String {
 
 fn get_autorefs() -> Autorefs {
     match Python::attach(|py| {
-        let module = py.import("mkdocstrings._internal.extension")?;
-        module.call_method0("_get_autorefs")?.extract::<Autorefs>()
+        let module = py.import("zensical.compat.autorefs")?;
+        module
+            .call_method0("get_autorefs_data")?
+            .extract::<Autorefs>()
     }) {
         Ok(autorefs) => autorefs,
         Err(_) => Autorefs::new(),

@@ -28,11 +28,10 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from markdown import Extension as MarkdownExtension
 from markdown import Markdown
-from markdown.preprocessors import Preprocessor
 from yaml import SafeLoader
 
+from zensical.compat.autorefs import set_autorefs_page
 from zensical.config import get_config
 from zensical.extensions.links import LinksExtension
 from zensical.extensions.search import SearchExtension
@@ -55,39 +54,6 @@ Regex pattern to extract front matter.
 
 
 # ----------------------------------------------------------------------------
-# Classes
-# ----------------------------------------------------------------------------
-
-
-class CurrentPageData(Preprocessor):
-    """Preprocessor to store current page URL and path."""
-
-    def __init__(self, md: Markdown, url: str, path: str):
-        super().__init__(md)
-        self.url = url
-        self.path = path
-
-    def run(self, lines: list[str]) -> list[str]:
-        return lines
-
-
-class CurrentPageExtension(MarkdownExtension):
-    """Markdown extension to store current page URL and path."""
-
-    def __init__(self, url: str, path: str):
-        super().__init__()
-        self.url = url
-        self.path = path
-
-    def extendMarkdown(self, md: Markdown) -> None:  # noqa: N802
-        md.preprocessors.register(
-            CurrentPageData(md, self.url, self.path),
-            "zensical_current_page",
-            0,
-        )
-
-
-# ----------------------------------------------------------------------------
 # Functions
 # ----------------------------------------------------------------------------
 
@@ -102,14 +68,11 @@ def render(content: str, path: str, url: str) -> dict:
     """
     config = get_config()
 
-    # Insert current page extension at the beginning
-    extensions = [CurrentPageExtension(url, path)] + config[
-        "markdown_extensions"
-    ]
+    set_autorefs_page(url, path)
 
     # Initialize Markdown parser
     md = Markdown(
-        extensions=extensions,
+        extensions=config["markdown_extensions"],
         extension_configs=config["mdx_configs"],
     )
 
