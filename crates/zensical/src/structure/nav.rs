@@ -169,7 +169,7 @@ impl Navigation {
     /// Note that this does not modify the navigation in place, but returns a
     /// new instance with the active state set. This is important, as we need
     /// to keep the original navigation structure intact for other pages.
-    pub fn with_active(&self, page: &Page) -> Self {
+    pub fn with_active(self, page: &Page) -> Self {
         /// Recursively set active state on navigation items.
         fn recurse(items: &mut [NavigationItem], url: &str) -> bool {
             for item in items.iter_mut() {
@@ -188,12 +188,12 @@ impl Navigation {
         }
 
         // Set active state starting from the root
-        let mut items = self.items.clone();
+        let mut items = self.items;
         recurse(&mut items, &page.url);
         Self {
             items,
-            homepage: self.homepage.clone(),
-            autorefs: self.autorefs.clone(),
+            homepage: self.homepage,
+            autorefs: self.autorefs,
             hash: self.hash,
         }
     }

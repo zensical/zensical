@@ -55,12 +55,12 @@ struct Cached<T> {
 /// will be replaced with a more generic caching mechanism integrated into
 /// the runtime.
 pub fn cached<I, T, F, R, U>(
-    config: &Config, id: I, args: T, mut f: F,
+    config: &Config, id: I, args: T, f: F,
 ) -> impl IntoReport<U>
 where
     I: Hash,
     T: Hash,
-    F: FnMut(T) -> R,
+    F: FnOnce(T) -> R,
     R: IntoReport<U>,
     U: Value + Serialize + for<'de> Deserialize<'de>,
 {
