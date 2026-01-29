@@ -154,24 +154,6 @@ def render(content: str, path: str, url: str) -> dict:
     if meta.get("search", {}).get("exclude", False):
         search_processor.data = []
 
-    # Extract URL map from extension if available
-    for extension in md.registeredExtensions:
-        if type(extension).__qualname__ == "MkdocstringsExtension":
-            autorefs = {
-                "primary": extension._autorefs._primary_url_map,  # type: ignore[attr-defined]
-                "secondary": extension._autorefs._secondary_url_map,  # type: ignore[attr-defined]
-                "inventory": extension._autorefs._abs_url_map,  # type: ignore[attr-defined]
-                "titles": extension._autorefs._title_map,  # type: ignore[attr-defined]
-            }
-            break
-    else:
-        autorefs = {
-            "primary": {},
-            "secondary": {},
-            "inventory": {},
-            "titles": {},
-        }
-
     # Return Markdown with metadata
     return {
         "meta": meta,
@@ -179,7 +161,6 @@ def render(content: str, path: str, url: str) -> dict:
         "search": search_processor.data,
         "title": "",
         "toc": [_convert_toc(item) for item in getattr(md, "toc_tokens", [])],
-        "autorefs": autorefs,
     }
 
 
