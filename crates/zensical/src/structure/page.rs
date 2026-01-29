@@ -196,7 +196,7 @@ impl Page {
         tracing::instrument(skip_all, fields(url = %self.url))
     )]
     pub fn render(
-        &mut self, config: &Config, nav: &Navigation,
+        &mut self, config: &Config, nav: Navigation,
     ) -> Result<String, Error> {
         let name = self.meta.get("template").map(ToString::to_string);
         let template = Template::new(

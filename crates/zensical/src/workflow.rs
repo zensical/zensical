@@ -374,7 +374,7 @@ pub fn render_pages(
             // Render page if we don't have a recent cached version at our own
             // disposal. Otherwise, just return if the content did not change.
             let args = (config.hash, nav.hash, hash);
-            cached(&config, id, args, |(_, _, _)| page.render(&config, &nav))
+            cached(&config, id, args, |(_, _, _)| page.render(&config, nav))
                 .into_report()
                 .and_then(|report| {
                     let path = Path::new(&page.path);
