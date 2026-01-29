@@ -132,8 +132,12 @@ impl Handler {
             // when the queue isn't empty, and nothing happened for a time
             recv(wait.map_or_else(never, after)) -> _ => {
                 let paths = mem::take(&mut self.queue);
-                for res in self.manager.handle(paths) {
-                    (self.handler)(res)?;
+                for path in paths {
+                    // Process paths one-by-one to ensure correct order - this
+                    // is a temporary workaround for the ordering issues
+                    for res in self.manager.handle([path]) {
+                        (self.handler)(res)?;
+                    }
                 }
             }
         }
