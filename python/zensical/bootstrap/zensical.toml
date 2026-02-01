@@ -121,13 +121,13 @@ features = [
     # If you have a repository configured and turn on this feature, Zensical
     # will generate an edit button for the page. This works for common
     # repository hosting services.
-    # https://zensical.org/docs/setup/repository/#code-actions
+    # https://zensical.org/docs/setup/repository/#content-actions
     #"content.action.edit",
 
     # If you have a repository configured and turn on this feature, Zensical
     # will generate a button that allows the user to view the Markdown
     # code for the current page.
-    # https://zensical.org/docs/setup/repository/#code-actions
+    # https://zensical.org/docs/setup/repository/#content-actions
     #"content.action.view",
 
     # Code annotations allow you to add an icon with a tooltip to your
