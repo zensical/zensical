@@ -112,8 +112,11 @@ class PreviewProcessor(Treeprocessor):
                 if url.scheme or url.netloc:
                     continue
 
+                # An empty url.path means we're targetting the current page
+                url_path = url.path or processor.path
+
                 # Include, if filter matches
-                path = resolve(processor.path, url.path)
+                path = resolve(processor.path, url_path)
                 if path and filter(path):
                     el.set("data-preview", "")
 
