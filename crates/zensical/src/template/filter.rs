@@ -60,10 +60,18 @@ pub fn url_filter(state: &State, url: String) -> String {
         .map(|value| value.to_string())
     {
         // Make target URL relative to page
-        let relative_url = target
+        let mut relative_url = target
             .relative_to(&source)
             .to_string_lossy()
             .replace('\\', "/");
+
+        // Since URLs can contain `:`, we could either URL-encode the path, or
+        // leave it as is, and just make sure that the URL starts with a `.`
+        // We should probably change this in the relative URL computation, but
+        // for now this should catch most cases.
+        if !relative_url.starts_with("../") {
+            relative_url = format!("./{relative_url}");
+        }
 
         // We can return if we don't stay on the same page
         if relative_url != "." {
