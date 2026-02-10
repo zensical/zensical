@@ -253,8 +253,8 @@ pub fn generate_object_inventory(
     let config = config.clone();
     pages.map(move |_| {
         let data = Python::attach(|py| {
-            let module = py.import("mkdocstrings._internal.extension")?;
-            module.call_method0("_get_inventory")?.extract::<Vec<u8>>()
+            let module = py.import("zensical.compat.mkdocstrings")?;
+            module.call_method0("get_inventory")?.extract::<Vec<u8>>()
         });
 
         // Write object inventory to disk
