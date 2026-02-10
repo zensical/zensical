@@ -27,6 +27,7 @@ import hashlib
 import importlib
 import os
 import pickle
+from importlib.util import find_spec
 from pathlib import Path
 from typing import IO, Any
 from urllib.parse import urlparse
@@ -423,6 +424,12 @@ def _apply_defaults(config: dict, path: str) -> dict:
     if "mkdocstrings" in config["plugins"]:
         mkdocstrings_config = config["plugins"]["mkdocstrings"]["config"]
         if mkdocstrings_config.pop("enabled", True):
+            if not find_spec("mkdocstrings"):
+                raise ConfigurationError(
+                    "mkdocstrings plugin is enabled, but mkdocstrings is not "
+                    "installed. Please install mkdocstrings or disable the "
+                    "plugin."
+                )
             mkdocstrings_config["markdown_extensions"] = [
                 {ext: mdx_configs.get(ext, {})} for ext in markdown_extensions
             ]
