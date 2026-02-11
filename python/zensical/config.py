@@ -501,7 +501,7 @@ def _list_sources(config: dict, config_file: str) -> list[tuple[str, int]]:
     root = Path(config_file).parent.resolve()
     for python_path in python_paths:
         path = root.joinpath(python_path).resolve()
-        if path.is_dir() and path.is_relative_to(root):
+        if path.is_dir() and path.is_relative_to(root) and path != root:
             for subpath in path.rglob("*"):
                 # Path.rglob can't do patterns, so we need to filter here
                 if subpath.suffix in {
