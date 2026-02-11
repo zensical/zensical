@@ -81,6 +81,12 @@ impl Config {
     {
         let path = path.as_ref();
         Python::attach(|py| {
+            // Reset global data in compatibility modules
+            py.import("zensical.compat.autorefs")?
+                .call_method0("reset")?;
+            py.import("zensical.compat.mkdocstrings")?
+                .call_method0("reset")?;
+
             // Configuration is parsed in Python, since we must support certain
             // YAML tags like `!ENV`, and allow to reference Python functions
             // in configuration. For TOML, this is technically not necessary,
