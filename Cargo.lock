@@ -1552,9 +1552,9 @@ checksum = "dfcd145825aace48cff44a8844de64bf75feec3080e0aa5cdbde72961ae51a65"
 
 [[package]]
 name = "zrx"
-version = "0.0.9"
+version = "0.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18b55ea5ad59d59a1d949986fb2d7e0ac3cce2bbe01e3ea6cf9257a6365fd3db"
+checksum = "83047c9af3125774463cbcbbcf856cc89697b302f0fc49c2582a59ec66d4c026"
 dependencies = [
  "zrx-diagnostic",
  "zrx-executor",
@@ -1584,9 +1584,9 @@ dependencies = [
 
 [[package]]
 name = "zrx-graph"
-version = "0.0.4"
+version = "0.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9289154e0c35bb4c8ecff2c7c0414d03f73b4155a9e710322289aa313d45ff18"
+checksum = "c40e047c9ddb9468f63046cf57a9952cfd9cc8607f60762cd140b7c6c940f374"
 dependencies = [
  "ahash",
  "thiserror 2.0.17",
@@ -1594,9 +1594,9 @@ dependencies = [
 
 [[package]]
 name = "zrx-id"
-version = "0.0.6"
+version = "0.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62e09e72c4b1ca2920f01d0794a7f42af633bc2c964d9cab632492ee490e587e"
+checksum = "dd509179c6edbfa9eb0a642c274b7241bacfc09f1a840ede358ed241962c0822"
 dependencies = [
  "globset",
  "percent-encoding",
@@ -1613,9 +1613,9 @@ checksum = "d578267e852d4f325ce124ecbffe0530d9f9013d58a3cfacec75daf04ac40d0b"
 
 [[package]]
 name = "zrx-scheduler"
-version = "0.0.6"
+version = "0.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac9d622e4f0331ab081b63f9c3bdd330819ea870a6cf0fbc9ef6fdb6211d4ca1"
+checksum = "c6b5d00390d0277ebbcfcab156896b9ac8869512386b34245e8989a433d5c9b7"
 dependencies = [
  "ahash",
  "crossbeam",
@@ -1631,20 +1631,19 @@ dependencies = [
 
 [[package]]
 name = "zrx-store"
-version = "0.0.2"
+version = "0.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1453af8155a654f65a2dbdbeb9b311c8b5c8ef258fd540e4edc2480ffe8ee000"
+checksum = "5a496e11596686700ce05773f46a570ed617abb5f0f6923e50785d681caff696"
 dependencies = [
  "ahash",
- "litemap",
  "slab",
 ]
 
 [[package]]
 name = "zrx-stream"
-version = "0.0.6"
+version = "0.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab9d4e78ded75eebd472285db53ccedade13177096ec0c53a60cb452971d18dd"
+checksum = "1cde3ce73eac8413efa37e026df2a1b41aa46cb6d274559272788e67f2c8396a"
 dependencies = [
  "ahash",
  "thiserror 2.0.17",
