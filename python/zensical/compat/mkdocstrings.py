@@ -23,11 +23,13 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from mkdocstrings import Handlers, MkdocstringsExtension
+from typing import TYPE_CHECKING, Any
 
 from zensical.compat.autorefs import get_autorefs_plugin
+
+if TYPE_CHECKING:
+    from mkdocstrings import Handlers, MkdocstringsExtension
+
 
 # ----------------------------------------------------------------------------
 # Global variables
@@ -53,6 +55,8 @@ def get_mkdocstrings_extension(
     path: str,
 ) -> MkdocstringsExtension:
     """Create the mkdocstrings Markdown extension."""
+    from mkdocstrings import Handlers, MkdocstringsExtension  # noqa: PLC0415
+
     autorefs = get_autorefs_plugin()
 
     global HANDLERS  # noqa: PLW0603
