@@ -47,7 +47,7 @@ static CLIENT: &str = concat!(
     "    document.title = state ? \"Waiting for connection\" : title;\n",
     "  }\n",
     "  function connect() {\n",
-    "    const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`);\n",
+    "    const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}${websocket_path}`);\n",
     "    pending(true);\n",
     "    socket.addEventListener(\"message\", ev => {\n",
     "      if (ev.data.endsWith(\".css\")) {\n",
@@ -89,7 +89,15 @@ static CLIENT: &str = concat!(
 
 /// Middleware for livereload client.
 #[derive(Default)]
-pub struct Client;
+pub struct Client {
+    dev_ws_path: Option<String>,
+}
+
+impl Client {
+    pub fn new(dev_ws_path: Option<String>) -> Self {
+        Self { dev_ws_path }
+    }
+}
 
 // ----------------------------------------------------------------------------
 // Trait implementations
@@ -101,10 +109,16 @@ impl Middleware for Client {
         let uri = req.uri.path.clone();
         let mut res = next.handle(req);
 
+        let dev_ws_path = match &self.dev_ws_path {
+            Some(path) => format!("const websocket_path='{}';", path),
+            None => "const websocket_path=location.pathname;".into(),
+        };
+
         // In case an HTML file is served, inject the client script
         if let Some(value) = res.headers.get(Header::ContentType) {
             if value.contains("text/html") {
                 res.body.extend(b"<script type=\"module\">");
+                res.body.extend(dev_ws_path.as_bytes());
                 res.body.extend(CLIENT.as_bytes());
                 res.body.extend(b"</script>");
 
@@ -125,6 +139,7 @@ impl Middleware for Client {
         if res.status == Status::NotFound {
             res.body.clear();
             res.body.extend(b"<script type=\"module\">");
+            res.body.extend(dev_ws_path.as_bytes());
             res.body.extend(CLIENT.as_bytes());
             res.body.extend(b"</script>");
 

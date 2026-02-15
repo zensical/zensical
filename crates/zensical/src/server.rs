@@ -74,13 +74,14 @@ pub fn create_server(
 
     // Create new thread to run the server
     let base = config.get_base_path();
+    let dev_ws_path = config.project.dev_ws.clone();
     thread::spawn({
         let tx = tx.clone();
         move || -> Result {
             // Ensure site directory exists
             fs::create_dir_all(&site_dir).unwrap();
             let stack = Stack::new()
-                .with(Client::default())
+                .with(Client::new(dev_ws_path))
                 .with(middleware::WebSocketHandshake::default())
                 .with(middleware::NormalizePath::default())
                 .with(middleware::BasePath::new(base).expect("invariant"))

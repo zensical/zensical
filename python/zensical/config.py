@@ -161,6 +161,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(config, "site_author", None, str)
     set_default(config, "use_directory_urls", True, bool)
     set_default(config, "dev_addr", "localhost:8000", str)
+    set_default(config, "dev_ws", None, str)
     set_default(config, "copyright", None, str)
 
     # Set defaults for repository settings

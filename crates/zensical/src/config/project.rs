@@ -61,6 +61,8 @@ pub struct Project {
     pub use_directory_urls: bool,
     /// Development server address.
     pub dev_addr: String,
+    /// Development WebSocket path.
+    pub dev_ws: Option<String>,
     /// Copyright notice.
     pub copyright: Option<String>,
     /// Repository URL.
