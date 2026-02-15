@@ -47,7 +47,7 @@ static CLIENT: &str = concat!(
     "    document.title = state ? \"Waiting for connection\" : title;\n",
     "  }\n",
     "  function connect() {\n",
-    "    const socket = new WebSocket(`ws://${window.location.host}`);\n",
+    "    const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`);\n",
     "    pending(true);\n",
     "    socket.addEventListener(\"message\", ev => {\n",
     "      if (ev.data.endsWith(\".css\")) {\n",
