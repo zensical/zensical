@@ -70,3 +70,17 @@
     <a href="https://zensical.org/docs/">zensical.org/docs/</a>.
   </em>
 </p>
+
+## Zensical Spark
+
+[Zensical Spark](https://zensical.org/spark/) is our offering for professionals
+and organizations using Zensical commercially. It lets us provide best-in-class
+support, keep the project sustainable, and Zensical __free for everyone__.
+
+Zensical Spark may be a great fit if you:
+
+- Need help migrating a complex MkDocs project to Zensical
+- Want to ensure Zensical meets all your requirements – see [how we work](https://zensical.org/docs/community/how-we-work/)
+- Want direct support from the core team, including 1:1 sessions
+
+For the full list of benefits, see our [subscription tiers](https://zensical.org/spark/tiers/).
