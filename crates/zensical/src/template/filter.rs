@@ -74,7 +74,7 @@ pub fn url_filter(state: &State, url: String) -> String {
         }
 
         // We can return if we don't stay on the same page
-        if relative_url != "." {
+        if relative_url != "./." {
             return relative_url;
         }
 
