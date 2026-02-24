@@ -29,7 +29,7 @@ import os
 import pickle
 from importlib.util import find_spec
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 import yaml
@@ -46,6 +46,9 @@ try:
     import tomllib
 except ModuleNotFoundError:
     import tomli as tomllib  # type: ignore[no-redef]
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 # ----------------------------------------------------------------------------
 # Globals
@@ -487,6 +490,27 @@ def _hash(data: Any) -> int:
     return int(hash.hexdigest(), 16) % (2**64)
 
 
+def _ignore_directory(dirpath: str) -> bool:
+    """Determine whether to ignore a folder based on its name."""
+    return dirpath == "__pycache__" or dirpath.startswith(".venv")
+
+
+def _list_py_modules(path: Path) -> Iterator[Path]:
+    """List Python modules in a directory, recursively."""
+    for root, dirs, files in os.walk(path, topdown=True, followlinks=True):
+        dirs[:] = [dir for dir in dirs if not _ignore_directory(dir)]
+        for relfile in files:
+            if os.path.splitext(relfile)[1] in {
+                ".py",
+                ".pyc",
+                ".pyo",
+                ".pyd",
+                ".pyi",
+                ".so",
+            }:
+                yield Path(root, relfile)
+
+
 def _list_sources(config: dict, config_file: str) -> list[tuple[str, int]]:
     """List all absolute links to source files for mkdocstrings."""
     python_paths = (
@@ -502,18 +526,10 @@ def _list_sources(config: dict, config_file: str) -> list[tuple[str, int]]:
     for python_path in python_paths:
         path = root.joinpath(python_path).resolve()
         if path.is_dir() and path.is_relative_to(root) and path != root:
-            for subpath in path.rglob("*"):
-                # Path.rglob can't do patterns, so we need to filter here
-                if subpath.suffix in {
-                    ".py",
-                    ".pyc",
-                    ".pyi",
-                    ".so",
-                    ".dll",
-                }:
-                    files_with_hash.append(  # noqa: PERF401
-                        (str(subpath), int(os.path.getmtime(subpath)))
-                    )
+            for py_module in _list_py_modules(path):
+                files_with_hash.append(  # noqa: PERF401
+                    (str(py_module), int(os.path.getmtime(py_module)))
+                )
     return sorted(files_with_hash)
 
 
