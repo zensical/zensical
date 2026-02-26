@@ -91,6 +91,8 @@ pub struct Project {
     pub nav: Vec<NavigationItem>,
     /// Template hash.
     pub template_hash: u64,
+    /// Plugins hash.
+    pub plugins_hash: u64,
     /// Source files.
     pub source_files: Vec<(PathBuf, u64)>,
 }

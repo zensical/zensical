@@ -455,6 +455,14 @@ def _apply_defaults(config: dict, path: str) -> dict:
 
     # Hash all templates, so we rebuild if something changes
     config["template_hash"] = _hash(_list_templates(config))
+
+    # Hash the entire plugins configuration.
+    # This is a special case for plugins because we currently only source
+    # the plugin configuration that we support in Rust,
+    # which means config on other plugins doesn't contribute to the hash,
+    # in turn not triggering full rebuilds.
+    config["plugins_hash"] = _hash(config["plugins"])
+
     return config
 
 
