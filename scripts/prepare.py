@@ -39,7 +39,7 @@ def main() -> int:
 
     # Clone UI repository into tmp directory
     repo_url = "https://github.com/zensical/ui.git"
-    repo_tag = "v0.0.7"
+    repo_tag = "v0.0.8"
     dest_dir = os.path.join("tmp", "ui")
     if not os.path.exists(dest_dir):
         subprocess.run(["git", "clone", repo_url, dest_dir], check=True)
