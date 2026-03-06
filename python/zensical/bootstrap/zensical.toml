@@ -259,7 +259,7 @@ features = [
 # ----------------------------------------------------------------------------
 # If you don't have a dedicated project logo, you can use a built-in icon from
 # the icon sets shipped in Zensical. Please note that the setting lives in a
-# differernt subsection, and that the above take precedence over the icon.
+# different subsection, and that the above take precedence over the icon.
 #
 # Read more:
 # - https://zensical.org/docs/setup/logo-and-icons
