@@ -280,7 +280,7 @@ features = [
 
 # ----------------------------------------------------------------------------
 # In the "palette" subsection you can configure options for the color scheme.
-# You can configure different color # schemes, e.g., to turn on dark mode,
+# You can configure different color schemes, e.g., to turn on dark mode,
 # that the user can switch between. Each color scheme can be further
 # customized.
 #
