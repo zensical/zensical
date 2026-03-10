@@ -453,6 +453,10 @@ def _apply_defaults(config: dict, path: str) -> dict:
     # List all source files for mkdocstrings
     config["source_files"] = _list_sources(config, path)
 
+    # List all snippet files referenced in pymdownx.snippets configuration,
+    # so we can watch them and trigger a rebuild when they change
+    config["snippet_files"] = _list_snippet_files(config, path)
+
     # Hash all templates, so we rebuild if something changes
     config["template_hash"] = _hash(_list_templates(config))
 
@@ -539,6 +543,27 @@ def _list_sources(config: dict, config_file: str) -> list[tuple[str, int]]:
                     (str(py_module), int(os.path.getmtime(py_module)))
                 )
     return sorted(files_with_hash)
+
+
+def _list_snippet_files(
+    config: dict, config_file: str
+) -> list[tuple[str, int]]:
+    """List files referenced in pymdownx.snippets auto_append configuration."""
+    snippets_config = config["mdx_configs"].get("pymdownx.snippets", {})
+    auto_append = snippets_config.get("auto_append", [])
+    base_paths = snippets_config.get("base_path", ["."])
+
+    root = Path(config_file).parent.resolve()
+    files_with_mtime = []
+    for file_name in auto_append:
+        for base_path in base_paths:
+            candidate = root.joinpath(base_path, file_name).resolve()
+            if candidate.is_file():
+                mtime = int(os.path.getmtime(candidate))
+                files_with_mtime.append((str(candidate), mtime))
+                break
+
+    return sorted(files_with_mtime)
 
 
 def _list_templates(config: dict) -> list[tuple[str, int]]:

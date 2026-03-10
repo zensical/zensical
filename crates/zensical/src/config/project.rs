@@ -95,4 +95,6 @@ pub struct Project {
     pub plugins_hash: u64,
     /// Source files.
     pub source_files: Vec<(PathBuf, u64)>,
+    /// Snippet files referenced in pymdownx.snippets configuration.
+    pub snippet_files: Vec<(PathBuf, u64)>,
 }

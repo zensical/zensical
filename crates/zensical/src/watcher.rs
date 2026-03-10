@@ -121,6 +121,16 @@ impl Watcher {
                         return Err(Error::Disconnected);
                     }
 
+                    // Check if one of the snippet files referenced in the
+                    // pymdownx.snippets configuration changed, and restart,
+                    // as all pages that include them need to be rebuilt
+                    let mut iter = config.project.snippet_files.iter();
+                    if iter.any(|(path, _)| &*event.path() == path)
+                        && !seen.insert((*event.path()).clone())
+                    {
+                        return Err(Error::Disconnected);
+                    }
+
                     // Ignore events in the site directory, since they are files
                     // that were generated and should not trigger a rebuild. We
                     // forward them to the reload channel in the server instead,
@@ -195,6 +205,11 @@ impl Watcher {
 
         // Watch source files managed by mkdocstrings
         for (path, _) in &config.project.source_files {
+            agent.watch(path)?;
+        }
+
+        // Watch snippet files referenced in pymdownx.snippets configuration
+        for (path, _) in &config.project.snippet_files {
             agent.watch(path)?;
         }
 
