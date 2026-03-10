@@ -121,6 +121,15 @@ impl Watcher {
                         return Err(Error::Disconnected);
                     }
 
+                    // Check if one of the source files managed by the Snippets
+                    // Markdown extension changed, and restart the build
+                    let mut iter = config.project.snippet_files.iter();
+                    if iter.any(|(path, _)| &*event.path() == path)
+                        && !seen.insert((*event.path()).clone())
+                    {
+                        return Err(Error::Disconnected);
+                    }
+
                     // Ignore events in the site directory, since they are files
                     // that were generated and should not trigger a rebuild. We
                     // forward them to the reload channel in the server instead,
@@ -195,6 +204,11 @@ impl Watcher {
 
         // Watch source files managed by mkdocstrings
         for (path, _) in &config.project.source_files {
+            agent.watch(path)?;
+        }
+
+        // Watch source files managed by Snippets Markdown extension
+        for (path, _) in &config.project.snippet_files {
             agent.watch(path)?;
         }
 
