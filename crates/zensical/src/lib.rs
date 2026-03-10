@@ -32,9 +32,11 @@
 
 use crossbeam::channel::unbounded;
 use pyo3::prelude::*;
-use std::path::PathBuf;
-use std::thread;
+use pyo3::Python;
+use std::path::{Path, PathBuf};
+use std::process;
 use std::time::{Duration, Instant};
+use std::{fs, io, thread};
 use zrx::scheduler::action::Report;
 use zrx::scheduler::Scheduler;
 
@@ -91,6 +93,27 @@ fn handle(report: Report) {
     }
 }
 
+/// Wait until the file at the given path is touched.
+///
+/// During the wait we also poll for Python signal handling so a keyboard
+/// interrupt (Ctrl‑C) can abort the blocking loop.
+fn wait_for_touch(path: &Path) -> io::Result<bool> {
+    let last = fs::metadata(path)?.modified()?;
+    loop {
+        thread::sleep(Duration::from_millis(250));
+        if last < fs::metadata(path)?.modified()? {
+            break;
+        }
+
+        // Allow Python to handle signals (e.g., Ctrl+C)
+        if Python::attach(|py| py.check_signals().is_err()) {
+            println!("Received interrupt, exiting");
+            process::exit(1);
+        }
+    }
+    Ok(true)
+}
+
 /// Run the build process.
 fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     #[cfg(feature = "tracing")]
@@ -100,7 +123,16 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     // scheduler. Once we have the module system set up, this will be tightly
     // integrated and not necessary anymore, since partial rebuilds of the
     // network of tasks will be supported.
-    let config = Config::new(config_file)?;
+    let config = match Config::new(config_file) {
+        Ok(config) => config,
+        // If we're in serve mode, we can just wait until the configuration
+        // file is touched and start over again
+        Err(err) if matches!(mode, Mode::Serve(_, _)) => {
+            println!("[error] Failed to load configuration: {err}");
+            return wait_for_touch(config_file).map_err(Into::into);
+        }
+        Err(err) => return Err(err.into()),
+    };
 
     // Clean cache directory if requested
     if let Mode::Build(true) = mode {
