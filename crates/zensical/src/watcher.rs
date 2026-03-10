@@ -121,9 +121,8 @@ impl Watcher {
                         return Err(Error::Disconnected);
                     }
 
-                    // Check if one of the snippet files referenced in the
-                    // pymdownx.snippets configuration changed, and restart,
-                    // as all pages that include them need to be rebuilt
+                    // Check if one of the source files managed by the Snippets
+                    // Markdown extension changed, and restart the build
                     let mut iter = config.project.snippet_files.iter();
                     if iter.any(|(path, _)| &*event.path() == path)
                         && !seen.insert((*event.path()).clone())
@@ -208,7 +207,7 @@ impl Watcher {
             agent.watch(path)?;
         }
 
-        // Watch snippet files referenced in pymdownx.snippets configuration
+        // Watch source files managed by Snippets Markdown extension
         for (path, _) in &config.project.snippet_files {
             agent.watch(path)?;
         }
