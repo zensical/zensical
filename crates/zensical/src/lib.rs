@@ -35,6 +35,7 @@ use pyo3::prelude::*;
 use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
+use zensical_watch::{Agent, Error as WatchError};
 use zrx::scheduler::action::Report;
 use zrx::scheduler::Scheduler;
 
@@ -221,6 +222,42 @@ fn build(py: Python, config_file: PathBuf, clean: bool) -> PyResult<()> {
     })
 }
 
+/// Watches the configuration file until it changes or the user interrupts.
+///
+/// Returns `true` if the configuration file was modified (should retry the
+/// build), or `false` if the user interrupted the process.
+fn watch_config_until_change(config_file: &PathBuf) -> PyResult<bool> {
+    // Canonicalize so the path matches canonicalized paths from the watcher
+    let config_path = std::fs::canonicalize(config_file)
+        .unwrap_or_else(|_| config_file.clone());
+
+    let agent = Agent::new(Duration::from_millis(20), move |res| {
+        if let Ok(event) = res {
+            if *event.path() == config_path {
+                return Err(WatchError::Disconnected);
+            }
+        }
+        Ok(())
+    });
+
+    // Watch the config file; if watching fails just return true so the outer
+    // loop retries (it will either succeed or fail with a proper error)
+    if agent.watch(config_file).is_err() {
+        return Ok(true);
+    }
+
+    loop {
+        thread::sleep(Duration::from_millis(100));
+        if agent.is_terminated() {
+            return Ok(true);
+        }
+        if Python::attach(|py| py.check_signals().is_err()) {
+            println!("Received interrupt, exiting");
+            return Ok(false);
+        }
+    }
+}
+
 /// Builds and serves the project.
 #[pyfunction]
 fn serve(
@@ -232,6 +269,21 @@ fn serve(
             Ok(true) => {
                 options.open = false;
                 seq += 1;
+            }
+            // After the first successful build, handle config errors gracefully
+            // by printing a warning and waiting for the config to be fixed,
+            // instead of killing the development server
+            Err(err) if seq > 0 => {
+                let msg = Python::attach(|py| format!("{}", err.value(py)));
+                eprintln!(
+                    "Warning: Configuration error in {}: {}. \
+                     Falling back to last valid configuration.",
+                    config_file.display(),
+                    msg
+                );
+                if !watch_config_until_change(&config_file)? {
+                    return Ok(());
+                }
             }
             other => return other.map(|_| ()),
         }

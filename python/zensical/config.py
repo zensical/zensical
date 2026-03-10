@@ -91,8 +91,11 @@ def parse_config(path: str) -> dict:
 def parse_zensical_config(path: str) -> dict:
     """Parse zensical.toml configuration file."""
     global _CONFIG  # noqa: PLW0603
-    with open(path, "rb") as f:
-        config = tomllib.load(f)
+    try:
+        with open(path, "rb") as f:
+            config = tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigurationError(str(e)) from e
     if "project" in config:
         config = config["project"]
 
