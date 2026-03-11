@@ -23,7 +23,6 @@
 
 from __future__ import annotations
 
-import codecs
 import functools
 import os
 from glob import iglob
@@ -80,7 +79,7 @@ def to_svg(
 @functools.cache
 def _load(file: str) -> str:
     """Load icon from file."""
-    with codecs.open(file, encoding="utf-8") as f:
+    with open(file, encoding="utf-8") as f:
         return f.read()
 
 
