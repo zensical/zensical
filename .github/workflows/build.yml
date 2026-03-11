@@ -74,7 +74,11 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           manylinux: auto
-          args: --release --out artifacts
+          # Temporary fix for https://github.com/zensical/zensical/issues/425
+          args: >-
+            --release --out artifacts
+            --interpreter python3.10
+          # args: --release --out artifacts
           sccache: >
             ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
 
