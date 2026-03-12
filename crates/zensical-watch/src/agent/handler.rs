@@ -100,13 +100,17 @@ impl Handler {
             recv(self.receiver) -> message => {
                 let res = match message? {
                     Action::Watch(path) => {
-                        self.monitor.watch(&path).map(|_| {
-                            self.queue.push(path);
+                        self.monitor.watch(&path).map(|changed| {
+                            if changed {
+                                self.queue.push(path);
+                            }
                         })
                     },
                     Action::Unwatch(path) => {
-                        self.monitor.unwatch(&path).map(|_| {
-                            self.queue.push(path);
+                        self.monitor.unwatch(&path).map(|changed| {
+                            if changed {
+                                self.queue.push(path);
+                            }
                         })
                     },
                 };
