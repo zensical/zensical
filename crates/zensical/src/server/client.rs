@@ -63,7 +63,7 @@ static CLIENT: &str = concat!(
     "      if (ev.data.endsWith(\".js\")) {\n",
     "        window.location.reload()\n",
     "      }\n",
-    "      if (ev.data == window.location.pathname) {\n",
+    "      if (ev.data == decodeURI(window.location.pathname)) {\n",
     "        window.location.reload()\n",
     "      }\n",
     "    });\n",
