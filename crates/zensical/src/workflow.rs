@@ -25,6 +25,7 @@
 
 //! Workflow definitions
 
+use percent_encoding::percent_decode_str;
 use pyo3::types::PyAnyMethods;
 use pyo3::Python;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -379,9 +380,12 @@ pub fn render_pages(
                 .and_then(|report| {
                     let path = Path::new(&page.path);
                     fs::create_dir_all(path.parent().expect("invariant"))?;
-                    fs::write(path, &report.data)
-                        .map_err(Into::into)
-                        .inspect(|()| println!("+ /{}", page.url))
+                    fs::write(path, &report.data).map_err(Into::into).inspect(
+                        |()| {
+                            let url = percent_decode_str(&page.url);
+                            println!("+ /{}", url.decode_utf8_lossy());
+                        },
+                    )
                 })
         },
     ))

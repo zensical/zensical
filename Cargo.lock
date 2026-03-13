@@ -1424,6 +1424,7 @@ dependencies = [
  "minijinja",
  "minijinja-contrib",
  "mio",
+ "percent-encoding",
  "pyo3",
  "regex",
  "serde",

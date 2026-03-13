@@ -53,6 +53,7 @@ minijinja = { workspace = true, features = [
 ] }
 minijinja-contrib = { workspace = true, features = ["html_entities"] }
 mio = { workspace = true, features = ["net", "os-poll"] }
+percent-encoding.workspace = true
 pyo3.workspace = true
 regex.workspace = true
 serde = { workspace = true, features = ["derive", "rc"] }
