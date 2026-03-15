@@ -27,13 +27,14 @@
 
 use crossbeam::channel::{unbounded, Receiver, TryIter};
 use notify::{
-    Config, Event, RecommendedWatcher, RecursiveMode, Result, Watcher,
-    WatcherKind,
+    Config, Event, PollWatcher, RecommendedWatcher, RecursiveMode, Result,
+    Watcher, WatcherKind,
 };
 use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::{fmt, fs};
+use std::time::Duration;
+use std::{env, fmt, fs};
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -522,7 +523,25 @@ impl Default for Monitor {
     /// ```
     #[inline]
     fn default() -> Self {
-        Self::new::<RecommendedWatcher>(Config::default())
+        // If this environment variable is set, use the polling watcher, which
+        // is a fallback watcher that works on all operating systems. It's not
+        // recommended to use this watcher, as it is less efficient than the
+        // recommended watcher, but can be necessary in some environments.
+        if env::var("ZENSICAL_POLL_WATCHER").is_ok() {
+            // By default, we use 500ms, which is the same thing MkDocs uses.
+            // 500ms might be too short, which is why we make it configurable.
+            let interval = Duration::from_millis(
+                env::var("ZENSICAL_POLL_INTERVAL")
+                    .ok()
+                    .and_then(|interval| interval.parse().ok())
+                    .unwrap_or(500),
+            );
+            Self::new::<PollWatcher>(
+                Config::default().with_poll_interval(interval),
+            )
+        } else {
+            Self::new::<RecommendedWatcher>(Config::default())
+        }
     }
 }
 
