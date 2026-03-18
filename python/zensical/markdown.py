@@ -101,7 +101,6 @@ def render(content: str, path: str, url: str) -> dict:
         except Exception:  # noqa: BLE001
             pass
 
-
     # Inject meta into the Markdown instance for extension compatibility
     md.front_matter = meta
     # Optionally set md.Meta for Python-Markdown compatibility (list-of-strings values)
