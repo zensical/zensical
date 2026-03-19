@@ -166,6 +166,10 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(config, "dev_addr", "localhost:8000", str)
     set_default(config, "copyright", None, str)
 
+    # Set defaults for versioning with mike
+    set_default(config, "remote_branch", "gh-pages", str)
+    set_default(config, "remote_name", "origin", str)
+
     # Set defaults for repository settings
     set_default(config, "repo_url", None, str)
     set_default(config, "repo_name", None, str)
