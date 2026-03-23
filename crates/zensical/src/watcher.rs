@@ -29,7 +29,7 @@ use crossbeam::channel::Sender;
 use mio::Waker;
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use zensical_watch::event::{Event, Kind};
@@ -58,6 +58,7 @@ pub struct Watcher {
 
 impl Watcher {
     /// Creates a file watcher.
+    #[allow(clippy::too_many_lines)]
     pub fn new(
         config: &Config, session: Session<Id, String>, reload: Sender<String>,
         waker: Option<Arc<Waker>>,
@@ -82,6 +83,27 @@ impl Watcher {
         // Track seen files to restart on config or template change
         let mut seen = BTreeSet::new();
 
+        // Normalize watched paths once, so path comparisons stay stable across
+        // platforms and watcher backends (notably on Windows).
+        let config_path = canonical_or_clone(&config.path);
+        let theme_dirs = config
+            .theme_dirs
+            .iter()
+            .map(|path| canonical_or_clone(path))
+            .collect::<Vec<_>>();
+        let source_files = config
+            .project
+            .source_files
+            .iter()
+            .map(|(path, _)| canonical_or_clone(path))
+            .collect::<BTreeSet<_>>();
+        let snippet_files = config
+            .project
+            .snippet_files
+            .iter()
+            .map(|(path, _)| canonical_or_clone(path))
+            .collect::<BTreeSet<_>>();
+
         // Initialize file agent - we use a debounce interval of 20ms, which
         // should be sufficient to correctly determine rename events
         let agent = Agent::new(Duration::from_millis(20), {
@@ -94,19 +116,23 @@ impl Watcher {
                         return Ok(());
                     }
 
+                    // Canonicalize once to compare against configured paths,
+                    // which avoids mismatches between equivalent path forms.
+                    let event_path = canonical_or_clone(&event.path());
+
                     // Check if the config file reloaded, and terminate agent,
                     // as we need to kick off the entire pipeline again
-                    if *event.path() == config.path
-                        && !seen.insert(config.path.clone())
+                    if event_path == config_path
+                        && !seen.insert(config_path.clone())
                     {
                         return Err(Error::Disconnected);
                     }
 
                     // Check if the event is in any of the theme directories
                     // and restart the build if we've already seen the file
-                    for dir in &config.theme_dirs {
-                        if event.path().starts_with(dir)
-                            && !seen.insert((*event.path()).clone())
+                    for dir in &theme_dirs {
+                        if event_path.starts_with(dir)
+                            && !seen.insert(event_path.clone())
                         {
                             return Err(Error::Disconnected);
                         }
@@ -114,18 +140,16 @@ impl Watcher {
 
                     // Check if one of the source files managed by mkdocstrings
                     // changed, and restart the build
-                    let mut iter = config.project.source_files.iter();
-                    if iter.any(|(path, _)| &*event.path() == path)
-                        && !seen.insert((*event.path()).clone())
+                    if source_files.contains(&event_path)
+                        && !seen.insert(event_path.clone())
                     {
                         return Err(Error::Disconnected);
                     }
 
                     // Check if one of the source files managed by the Snippets
                     // Markdown extension changed, and restart the build
-                    let mut iter = config.project.snippet_files.iter();
-                    if iter.any(|(path, _)| &*event.path() == path)
-                        && !seen.insert((*event.path()).clone())
+                    if snippet_files.contains(&event_path)
+                        && !seen.insert(event_path.clone())
                     {
                         return Err(Error::Disconnected);
                     }
@@ -135,7 +159,8 @@ impl Watcher {
                     // forward them to the reload channel in the server instead,
                     // so the browser can refresh the site.
                     let site_dir = config.get_site_dir();
-                    if event.path().starts_with(&site_dir) {
+                    let site_dir = canonical_or_clone(&site_dir);
+                    if event_path.starts_with(&site_dir) {
                         // Compute identifier, since we need the relative URL
                         // so we only reload the page the client is on.
                         let id = to_id(event.path().clone(), &sources);
@@ -227,6 +252,7 @@ impl Watcher {
     }
 }
 
+
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
@@ -255,4 +281,9 @@ fn to_id(path: Arc<PathBuf>, sources: &[(PathBuf, String)]) -> Id {
     // Note that this cannot fail, since there must be a path in the source
     // mapping that matches the given path, at least the project root
     option.expect("invariant")
+}
+
+#[inline]
+fn canonical_or_clone(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
