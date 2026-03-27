@@ -158,6 +158,13 @@ def _apply_defaults(config: dict, path: str) -> dict:
     if ".." in config.get("docs_dir", ""):
         raise ConfigurationError("docs_dir must not contain '..'")
 
+    # Validate that docs directory exists
+    docs_dir_path = os.path.join(os.path.dirname(path), config["docs_dir"])
+    if not os.path.isdir(docs_dir_path):
+        raise ConfigurationError(
+            f"Docs directory does not exist: {docs_dir_path}"
+        )
+
     # Set defaults for core settings
     set_default(config, "site_url", None, str)
     set_default(config, "site_description", None, str)
@@ -219,6 +226,11 @@ def _apply_defaults(config: dict, path: str) -> dict:
         theme["custom_dir"] = os.path.join(
             os.path.dirname(path), theme["custom_dir"]
         )
+        # Validate that custom theme directory exists
+        if not os.path.isdir(theme["custom_dir"]):
+            raise ConfigurationError(
+                f"Custom theme directory does not exist: {theme['custom_dir']}"
+            )
 
     # Ensure presence of static templates
     theme["static_templates"] = ["404.html", "sitemap.xml"]
