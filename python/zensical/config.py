@@ -23,11 +23,12 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import importlib
 import os
-from tomli import load as toml_load
 import pickle
+from importlib.metadata import EntryPoint, entry_points
 from importlib.util import find_spec
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any
@@ -36,7 +37,8 @@ from urllib.parse import urljoin, urlparse
 import yaml
 from click import ClickException
 from deepmerge import always_merger
-from yaml import BaseLoader, Loader, YAMLError
+from tomli import load as toml_load
+from yaml import Loader, YAMLError
 from yaml.constructor import ConstructorError
 
 from zensical.compat.autorefs import get_autorefs_extension
@@ -114,20 +116,59 @@ def get_config() -> dict:
     return _CONFIG  # type: ignore[return-value]
 
 
-def get_theme_dir() -> str:
-    """Return the theme directory."""
+@functools.cache
+def get_themes() -> dict[str, EntryPoint]:
+    """Return available themes.
+
+    This function adds support for using MkDocs themes with Zensical, including
+    derived themes. There's currently no plan to add `zensical.*` entrypoints,
+    since the theming system will undergo a major revision with the addition
+    of the component system. This will make theming simpler and modular.
+    """
+    themes: dict[str, EntryPoint] = {}
+    for entry_point in entry_points(group="mkdocs.themes"):
+        themes[entry_point.name] = entry_point
+
+    # Return themes
+    return themes
+
+
+def get_builtin_theme_dir() -> str:
+    """Return the built-in theme directory."""
     path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(path, "templates")
 
 
-def get_custom_theme_dir(config: dict) -> str | None:
-    """Return the custom theme directory."""
-    path = os.path.dirname(os.path.abspath(__file__))
-    if config["theme"].get("custom_dir"):
-        return os.path.join(path, config["theme"].get("custom_dir"))
+def get_theme_dir(name: str) -> str:
+    """Return the theme directory."""
+    # Zensical's default theme is the replacement for the `material` theme, so
+    # make sure to use the built-in theme when `material` is specified
+    if name == "material":
+        return get_builtin_theme_dir()
 
-    # Otherwise, return no path
-    return None
+    # Otherwise, check for installed themes - note that because of minijinja,
+    # theme might need to be adjusted. This functionality is primarily intended
+    # for extending the `material` theme, as some users did, and allow to move
+    # overrides into an installable python package.
+    themes = get_themes()
+    if name not in themes:
+        raise ConfigurationError(
+            f"Theme '{name}' is not installed. "
+            f"Available themes are: {', '.join(themes.keys())}"
+        )
+    return os.path.dirname(os.path.abspath(themes[name].load().__file__))
+
+
+def get_custom_theme_dir(path: str, config_path: str) -> str:
+    """Return the custom theme directory."""
+    theme_dir = os.path.join(os.path.dirname(config_path), path)
+
+    # Validate that custom theme directory exists
+    if not os.path.isdir(theme_dir):
+        raise ConfigurationError(
+            f"Custom theme directory does not exist: {theme_dir}"
+        )
+    return theme_dir
 
 
 def _apply_defaults(config: dict, path: str) -> dict:
@@ -210,8 +251,43 @@ def _apply_defaults(config: dict, path: str) -> dict:
     # Set defaults for theme font settings
     theme = set_default(config, "theme", {}, dict)
     if isinstance(theme, str):
-        theme = {"name": theme}
-        config["theme"] = theme
+        config["theme"] = {"name": theme}
+
+    # Set defaults for custom theme directory
+    set_default(config["theme"], "custom_dir", None, str)
+
+    # Load theme configuration
+    if config["theme"].get("custom_dir"):
+        theme_dir = get_custom_theme_dir(config["theme"]["custom_dir"], path)
+        theme_config, theme_dirs = _load_theme_config(theme_dir)
+        if (
+            len(theme_dirs) == 1
+            and (theme_name := config["theme"].get("name", "material"))
+            is not None
+        ):
+            # Custom theme doesn't extend another theme,
+            # but user specified a theme name in configuration,
+            # so we use it as base theme.
+            theme_dir = get_theme_dir(theme_name)
+            base_theme_config, base_theme_dirs = _load_theme_config(theme_dir)
+            theme_config = {**base_theme_config, **theme_config}
+            theme_dirs = theme_dirs + base_theme_dirs
+    else:
+        # No custom theme directory
+        theme_dir = get_theme_dir(config["theme"].get("name") or "material")
+        theme_config, theme_dirs = _load_theme_config(theme_dir)
+
+    # Store theme directories for Minijinja and merge theme configuration
+    config["theme_dirs"] = theme_dirs
+    config["theme"] = {**theme_config, **config["theme"]}
+
+    theme = config["theme"]
+
+    # Set defaults for theme name
+    # (we do this after loading the theme configuration
+    # so that explicitly setting the name to null
+    # tells the system not to extend the Material theme)
+    set_default(theme, "name", None, str)
 
     # Set variant and fonts for variant
     set_default(theme, "variant", "modern", str)
@@ -219,18 +295,6 @@ def _apply_defaults(config: dict, path: str) -> dict:
         font = {"text": "Inter", "code": "JetBrains Mono"}
     else:
         font = {"text": "Roboto", "code": "Roboto Mono"}
-
-    # Resolve custom theme directory
-    set_default(theme, "custom_dir", None, str)
-    if theme.get("custom_dir"):
-        theme["custom_dir"] = os.path.join(
-            os.path.dirname(path), theme["custom_dir"]
-        )
-        # Validate that custom theme directory exists
-        if not os.path.isdir(theme["custom_dir"]):
-            raise ConfigurationError(
-                f"Custom theme directory does not exist: {theme['custom_dir']}"
-            )
 
     # Ensure presence of static templates
     theme["static_templates"] = ["404.html", "sitemap.xml"]
@@ -588,20 +652,14 @@ def _list_snippet_files(
 
 def _list_templates(config: dict) -> list[tuple[str, int]]:
     """List all template files in the theme directories."""
-    dirs = [get_theme_dir()]
-    if "custom_dir" in config["theme"]:
-        custom_dir = get_custom_theme_dir(config)
-        if custom_dir is not None:
-            dirs.append(custom_dir)
-
     # Collect file paths and their mtimes
     files_with_mtime = []
-    for directory in dirs:
-        for path, _, files in os.walk(directory):
-            if ".icons" in path:
+    for directory in config["theme_dirs"]:
+        for root, _, files in os.walk(directory):
+            if ".icons" in root:
                 continue
             for file in files:
-                file_path = os.path.join(path, file)
+                file_path = os.path.join(root, file)
                 mtime = int(os.path.getmtime(file_path))
                 files_with_mtime.append((file_path, mtime))
 
@@ -860,11 +918,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
 
 
 # ----------------------------------------------------------------------------
-
-
-def _yaml_load(
-    source: IO, loader: type[BaseLoader] | None = None
-) -> dict[str, Any]:
+def _yaml_load(source: IO) -> dict[str, Any]:
     """Load configuration file, resolve environment variables and parent files.
 
     Note that INHERIT is only a bandaid that was introduced to allow for some
@@ -872,7 +926,7 @@ def _yaml_load(
     different approach in the future, which will allow for composable and
     environment-specific configuration.
     """
-    loader = loader or Loader.add_constructor("!ENV", _construct_env_tag)
+    Loader.add_constructor("!ENV", _construct_env_tag)
     try:
         config = yaml.load(
             # Compatibility shim: we remap Material's extension namespace to
@@ -901,11 +955,51 @@ def _yaml_load(
                 f"doesn't exist at '{abspath}'."
             )
         with open(abspath, encoding="utf-8") as fd:
-            parent = _yaml_load(fd, loader)
+            parent = _yaml_load(fd)
         config = always_merger.merge(parent, config)
 
     # Return resulting configuration
     return config
+
+
+def _yaml_load_theme_config(source: IO) -> dict[str, Any]:
+    Loader.add_constructor("!ENV", _construct_env_tag)
+    try:
+        config = yaml.load(source, Loader=Loader)  # noqa: S506
+    except YAMLError as e:
+        raise ConfigurationError(
+            f"Encountered an error parsing the theme configuration file: {e}"
+        ) from e
+    if config is None:
+        return {}
+    return config
+
+
+def _load_theme_config(theme_dir: str) -> tuple[dict[str, Any], list[str]]:
+    # Keep track of the theme directories,
+    # so that we can pass them up to Minijinja.
+    theme_dirs = [theme_dir]
+
+    if (theme_config_file := Path(theme_dir, "mkdocs_theme.yml")).is_file():
+        # We found a theme configuration file (mkdocs_theme.yml).
+        with theme_config_file.open(encoding="utf-8") as file:
+            theme_config = _yaml_load_theme_config(file)
+            if extends := theme_config.pop("extends", None):
+                # This theme extends another theme,
+                # so we load this parent theme's configuration (recursively)
+                # and merge the current theme's configuration into it.
+                parent_theme_dir = get_theme_dir(extends)
+                parent_config, parent_dirs = _load_theme_config(
+                    parent_theme_dir
+                )
+                parent_config.update(theme_config)
+                theme_dirs.extend(parent_dirs)
+                return parent_config, theme_dirs
+            # Otherwise we just return the current theme configuration.
+            return theme_config, theme_dirs
+
+    # No theme configuration.
+    return {}, theme_dirs
 
 
 def _construct_env_tag(

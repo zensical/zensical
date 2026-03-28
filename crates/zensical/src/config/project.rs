@@ -73,6 +73,8 @@ pub struct Project {
     pub edit_uri: Option<String>,
     /// Theme settings.
     pub theme: Theme,
+    /// Theme directories.
+    pub theme_dirs: Vec<PathBuf>,
     /// Extra settings.
     pub extra: Dynamic,
     /// Extra CSS files.
