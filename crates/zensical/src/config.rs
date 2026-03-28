@@ -28,10 +28,10 @@
 use fluent_uri::Uri;
 use pyo3::types::PyAnyMethods;
 use pyo3::{PyErr, Python};
+use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::{fs, iter};
 use zrx::path::PathExt;
 
 mod error;
@@ -96,21 +96,15 @@ impl Config {
                 .call_method1("parse_config", (path.to_string_lossy(),))?
                 .extract::<Project>()?;
 
-            // Obtain main theme directory from, which is distributed in a
-            // subfolder as part of the Python package
-            let theme_dir =
-                module.call_method0("get_theme_dir")?.extract::<PathBuf>()?;
-
             // Return configuration and theme directory
-            Ok::<_, PyErr>((config, theme_dir))
+            Ok::<_, PyErr>(config)
         })
         .map_err(Into::into)
-        .and_then(|(project, theme_dir)| {
+        .and_then(|project| {
             // Merge theme directories, giving precedence to custom directory
             // over the main theme directory to allow for overrides
-            let iter = project.theme.custom_dir.clone().into_iter();
+            let iter = project.theme_dirs.clone().into_iter();
             let theme_dirs = iter
-                .chain(iter::once(theme_dir))
                 .map(|path| path.canonicalize().expect("invariant"))
                 .collect();
 
