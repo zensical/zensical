@@ -27,10 +27,11 @@ import hashlib
 import importlib
 import os
 import pickle
+import sys
 from importlib.util import find_spec
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import yaml
 from click import ClickException
@@ -172,6 +173,10 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(config, "use_directory_urls", True, bool)
     set_default(config, "dev_addr", "localhost:8000", str)
     set_default(config, "copyright", None, str)
+
+    # Set defaults for versioning with mike
+    set_default(config, "remote_branch", "gh-pages", str)
+    set_default(config, "remote_name", "origin", str)
 
     # Set defaults for repository settings
     set_default(config, "repo_url", None, str)
@@ -817,6 +822,29 @@ def _convert_plugins(value: Any, config: dict) -> dict:
                     "defer": False,
                 }
             )
+
+    # Mike sets an environment variable for us to determine whether the build
+    # is triggered from mike. If it is, we read the plugin configuration, if
+    # any, and mirror mike's functionality in adjusting the configuration when
+    # building the site, while only allowing for our theme at the moment.
+    version = os.environ.get("MIKE_DOCS_VERSION")
+    if version and config.get("site_url"):
+        mike = set_default(
+            plugins,
+            "mike",
+            {
+                "alias_type": "symlink",
+                "redirect_template": None,
+                "deploy_prefix": "",
+                "canonical_version": None,
+            },
+            dict,
+        )
+
+        # Copied and adapted from mike's plugin implementation
+        if mike["canonical_version"] is not None:
+            version = mike["canonical_version"]
+        config["site_url"] = urljoin(config["site_url"], version)
 
     # Now, add another level of indirection, by moving all plugin configuration
     # into a `config` property, making it compatible with Material for MkDocs.
