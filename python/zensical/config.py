@@ -404,6 +404,14 @@ def _apply_defaults(config: dict, path: str) -> dict:
             **tabbed["slugify"].get("kwds", {})
         )
 
+    # Blocks-tab extension configuration - resolve slugification function
+    blocks_tab = config["mdx_configs"].get("pymdownx.blocks.tab", {})
+    if isinstance(blocks_tab.get("slugify"), dict):
+        object = blocks_tab["slugify"].get("object", "pymdownx.slugs.slugify")
+        blocks_tab["slugify"] = _resolve(object)(
+            **blocks_tab["slugify"].get("kwds", {})
+        )
+
     # Table of contents extension configuration - resolve slugification function
     toc = config["mdx_configs"]["toc"]
     if isinstance(toc.get("slugify"), dict):
