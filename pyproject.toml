@@ -50,8 +50,8 @@ dependencies = [
     "click>=8.1.8",
     "deepmerge>=2.0",
     "markdown>=3.7",
-    "pygments>=2.16",
-    "pymdown-extensions>=10.15",
+    "pygments>=2.20",
+    "pymdown-extensions>=10.21.2",
     "pyyaml>=6.0.2",
     "tomli>=2.0; python_version < '3.11'",
 ]
