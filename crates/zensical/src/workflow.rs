@@ -137,8 +137,13 @@ fn copy_file(
 pub fn process_markdown(
     config: &Config, files: &Stream<Id, String>,
 ) -> Stream<Id, Markdown> {
-    let matcher =
-        Arc::new(Matcher::from_str("zrs:::::**/*.md:").expect("invariant"));
+    let matcher = Arc::new(
+        Matcher::from_str(&format!(
+            "zrs::::{}:**/*.md:",
+            config.project.docs_dir
+        ))
+        .expect("invariant"),
+    );
 
     // Create pipeline to render Markdown files
     let config = config.clone();
