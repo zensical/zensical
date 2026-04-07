@@ -78,14 +78,60 @@ impl Middleware for BasePath {
         }
 
         // 2. Strip prefix, if it exists
-        if req.uri.path.starts_with(base) {
-            req.uri = Uri::from_parts(
-                Cow::Owned(req.uri.path.trim_start_matches(base).to_string()),
-                req.uri.query,
-            );
+        if let Some(path) = strip_base_path(req.uri.path.as_ref(), base) {
+            req.uri = Uri::from_parts(Cow::Owned(path), req.uri.query);
         }
 
         // Forward with modified request
         next.handle(req)
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Helpers
+// ----------------------------------------------------------------------------
+
+fn strip_base_path(path: &str, base: &str) -> Option<String> {
+    if path == base {
+        return Some("/".to_string());
+    }
+
+    path.strip_prefix(base)
+        .filter(|rest| rest.starts_with('/'))
+        .map(str::to_string)
+}
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::http::{Request, Response};
+
+    #[test]
+    fn strips_base_path_once() {
+        let middleware = BasePath::new("/foo").expect("invariant");
+        let req = Request::new().uri("/foo/food");
+
+        let res = middleware.process(req, &|req: Request| {
+            Response::new().body(req.uri.path.to_string())
+        });
+
+        assert_eq!(res.body, b"/food");
+    }
+
+    #[test]
+    fn does_not_strip_non_segment_prefix() {
+        let middleware = BasePath::new("/foo").expect("invariant");
+        let req = Request::new().uri("/foobar");
+
+        let res = middleware.process(req, &|req: Request| {
+            Response::new().body(req.uri.path.to_string())
+        });
+
+        assert_eq!(res.body, b"/foobar");
     }
 }
