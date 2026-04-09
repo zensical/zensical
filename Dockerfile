@@ -50,15 +50,30 @@ COPY scripts scripts
 RUN mkdir -p python/zensical
 RUN python scripts/prepare.py
 
+# Create a stub project, which will allow us to install dependencies and have
+# them properly cached while changes to sources won't invalidate the cache
+RUN mkdir crates
+RUN cargo new --lib crates/zensical
+RUN cargo add pyo3 \
+    --manifest-path crates/zensical/Cargo.toml \
+    --features extension-module
+
+# Copy files to install dependencies - these will get installed into a virtual
+# environment, which is fine, since uv can later reuse the cached versions
+COPY pyproject.toml pyproject.toml
+COPY README.md README.md
+COPY uv.lock uv.lock
+
+# Install dependencies
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --dev --no-install-project
+
 # Copy files to build project
 COPY LICENSE.md LICENSE.md
 COPY crates crates
 COPY python python
 COPY Cargo.lock Cargo.lock
 COPY Cargo.toml Cargo.toml
-COPY pyproject.toml pyproject.toml
-COPY README.md README.md
-COPY uv.lock uv.lock
 
 # Build wheel
 RUN --mount=type=cache,target=/root/.cache/uv \
