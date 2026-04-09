@@ -71,6 +71,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 FROM python:3.14-alpine3.23 AS image
 
+# Add libgcc to allow running Rust extensions
 RUN apk add --no-cache \
     libgcc \
     tini
