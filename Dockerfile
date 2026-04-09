@@ -23,7 +23,9 @@
 
 # -----------------------------------------------------------------------------
 
-FROM python:3.14-alpine3.23 AS build
+FROM python:3.14-alpine3.23 AS base
+
+FROM base AS build
 
 # Disable bytecode caching during build
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -68,34 +70,33 @@ COPY uv.lock uv.lock
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --dev --no-install-project
 
-# Install additional dependencies
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system mkdocstrings-python
-
 # Copy files to build project
+COPY LICENSE.md LICENSE.md
 COPY crates crates
 COPY python python
 COPY Cargo.lock Cargo.lock
 COPY Cargo.toml Cargo.toml
 
-# Build project
-RUN . /.venv/bin/activate
+# Build wheel
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=target \
-    uv pip install --system . -v
+    uv build --wheel --out-dir /dist
 
 # -----------------------------------------------------------------------------
 
-FROM scratch AS image
+FROM base AS image
 
-# Copy relevant files from build
-COPY --from=build /bin/sh /bin/sh
-COPY --from=build /sbin/tini /sbin/tini
-COPY --from=build /lib /lib
-COPY --from=build /usr/lib /usr/lib
-COPY --from=build /usr/local /usr/local
+# Add libgcc to allow running Rust extensions
+RUN apk add --no-cache \
+    libgcc \
+    tini
+
+# Install project and runtime dependency extensions
+COPY --from=build /dist /dist
+RUN pip install --no-cache-dir /dist/*.whl mkdocstrings-python \
+    && rm -rf /dist
 
 # Set working directory and expose preview server port
 WORKDIR /docs
