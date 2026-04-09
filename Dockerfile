@@ -23,7 +23,9 @@
 
 # -----------------------------------------------------------------------------
 
-FROM python:3.14-alpine3.23 AS build
+FROM python:3.14-alpine3.23 AS base
+
+FROM base AS build
 
 # Disable bytecode caching during build
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -84,7 +86,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # -----------------------------------------------------------------------------
 
-FROM python:3.14-alpine3.23 AS image
+FROM base AS image
 
 # Add libgcc to allow running Rust extensions
 RUN apk add --no-cache \
