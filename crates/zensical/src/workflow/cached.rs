@@ -29,9 +29,31 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use zrx::scheduler::action::report::IntoReport;
+use zrx::scheduler::action::Report;
 use zrx::scheduler::Value;
 
 use crate::config::Config;
+use crate::structure::markdown::{markdown_into_report, Markdown};
+
+/// Deserialize cache payloads back into [`Report`] values. [`Markdown`] reattaches
+/// `render_diagnostics` with severities from stored log levels; other payloads use an empty report.
+pub(crate) trait FromCachePayload:
+    Value + Serialize + for<'de> Deserialize<'de>
+{
+    fn rehydrate_into_report(self) -> Report<Self>;
+}
+
+impl FromCachePayload for Markdown {
+    fn rehydrate_into_report(self) -> Report<Markdown> {
+        markdown_into_report(self)
+    }
+}
+
+impl FromCachePayload for String {
+    fn rehydrate_into_report(self) -> Report<String> {
+        Report::new(self)
+    }
+}
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -62,7 +84,7 @@ where
     T: Hash,
     F: FnOnce(T) -> R,
     R: IntoReport<U>,
-    U: Value + Serialize + for<'de> Deserialize<'de>,
+    U: Value + Serialize + for<'de> Deserialize<'de> + FromCachePayload,
 {
     // Compute hash of identifier
     let id_hash = {
@@ -90,7 +112,7 @@ where
         if let Ok(cached) = serde_json::from_slice::<Cached<U>>(&data) {
             // In case content hashes match, return cached data
             if cached.hash == hash {
-                return cached.data.into_report();
+                return cached.data.rehydrate_into_report().into_report();
             }
         }
     }

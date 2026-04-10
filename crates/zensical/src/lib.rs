@@ -31,7 +31,10 @@
 #![allow(clippy::needless_pass_by_value)]
 
 use crossbeam::channel::unbounded;
+use pyo3::create_exception;
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+use pyo3::PyTypeInfo;
 use pyo3::Python;
 use std::path::{Path, PathBuf};
 use std::process;
@@ -39,6 +42,7 @@ use std::time::{Duration, Instant};
 use std::{fs, io, thread};
 use zrx::scheduler::action::Report;
 use zrx::scheduler::Scheduler;
+use zrx_diagnostic::Severity;
 
 mod config;
 mod server;
@@ -51,6 +55,16 @@ use config::Config;
 use server::{create_server, ServeOptions};
 use watcher::Watcher;
 use workflow::create_workspace;
+
+create_exception!(
+    zensical,
+    StrictModeError,
+    PyRuntimeError,
+    "Raised when ``--strict`` is set and the build produced warnings or error-level diagnostics."
+);
+
+const STRICT_MODE_ERROR_MSG: &str =
+    "Build failed: strict mode treats warnings as errors.";
 
 // ----------------------------------------------------------------------------
 // Enums
@@ -86,11 +100,16 @@ fn setup_tracing() -> tracing_chrome::FlushGuard {
     guard
 }
 
-/// Handle report from the scheduler.
-fn handle(report: Report) {
+// When displaying diagnostics, we want to keep track if any are a violation of strict mode.
+fn handle_report(report: Report) -> bool {
+    let mut strict_mode_violated = false;
     for diagnostic in &report {
+        if matches!(diagnostic.severity, Severity::Warning | Severity::Error) {
+            strict_mode_violated = true;
+        }
         println!("[{:?}] {}", diagnostic.severity, diagnostic.message);
     }
+    strict_mode_violated
 }
 
 /// Wait until the file at the given path is touched.
@@ -115,7 +134,7 @@ fn wait_for_touch(path: &Path) -> io::Result<bool> {
 }
 
 /// Run the build process.
-fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
+fn run(config_file: &PathBuf, mode: Mode, strict: bool) -> PyResult<bool> {
     #[cfg(feature = "tracing")]
     let _guard = setup_tracing();
 
@@ -204,11 +223,14 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     // file agent with the scheduler, the sleep can be removed
     println!("Build started");
     let time = Instant::now();
+    let mut strict_mode_violated = false;
     loop {
-        match mode {
+        match &mode {
             // Build mode - just exit when we're done
             Mode::Build(..) => {
-                handle(scheduler.tick_timeout(Duration::from_millis(100)));
+                strict_mode_violated |= handle_report(
+                    scheduler.tick_timeout(Duration::from_millis(100)),
+                );
                 if scheduler.is_empty() {
                     let elapsed = time.elapsed().as_secs_f32();
                     println!("Build finished in {elapsed:.2}s");
@@ -220,7 +242,14 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
             // the scheduler with the agent, we can remove this temporary hack
             // and have immediate reloading.
             Mode::Serve(..) => {
-                handle(scheduler.tick_timeout(Duration::from_millis(100)));
+                strict_mode_violated |= handle_report(
+                    scheduler.tick_timeout(Duration::from_millis(100)),
+                );
+                if strict && strict_mode_violated {
+                    return Err(StrictModeError::new_err(
+                        STRICT_MODE_ERROR_MSG,
+                    ));
+                }
                 if watcher.is_terminated() {
                     // Wake the server
                     if let Some(waker) = &waker {
@@ -238,6 +267,10 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         }
     }
 
+    if strict && strict_mode_violated {
+        return Err(StrictModeError::new_err(STRICT_MODE_ERROR_MSG));
+    }
+
     // All good
     Ok(false)
 }
@@ -246,9 +279,11 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
 
 /// Builds the project.
 #[pyfunction]
-fn build(py: Python, config_file: PathBuf, clean: bool) -> PyResult<()> {
+fn build(
+    py: Python, config_file: PathBuf, clean: bool, strict: bool,
+) -> PyResult<()> {
     py.detach(|| {
-        run(&config_file, Mode::Build(clean))?;
+        run(&config_file, Mode::Build(clean), strict)?;
         Ok(())
     })
 }
@@ -260,7 +295,8 @@ fn serve(
 ) -> PyResult<()> {
     let mut seq = 0;
     py.detach(|| loop {
-        match run(&config_file, Mode::Serve(options.clone(), seq)) {
+        let strict = options.strict;
+        match run(&config_file, Mode::Serve(options.clone(), seq), strict) {
             Ok(true) => {
                 options.open = false;
                 seq += 1;
@@ -276,6 +312,34 @@ fn version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::handle_report;
+    use zrx::scheduler::action::Report;
+    use zrx_diagnostic::{Diagnostic, Severity};
+
+    #[test]
+    fn handle_report_returns_false_without_warnings() {
+        let report =
+            Report::new(()).with([Diagnostic::new(Severity::Info, "ok")]);
+        assert!(!handle_report(report));
+    }
+
+    #[test]
+    fn handle_report_returns_true_when_warning_present() {
+        let report = Report::new(())
+            .with([Diagnostic::new(Severity::Warning, "heads up")]);
+        assert!(handle_report(report));
+    }
+
+    #[test]
+    fn handle_report_returns_true_when_error_present() {
+        let report =
+            Report::new(()).with([Diagnostic::new(Severity::Error, "failed")]);
+        assert!(handle_report(report));
+    }
+}
+
 // ----------------------------------------------------------------------------
 
 /// Expose Rust runtime to Python.
@@ -284,5 +348,6 @@ fn zensical(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(build, m)?)?;
     m.add_function(wrap_pyfunction!(serve, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
+    m.add("StrictModeError", StrictModeError::type_object(m.py()))?;
     Ok(())
 }

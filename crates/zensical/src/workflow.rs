@@ -196,11 +196,25 @@ pub fn process_markdown(
                     url
                 };
 
+                let source_files_digest = {
+                    let mut hasher = DefaultHasher::new();
+                    for (path, file_hash) in &config.project.source_files {
+                        path.hash(&mut hasher);
+                        file_hash.hash(&mut hasher);
+                    }
+                    hasher.finish()
+                };
+
                 cached(
                     &config,
                     id,
-                    (config.hash, data.clone(), url.clone()),
-                    |(_, data, url)| Markdown::new(id, url, data),
+                    (
+                        config.hash,
+                        data.clone(),
+                        url.clone(),
+                        source_files_digest,
+                    ),
+                    |(_, data, url, _)| Markdown::new(id, url, data),
                 )
                 .into_report()
             }),

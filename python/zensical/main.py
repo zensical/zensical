@@ -26,12 +26,35 @@ from __future__ import annotations
 import os
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import click
 from click import ClickException
 
-from zensical import build, serve, version
+from zensical import StrictModeError, build, serve, version
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+# ----------------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------------
+
+
+def handle_strict_runtime_errors(
+    func: Callable[..., None], *args: object, **kwargs: object
+) -> None:
+    """Call a Rust pymodule function; map strict-mode failure to a Click error.
+
+    ``StrictModeError`` (from the native module) is turned into ``ClickException``
+    so the process exits cleanly without a Python traceback. Any other
+    exception is re-raised.
+    """
+    try:
+        func(*args, **kwargs)  # type: ignore[operator]
+    except StrictModeError as e:
+        raise ClickException(str(e)) from e
+
 
 # ----------------------------------------------------------------------------
 # Commands
@@ -64,7 +87,7 @@ def cli() -> None:
     "--strict",
     default=False,
     is_flag=True,
-    help="Strict mode (currently unsupported).",
+    help="Treat warnings as errors.",
 )
 def execute_build(config_file: str | None, **kwargs: Any) -> None:
     """Build a project."""
@@ -75,12 +98,15 @@ def execute_build(config_file: str | None, **kwargs: Any) -> None:
                 break
         else:
             raise ClickException("No config file found in the current folder.")
-    if kwargs.get("strict", False):
-        print("Warning: Strict mode is currently unsupported.")
 
     # Build project in Rust runtime, calling back into Python when necessary,
     # e.g., to parse MkDocs configuration format or render Markdown
-    build(os.path.abspath(config_file), kwargs.get("clean", False))
+    handle_strict_runtime_errors(
+        build,
+        os.path.abspath(config_file),
+        kwargs.get("clean", False),
+        kwargs.get("strict", False),
+    )
 
 
 @cli.command(name="serve")
@@ -109,7 +135,7 @@ def execute_build(config_file: str | None, **kwargs: Any) -> None:
     "--strict",
     default=False,
     is_flag=True,
-    help="Strict mode (currently unsupported).",
+    help="Treat warnings as errors.",
 )
 def execute_serve(config_file: str | None, **kwargs: Any) -> None:
     """Build and serve a project."""
@@ -120,12 +146,10 @@ def execute_serve(config_file: str | None, **kwargs: Any) -> None:
                 break
         else:
             raise ClickException("No config file found in the current folder.")
-    if kwargs.get("strict", False):
-        print("Warning: Strict mode is currently unsupported.")
 
     # Build project in Rust runtime, calling back into Python when necessary,
     # e.g., to parse MkDocs configuration format or render Markdown
-    serve(os.path.abspath(config_file), kwargs)
+    handle_strict_runtime_errors(serve, os.path.abspath(config_file), kwargs)
 
 
 @cli.command(name="new")

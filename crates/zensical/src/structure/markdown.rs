@@ -30,9 +30,9 @@ use pyo3::{FromPyObject, PyErr, Python};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use zrx::id::Id;
-use zrx::scheduler::action::report::IntoReport;
-use zrx::scheduler::action::Error;
+use zrx::scheduler::action::{Error, Report};
 use zrx::scheduler::Value;
+use zrx_diagnostic::{Diagnostic, Severity};
 
 use crate::structure::dynamic::Dynamic;
 use crate::structure::nav::to_title;
@@ -46,6 +46,17 @@ pub use autorefs::Autorefs;
 // ----------------------------------------------------------------------------
 // Structs
 // ----------------------------------------------------------------------------
+
+/// A logging-level diagnostic from the Python Markdown render (see Python
+/// `logging` level constants, e.g. WARNING = 30, ERROR = 40).
+#[derive(Clone, Debug, FromPyObject, Serialize, Deserialize, PartialEq, Eq)]
+#[pyo3(from_item_all)]
+pub struct RenderDiagnostic {
+    /// Python `logging` level (`LogRecord.levelno`), e.g. 30 = WARNING, 40 = ERROR.
+    pub level: u8,
+    /// Formatted message (e.g. `logger: text`).
+    pub message: String,
+}
 
 /// Markdown.
 #[derive(Clone, Debug, FromPyObject, Serialize, Deserialize)]
@@ -61,6 +72,41 @@ pub struct Markdown {
     pub title: String,
     /// Table of contents.
     pub toc: Vec<Section>,
+    /// Messages collected during Python render
+    #[serde(default)]
+    pub render_diagnostics: Vec<RenderDiagnostic>,
+}
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
+/// Map Python level numbers to [`Severity`].
+fn logging_level_to_severity(level: u8) -> Severity {
+    match level {
+        40 | 50 => Severity::Error, // ERROR, CRITICAL
+        30 => Severity::Warning,
+        20 => Severity::Info,
+        10 => Severity::Debug,
+        _ if level > 50 => Severity::Error,
+        _ => Severity::Debug,
+    }
+}
+
+/// Wrap [`Markdown`] in a [`Report`] with diagnostics from [`Markdown::render_diagnostics`]
+/// (severity follows Python log level). Used after cache hits (see [`crate::workflow::cached`]).
+pub(crate) fn markdown_into_report(markdown: Markdown) -> Report<Markdown> {
+    let diagnostics: Vec<Diagnostic> = markdown
+        .render_diagnostics
+        .iter()
+        .map(|d| {
+            Diagnostic::new(
+                logging_level_to_severity(d.level),
+                d.message.clone(),
+            )
+        })
+        .collect();
+    Report::new(markdown).with(diagnostics)
 }
 
 // ----------------------------------------------------------------------------
@@ -72,22 +118,24 @@ impl Markdown {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
     pub fn new(
         id: &Id, url: String, content: String,
-    ) -> impl IntoReport<Markdown> {
+    ) -> Result<Report<Markdown>, Error> {
         let id = id.clone();
-        Python::attach(|py| {
+        Python::attach(|py| -> Result<Report<Markdown>, PyErr> {
             let module = py.import("zensical.markdown")?;
-            module
+            let m: Markdown = module
                 .call_method1("render", (content, id.location(), url))?
-                .extract::<Markdown>()
+                .extract()?;
+            let markdown = Markdown {
+                title: extract_title(&id, &m),
+                meta: m.meta,
+                content: m.content,
+                search: m.search,
+                toc: m.toc,
+                render_diagnostics: m.render_diagnostics,
+            };
+            Ok(markdown_into_report(markdown))
         })
         .map_err(|err: PyErr| Error::from(Box::new(err) as Box<_>))
-        .map(|markdown| Markdown {
-            title: extract_title(&id, &markdown),
-            meta: markdown.meta,
-            content: markdown.content,
-            search: markdown.search,
-            toc: markdown.toc,
-        })
     }
 }
 
@@ -142,4 +190,56 @@ fn extract_title(id: &Id, markdown: &Markdown) -> String {
     // Extract file, and return title
     let file = components.pop().expect("invariant");
     to_title(&file)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{markdown_into_report, Markdown, RenderDiagnostic};
+    use std::collections::BTreeMap;
+    use zrx::scheduler::action::Report;
+    use zrx_diagnostic::Severity;
+
+    #[test]
+    fn markdown_into_report_maps_warning_level() {
+        let md = Markdown {
+            meta: BTreeMap::new(),
+            content: String::new(),
+            search: vec![],
+            title: String::new(),
+            toc: vec![],
+            render_diagnostics: vec![RenderDiagnostic {
+                level: 30,
+                message: "griffe: example".to_string(),
+            }],
+        };
+        let report: Report<Markdown> = markdown_into_report(md);
+        let warnings: Vec<_> = report
+            .iter()
+            .filter(|d| d.severity == Severity::Warning)
+            .collect();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].message, "griffe: example");
+    }
+
+    #[test]
+    fn markdown_into_report_maps_error_level() {
+        let md = Markdown {
+            meta: BTreeMap::new(),
+            content: String::new(),
+            search: vec![],
+            title: String::new(),
+            toc: vec![],
+            render_diagnostics: vec![RenderDiagnostic {
+                level: 40,
+                message: "mkdocstrings: failed".to_string(),
+            }],
+        };
+        let report: Report<Markdown> = markdown_into_report(md);
+        let errors: Vec<_> = report
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+            .collect();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].message, "mkdocstrings: failed");
+    }
 }

@@ -39,7 +39,7 @@ workspace = true
 
 [lib]
 name = "zensical"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 zensical-serve.workspace = true
@@ -67,6 +67,7 @@ tracing-chrome = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
 webbrowser.workspace = true
 zrx.workspace = true
+zrx-diagnostic.workspace = true
 
 [features]
 default = []

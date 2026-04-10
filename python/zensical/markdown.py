@@ -23,7 +23,9 @@
 
 from __future__ import annotations
 
+import logging
 import re
+from contextlib import contextmanager
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -51,6 +53,35 @@ FRONT_MATTER_RE = re.compile(
 """
 Regex pattern to extract front matter.
 """
+
+
+class _ListLogHandler(logging.Handler):
+    """Append log level and formatted message for bridging to zrx Report."""
+
+    def __init__(self, out: list[dict[str, int | str]]) -> None:
+        super().__init__()
+        self._out = out
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self._out.append(
+            {"level": record.levelno, "message": self.format(record)}
+        )
+
+
+@contextmanager
+def _capture_render_diagnostics() -> Any:
+    """Capture WARNING+ for Rust Report bridging."""
+    messages: list[dict[str, int | str]] = []
+    handler = _ListLogHandler(messages)
+    handler.setLevel(logging.WARNING)
+    formatter = logging.Formatter("%(name)s: %(message)s")
+    handler.setFormatter(formatter)
+    root = logging.getLogger()
+    root.addHandler(handler)
+    try:
+        yield messages
+    finally:
+        root.removeHandler(handler)
 
 
 # ----------------------------------------------------------------------------
@@ -103,7 +134,8 @@ def render(content: str, path: str, url: str) -> dict:
 
     # Convert Markdown and set nullish metadata to empty string, since we
     # currently don't have a null value for metadata in the Rust runtime
-    content = md.convert(content)
+    with _capture_render_diagnostics() as render_diagnostics:
+        content = md.convert(content)
     for key, value in meta.items():
         if value is None:
             meta[key] = ""
@@ -124,6 +156,7 @@ def render(content: str, path: str, url: str) -> dict:
         "search": search_processor.data,
         "title": "",
         "toc": [_convert_toc(item) for item in getattr(md, "toc_tokens", [])],
+        "render_diagnostics": list(render_diagnostics),
     }
 
 

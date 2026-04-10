@@ -52,6 +52,8 @@ pub struct ServeOptions {
     pub dev_addr: Option<String>,
     /// Whether to open the browser automatically.
     pub open: bool,
+    /// Whether to treat warnings from the build as errors.
+    pub strict: bool,
 }
 
 // ----------------------------------------------------------------------------

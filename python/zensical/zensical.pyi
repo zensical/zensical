@@ -22,10 +22,17 @@
 # IN THE SOFTWARE.
 
 # ----------------------------------------------------------------------------
+# Exceptions
+# ----------------------------------------------------------------------------
+
+class StrictModeError(RuntimeError):
+    """Build failed under ``--strict`` (warnings or errors from diagnostics)."""
+
+# ----------------------------------------------------------------------------
 # Functions
 # ----------------------------------------------------------------------------
 
-def build(config_file: str, clean: bool) -> None:
+def build(config_file: str, clean: bool, strict: bool) -> None:
     """Builds the project."""
 
 def serve(config_file: str, options: dict) -> None:
@@ -36,4 +43,4 @@ def version() -> str:
 
 # ----------------------------------------------------------------------------
 
-__all__ = ["build", "serve", "version"]
+__all__ = ["StrictModeError", "build", "serve", "version"]
