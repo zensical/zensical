@@ -20,22 +20,13 @@ Whether you want to report a bug, suggest an improvement, or help others in the 
 
 ## Before creating an issue
 
-Before opening an issue, please take a moment to check whether a similar report
-or request already exists – a quick search can save everyone time. When you do
-open one, please fill out all fields in the issue template completely. Every
-field is there for a reason, and a thorough issue helps us understand and
-address your concern much faster.
+Before opening an issue, please take a moment to check whether a similar report or request already exists – a quick search can save everyone time. When you do open one, please fill out all fields in the issue template completely. Every field is there for a reason, and a thorough issue helps us understand and address your concern much faster.
 
 A few things to keep in mind:
 
-- **Issues are permanent.** Everything written on our issue tracker is public
-  and stays there, so please be constructive and respectful at all times,
-  in line with our [Code of Conduct].
-- **Use the right template.** Each template is designed for a specific purpose
-  – pick the one that best fits your situation.
-- **Keep it focused.** If your comment doesn't add to the current discussion,
-  consider opening a new issue or using a reaction instead.
-- **Questions belong in Discord.** The issue tracker is for bug reports,
-  documentation issues, and change requests – not general questions.
+- **Issues are permanent.** Everything written on our issue tracker is public and stays there, so please be constructive and respectful at all times, in line with our [Code of Conduct].
+- **Use the right template.** Each template is designed for a specific purpose – pick the one that best fits your situation.
+- **Keep it focused.** If your comment doesn't add to the current discussion, consider opening a new issue or using a reaction instead.
+- **Questions belong in Discord.** The issue tracker is for bug reports, documentation issues, and change requests – not general questions.
 
 [Code of Conduct]: CODE_OF_CONDUCT.md
