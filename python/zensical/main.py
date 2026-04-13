@@ -137,10 +137,10 @@ def execute_serve(config_file: str | None, **kwargs: Any) -> None:
 def new_project(directory: str | None, **kwargs: Any) -> None:  # noqa: ARG001
     """Create a new template project in the current or given directory.
 
-    Raises:
-        ClickException: if the directory already contains a zensical.toml or a
-            docs directory that is not empty, as well as when the path provided
-            points to something that is not a directory.
+    The new command returns with an error if the path provided is not a
+    directory or if it already contains a zensical.toml file. If other
+    files that are part of the template exist then they will not be
+    overwritten but the new command will succeed.
     """
     working_dir = Path.cwd() if directory is None else Path(directory).resolve()
     if working_dir.is_file():
