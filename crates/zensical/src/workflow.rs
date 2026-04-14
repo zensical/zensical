@@ -196,13 +196,20 @@ pub fn process_markdown(
                     url
                 };
 
-                cached(
-                    &config,
-                    id,
-                    (config.hash, data.clone(), url.clone()),
-                    |(_, data, url)| Markdown::new(id, url, data),
-                )
-                .into_report()
+                // Don't cache page if it inserts (pymdownx) snippets.
+                // This is a hack while waiting for CommonMark (AST) and components,
+                // as well as topic-based authoring functionality.
+                if data.contains("--8<--") {
+                    Markdown::new(id, url, data).into_report()
+                } else {
+                    cached(
+                        &config,
+                        id,
+                        (config.hash, data.clone(), url.clone()),
+                        |(_, data, url)| Markdown::new(id, url, data),
+                    )
+                    .into_report()
+                }
             }),
             1,
         )
