@@ -32,7 +32,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use zensical_watch::agent::Mode;
 use zensical_watch::event::{Event, Kind};
 use zensical_watch::{Agent, Error, Result};
 use zrx::id::Id;

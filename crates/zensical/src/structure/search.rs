@@ -82,7 +82,7 @@ impl SearchIndex {
 
         // Assemble search index, combining all items from all pages into a
         // single, flat list, adjusting the location to include the page URL
-        for (id, page) in pages {
+        for (_id, page) in pages {
             let iter = nav.ancestors(&page).into_iter().rev();
             let mut path = iter
                 .map(|item| item.title.expect("invariant"))

@@ -110,8 +110,8 @@ impl Module for Main {
         generate_object_inventory(&self.config, &pages);
 
         // // Render static and extra templates, as well as pages
-        // render_templates(&config, &files, &nav);
-        // render_pages(&config, &page, &nav);
+        render_templates(&self.config, &files, &nav);
+        render_pages(&self.config, &page, &nav);
         Ok(())
     }
 }
@@ -354,97 +354,99 @@ pub fn generate_search_index(
     });
 }
 
-// /// Render static and extra templates.
-// pub fn render_templates(
-//     config: &Config, files: &Stream<Id, String>, nav: &Stream<Id, Navigation>,
-// ) -> Stream<Id, Delta<Id, ()>> {
-//     let docs_dir = config.project.docs_dir.clone();
+/// Render static and extra templates.
+pub fn render_templates(
+    config: &Config, files: &Stream<Id, Source>, nav: &Stream<Id, Navigation>,
+) -> Stream<Id, ()> {
+    let docs_dir = config.project.docs_dir.clone();
 
-//     // Retrieve template names
-//     let static_templates = &config.project.theme.static_templates.join(",");
-//     let extra_templates = &config.project.extra_templates.join(",");
+    // Retrieve template names
+    let static_templates = &config.project.theme.static_templates.join(",");
+    let extra_templates = &config.project.extra_templates.join(",");
 
-//     // Build matcher for static and extra templates - we just handle them the
-//     // same. In MkDocs, extra templates can do even less than static templates,
-//     // not having access to the `url_filter`, but there's no need for us to
-//     // differentiate here.
-//     let mut builder = Matcher::builder();
-//     builder
-//         .add(&format!("zrs::::templates/*:{{{static_templates}}}:"))
-//         .expect("invariant");
-//     builder
-//         .add(&format!("zrs::::{docs_dir}:{{{extra_templates}}}:"))
-//         .expect("invariant");
+    // Build matcher for static and extra templates - we just handle them the
+    // same. In MkDocs, extra templates can do even less than static templates,
+    // not having access to the `url_filter`, but there's no need for us to
+    // differentiate here.
+    let mut builder = Matcher::builder();
+    builder
+        .add(&format!("zrs::::templates/*:{{{static_templates}}}:"))
+        .expect("invariant");
+    builder
+        .add(&format!("zrs::::{docs_dir}:{{{extra_templates}}}:"))
+        .expect("invariant");
 
-//     // Create matcher from builder, and filter templates
-//     let matcher = Arc::new(builder.build().expect("invariant"));
-//     let templates = files.filter(with_id(move |id: &Id, _: &String| {
-//         matcher.is_match(id).expect("invariant")
-//     }));
+    // Create matcher from builder, and filter templates
+    let matcher = Arc::new(builder.build().expect("invariant"));
+    let templates = files.filter(move |id: &Id, _: &Source| {
+        Ok(matcher.is_match(id).expect("invariant"))
+    });
 
-//     // Add docs directory to theme templates
-//     let mut theme_dirs = config.theme_dirs.clone();
-//     theme_dirs.push(config.get_docs_dir());
+    // Add docs directory to theme templates
+    let mut theme_dirs = config.theme_dirs.clone();
+    theme_dirs.push(config.get_docs_dir());
 
-//     // Create pipeline to render templates
-//     let config = config.clone();
-//     templates.product(nav).delta_map(with_splat(
-//         move |template: String, nav: Navigation| {
-//             let name = Path::new(&template).file_name().expect("invariant");
-//             let site_dir = config.get_site_dir();
+    // Create pipeline to render templates
+    let config = config.clone();
+    templates.product(nav).map(move |template: Source, nav| {
+        let name = Path::new(&*template).file_name().expect("invariant");
+        let site_dir = config.get_site_dir();
 
-//             // Obtain template
-//             let template =
-//                 Template::new(name.to_string_lossy(), theme_dirs.clone());
+        // Obtain template
+        let template =
+            Template::new(name.to_string_lossy(), theme_dirs.clone());
 
-//             // Render template and write to disk
-//             template
-//                 .render(&config, &nav)
-//                 .into_report()
-//                 .and_then(|report| {
-//                     let path = site_dir.join(name);
-//                     fs::create_dir_all(path.parent().expect("invariant"))?;
-//                     fs::write(path, &report.data).map_err(Into::into)
-//                 })
-//         },
-//     ))
-// }
+        // Render template and write to disk
+        let data = template
+            .render(&config, &nav)
+            .map_err(|err| Box::new(err) as Box<_>)?;
+        let path = site_dir.join(name);
+        fs::create_dir_all(path.parent().expect("invariant"))
+            .map_err(|err| Box::new(err) as Box<_>)?;
+        fs::write(path, &data).map_err(|err| Box::new(err) as Box<_>)?;
+        Ok(())
+    })
+}
 
-// /// Render pages.
-// pub fn render_pages(
-//     config: &Config, page: &Stream<Id, Page>, nav: &Stream<Id, Navigation>,
-// ) -> Stream<Id, Delta<Id, ()>> {
-//     let config = config.clone();
-//     page.product(nav).delta_map(with_splat(
-//         move |mut page: Page, nav: Navigation| {
-//             let id = page.url.clone();
+/// Render pages.
+pub fn render_pages(
+    config: &Config, page: &Stream<Id, Page>, nav: &Stream<Id, Navigation>,
+) -> Stream<Id, ()> {
+    let config = config.clone();
+    page.product(nav)
+        .map(move |mut page: Page, nav: Navigation| {
+            let id = page.url.clone();
 
-//             // Compute hash of page content
-//             let hash = {
-//                 let mut hasher = DefaultHasher::new();
-//                 page.content.hash(&mut hasher);
-//                 page.meta.hash(&mut hasher);
-//                 hasher.finish()
-//             };
+            // Compute hash of page content
+            let hash = {
+                let mut hasher = DefaultHasher::new();
+                page.content.hash(&mut hasher);
+                page.meta.hash(&mut hasher);
+                hasher.finish()
+            };
 
-//             // Render page if we don't have a recent cached version at our own
-//             // disposal. Otherwise, just return if the content did not change.
-//             let args = (config.hash, nav.hash, hash);
-//             cached(&config, id, args, |(_, _, _)| page.render(&config, nav))
-//                 .into_report()
-//                 .and_then(|report| {
-//                     let path = Path::new(&page.path);
-//                     fs::create_dir_all(path.parent().expect("invariant"))?;
-//                     fs::write(path, &report.data).map_err(Into::into).inspect(
-//                         |()| {
-//                             let url = percent_decode_str(&page.url);
-//                             println!("+ /{}", url.decode_utf8_lossy());
-//                         },
-//                     )
-//                 })
-//         },
-//     ))
-// }
+            // Render page if we don't have a recent cached version at our own
+            // disposal. Otherwise, just return if the content did not change.
+            let args = (config.hash, nav.hash, hash);
+            cached(&config, id, args, |(_, _, _)| {
+                Ok(page
+                    .render(&config, nav)
+                    .map_err(|err| Box::new(err) as Box<_>)?)
+            })
+            .and_then(|data| {
+                let path = Path::new(&page.path);
+                fs::create_dir_all(path.parent().expect("invariant"))
+                    .map_err(|err| Box::new(err) as Box<_>)?;
+                fs::write(path, &*data)
+                    .map_err(|err| Box::new(err) as Box<_>)
+                    .map_err(Into::into)
+                    .inspect(|()| {
+                        let url = percent_decode_str(&page.url);
+                        println!("+ /{}", url.decode_utf8_lossy());
+                    })
+            })
+        })
+}
 
 /// Creates a workflow for the given config.
 pub fn create_workflow(config: &Config) -> Workflow<Id> {

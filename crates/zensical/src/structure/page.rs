@@ -35,7 +35,7 @@ use zrx::id::Id;
 use zrx::scheduler::Value;
 
 use crate::config::Config;
-use crate::template::{Template, GENERATOR};
+use crate::template::{Output, Template, GENERATOR};
 
 use super::dynamic::Dynamic;
 use super::markdown::Markdown;
@@ -197,7 +197,7 @@ impl Page {
     )]
     pub fn render(
         &mut self, config: &Config, nav: Navigation,
-    ) -> Result<String, Error> {
+    ) -> Result<Output, Error> {
         let name = self.meta.get("template").map(ToString::to_string);
         let template = Template::new(
             name.unwrap_or(String::from("main.html")),
@@ -224,7 +224,7 @@ impl Page {
         })?;
 
         // Replace autorefs, if any
-        Ok(nav.autorefs.replace_in(output, &self.url))
+        Ok(Output::from(nav.autorefs.replace_in(output, &self.url)))
     }
 
     /// Returns the tags of the page.

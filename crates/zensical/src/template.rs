@@ -35,9 +35,11 @@ use super::structure::nav::Navigation;
 
 mod filter;
 mod loader;
+mod output;
 
 use filter::{script_tag_filter, url_filter};
 use loader::Loader;
+pub use output::Output;
 
 // ----------------------------------------------------------------------------
 // Structs

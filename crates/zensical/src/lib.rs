@@ -37,7 +37,6 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{Duration, Instant};
 use std::{fs, io, thread};
-use zensical_watch::agent;
 use zrx::id::Id;
 use zrx::scheduler::Scheduler;
 
@@ -205,7 +204,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         match mode {
             // Build mode - just exit when we're done
             Mode::Build(..) => {
-                scheduler.tick_timeout(Duration::from_millis(250));
+                scheduler.tick_timeout(Duration::from_millis(100));
                 if scheduler.is_empty() {
                     let elapsed = time.elapsed().as_secs_f32();
                     println!("Build finished in {elapsed:.2}s");
@@ -217,7 +216,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
             // the scheduler with the agent, we can remove this temporary hack
             // and have immediate reloading.
             Mode::Serve(..) => {
-                scheduler.tick();
+                scheduler.tick_timeout(Duration::from_millis(100));
                 if watcher.is_terminated() {
                     // Wake the server
                     if let Some(waker) = &waker {
