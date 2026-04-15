@@ -85,12 +85,14 @@ class LinksProcessor(Treeprocessor):
             path = url.path
             if path.endswith(".md"):
                 path = path.removesuffix(".md") + ".html"
+                name = get_name(path)
                 if self.use_directory_urls:
-                    name = get_name(path)
                     if name in ("index.html", "README.html"):
-                        path = path[: -len(name)]
+                        path = path.removesuffix(name)
                     elif path.endswith(".html"):
-                        path = path[: -len(".html")] + "/"
+                        path = path.removesuffix(".html") + "/"
+                elif name == "README.html":
+                    path = path.removesuffix("README.html") + "index.html"
 
             # If the current page is not an index page, and we should render
             # directory URLs, we need to prepend a "../" to all links
