@@ -271,7 +271,7 @@ pub fn process_markdown(
             } else {
                 cached(
                     &config,
-                    id,
+                    id.as_str(),
                     (config.hash, data.clone(), url.clone()),
                     |(_, data, url)| Markdown::new(id, url, data),
                 )
