@@ -127,22 +127,9 @@ impl Navigation {
             }
         }
 
-        // Determine homepage - sometimes, the index page isn't linked, which
-        // is why we try to obtain it from the remaining pages
-        let mut homepage = items.iter().find(|item| item.is_index).cloned();
-        if homepage.is_none() {
-            if let Some(page) = pages.get("index.md") {
-                homepage = Some(NavigationItem {
-                    title: Some(page.title.clone()),
-                    url: Some(page.url.clone()),
-                    canonical_url: page.canonical_url.clone(),
-                    meta: Some(page.meta.clone()),
-                    children: Vec::new(),
-                    is_index: true,
-                    active: false,
-                });
-            }
-        }
+        // Determine homepage - here, we mirror MkDocs behavior, which only
+        // considers index pages at the root level as potential homepages
+        let homepage = items.iter().find(|item| item.is_index).cloned();
 
         // Precompute hash
         let hash = {
