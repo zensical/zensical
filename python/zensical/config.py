@@ -27,7 +27,6 @@ import hashlib
 import importlib
 import os
 import pickle
-import sys
 from importlib.util import find_spec
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any
