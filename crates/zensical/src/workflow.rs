@@ -76,9 +76,9 @@ impl Module for Main {
     fn setup(&self, ctx: &mut Context) -> module::Result {
         let files = ctx.add::<Source>();
 
-        // // Set up workflow to process static assets, as well as Markdown files, and
-        // // create a barrier to wait for the completion of all Markdown files
-        // process_theme_assets(&config, &files);
+        // Set up workflow to process static assets, as well as Markdown files, and
+        // create a barrier to wait for the completion of all Markdown files
+        process_theme_assets(&self.config, &files);
         // process_assets(&config, &files);
         // let markdown = process_markdown(&config, &files);
         // let wait = wait_for_markdown(&config, &files);
@@ -144,44 +144,46 @@ impl Module for Main {
 //     }));
 // }
 
-// /// Create a stream to process static assets in theme.
-// pub fn process_theme_assets(config: &Config, files: &Stream<Id, String>) {
-//     let matcher =
-//         Arc::new(Matcher::from_str("zrs::::templates/*::").expect("invariant"));
+/// Create a stream to process static assets in theme.
+pub fn process_theme_assets(config: &Config, files: &Stream<Id, Source>) {
+    let matcher =
+        Arc::new(Matcher::from_str("zrs::::templates/*::").expect("invariant"));
 
-//     // Create pipeline to copy static assets
-//     let site_dir = config.project.site_dir.clone();
-//     let root_dir = config.get_root_dir();
-//     files.map(with_id(move |id: &Id, from: String| {
-//         if !matcher.is_match(id).expect("invariant") {
-//             return Ok(());
-//         }
+    // Create pipeline to copy static assets
+    let site_dir = config.project.site_dir.clone();
+    let root_dir = config.get_root_dir();
+    files.map(move |id: &Id, from: Source| {
+        if !matcher.is_match(id).expect("invariant") {
+            return Ok(());
+        }
 
-//         // Don't copy templates - they will be rendered later
-//         if id.location().ends_with(".html") {
-//             return Ok(());
-//         }
+        // Don't copy templates - they will be rendered later
+        if id.location().ends_with(".html") {
+            return Ok(());
+        }
 
-//         // Create identifier builder, as we need to change the context in order
-//         // to copy the file over to the site directory
-//         let builder = id.to_builder().with_context(&site_dir);
-//         let id = builder.build().expect("invariant");
+        // Create identifier builder, as we need to change the context in order
+        // to copy the file over to the site directory
+        let builder = id.to_builder().context(&site_dir);
+        let id = builder.build().expect("invariant");
 
-//         // Compute parent path, create intermediate directories and copy files
-//         let to = root_dir.join(id.to_path());
-//         fs::create_dir_all(to.parent().expect("invariant"))?;
-//         copy_file(from, to)
-//     }));
-// }
+        // Compute parent path, create intermediate directories and copy files
+        let to = root_dir.join(id.to_path());
+        fs::create_dir_all(to.parent().expect("invariant"))
+            .map_err(|err| Box::new(err) as Box<_>)?;
+        copy_file(&*from, to).map_err(|err| Box::new(err) as Box<_>)?;
+        Ok(())
+    });
+}
 
-// /// Copy a file to a new location, without copying its permissions.
-// fn copy_file(
-//     from: impl AsRef<Path>, to: impl AsRef<Path>,
-// ) -> Result<(), io::Error> {
-//     let mut from = fs::File::open(from)?;
-//     let mut to = fs::File::create(to)?;
-//     io::copy(&mut from, &mut to).map(|_| ())
-// }
+/// Copy a file to a new location, without copying its permissions.
+fn copy_file(
+    from: impl AsRef<Path>, to: impl AsRef<Path>,
+) -> Result<(), io::Error> {
+    let mut from = fs::File::open(from)?;
+    let mut to = fs::File::create(to)?;
+    io::copy(&mut from, &mut to).map(|_| ())
+}
 
 // /// Create a stream to process Markdown files.
 // pub fn process_markdown(
@@ -456,6 +458,8 @@ impl Module for Main {
 /// Creates a workflow for the given config.
 pub fn create_workflow(config: &Config) -> Workflow<Id> {
     let mut context = Context::default();
-    Main { config: config.clone() }.setup(&mut context);
+    Main { config: config.clone() }
+        .setup(&mut context)
+        .expect("invariant");
     context.into()
 }
