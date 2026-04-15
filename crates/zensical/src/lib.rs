@@ -37,7 +37,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{Duration, Instant};
 use std::{fs, io, thread};
-use zrx::scheduler::action::Report;
+use zrx::id::Id;
 use zrx::scheduler::Scheduler;
 
 mod config;
@@ -50,7 +50,7 @@ mod workflow;
 use config::Config;
 use server::{create_server, ServeOptions};
 use watcher::Watcher;
-use workflow::create_workspace;
+use workflow::create_workflow;
 
 // ----------------------------------------------------------------------------
 // Enums
@@ -84,13 +84,6 @@ fn setup_tracing() -> tracing_chrome::FlushGuard {
     let subscriber = Registry::default().with(chrome_layer);
     let _ = tracing::subscriber::set_global_default(subscriber);
     guard
-}
-
-/// Handle report from the scheduler.
-fn handle(report: Report) {
-    for diagnostic in &report {
-        println!("[{:?}] {}", diagnostic.severity, diagnostic.message);
-    }
 }
 
 /// Wait until the file at the given path is touched.
@@ -154,8 +147,9 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     }
 
     // Create workspace and scheduler
-    let workspace = create_workspace(&config);
-    let mut scheduler = Scheduler::new(workspace.into_builder().build());
+    let workflow = create_workflow(&config);
+    let mut scheduler = Scheduler::<Id>::default();
+    scheduler.attach(workflow);
 
     // Create channel for reload notifications
     let (sender, receiver) = unbounded();
@@ -164,7 +158,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     // assign the agent to a variable right now, or it is dropped, and will
     // automatically terminate. This is a temporary workaround until we could
     // better integrate the scheduler with the agent.
-    let session = scheduler.session().expect("invariant");
+    let session = scheduler.session();
 
     // If site should be served, create HTTP server - note that we must assign
     // the agent to a variable right now or it's dropped and will automatically
@@ -208,7 +202,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         match mode {
             // Build mode - just exit when we're done
             Mode::Build(..) => {
-                handle(scheduler.tick_timeout(Duration::from_millis(100)));
+                scheduler.tick();
                 if scheduler.is_empty() {
                     let elapsed = time.elapsed().as_secs_f32();
                     println!("Build finished in {elapsed:.2}s");
@@ -220,7 +214,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
             // the scheduler with the agent, we can remove this temporary hack
             // and have immediate reloading.
             Mode::Serve(..) => {
-                handle(scheduler.tick_timeout(Duration::from_millis(100)));
+                scheduler.tick();
                 if watcher.is_terminated() {
                     // Wake the server
                     if let Some(waker) = &waker {

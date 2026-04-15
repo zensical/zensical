@@ -108,7 +108,7 @@ impl Page {
 
         // Create identifier builder, as we need to change the context in order
         // to copy the file over to the site directory
-        let builder = id.to_builder().with_context(&site_dir);
+        let builder = id.to_builder().context(&site_dir);
         let id = builder.clone().build().expect("invariant");
 
         // Next, obtain the path, and check whether it is an index file, which
@@ -136,7 +136,7 @@ impl Page {
         // more convenience function to the id crate, we can make this shorter
         let path = path.to_string_lossy().into_owned();
         let id = builder
-            .with_location(path.replace('\\', "/"))
+            .location(path.replace('\\', "/"))
             .build()
             .expect("invariant");
 

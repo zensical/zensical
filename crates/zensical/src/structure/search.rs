@@ -29,7 +29,6 @@ use pyo3::FromPyObject;
 use serde::Serialize;
 use zrx::id::Id;
 use zrx::scheduler::Value;
-use zrx::stream::value::Chunk;
 
 use crate::config::plugins::SearchPluginConfig;
 
@@ -71,44 +70,44 @@ impl SearchIndex {
     /// Creates a search index from pages.
     #[allow(clippy::assigning_clones)]
     pub fn new(
-        pages: Chunk<Id, Page>, nav: &Navigation, config: SearchPluginConfig,
+        pages: Vec<(Id, Page)>, nav: &Navigation, config: SearchPluginConfig,
     ) -> Self {
         let mut items: Vec<SearchItem> = Vec::new();
 
         // Convert chunk into a vector for easier processing, and sort pages by
         // the exact same method that MkDocs uses
         let mut pages = Vec::from_iter(pages);
-        pages.sort_by_key(|item| file_sort_key(&item.id));
+        pages.sort_by_key(|(id, _)| file_sort_key(id));
 
         // Assemble search index, combining all items from all pages into a
         // single, flat list, adjusting the location to include the page URL
-        for page in pages {
-            let iter = nav.ancestors(&page.data).into_iter().rev();
+        for (id, page) in pages {
+            let iter = nav.ancestors(&page).into_iter().rev();
             let mut path = iter
                 .map(|item| item.title.expect("invariant"))
                 .collect::<Vec<_>>();
 
             // Add page title to path if not already present - this might be
             // the true in case of index pages
-            if path.last() != Some(&page.data.title) {
-                path.push(page.data.title.clone());
+            if path.last() != Some(&page.title) {
+                path.push(page.title.clone());
             }
 
             // Extract page tags, if any
             let tags: Vec<String> =
-                page.data.tags().into_iter().map(|tag| tag.name).collect();
+                page.tags().into_iter().map(|tag| tag.name).collect();
 
             // For each page, adjust the location of each item and add it to
             // the overall list
-            for mut item in page.data.search {
+            for mut item in page.search {
                 let location = match item.location {
-                    Some(id) => format!("{}#{}", page.data.url, id),
-                    _ => page.data.url.clone(),
+                    Some(id) => format!("{}#{}", page.url, id),
+                    _ => page.url.clone(),
                 };
 
                 // Fall back to page title, if item title is empty
                 if item.title.is_empty() {
-                    item.title = page.data.title.clone();
+                    item.title = page.title.clone();
                 }
 
                 // Update location and path and add item
