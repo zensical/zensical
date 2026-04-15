@@ -39,7 +39,7 @@ mod monitor;
 
 pub use error::{Error, Result};
 pub use event::Event;
-pub use handler::Handler;
+pub use handler::{Handler, Mode};
 pub use manager::Manager;
 pub use monitor::{Kind, Monitor};
 
@@ -82,7 +82,7 @@ impl Agent {
     /// # Panics
     ///
     /// Panics if thread creation fails.
-    pub fn new<F>(timeout: Duration, f: F) -> Self
+    pub fn new<F>(timeout: Duration, mode: bool, f: F) -> Self
     where
         F: FnMut(Result<Event>) -> Result + Send + 'static,
     {
@@ -97,7 +97,10 @@ impl Agent {
             // Start event loop, which will automatically exit when the file
             // agent is dropped, since the sender disconnects the receiver
             loop {
-                handler.handle(timeout)?;
+                handler.handle(
+                    if mode { Mode::Serve } else { Mode::Build },
+                    timeout,
+                )?;
             }
         };
 

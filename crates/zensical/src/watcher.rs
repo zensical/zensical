@@ -32,6 +32,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+use zensical_watch::agent::Mode;
 use zensical_watch::event::{Event, Kind};
 use zensical_watch::{Agent, Error, Result};
 use zrx::id::Id;
@@ -64,8 +65,8 @@ impl Watcher {
     /// Creates a file watcher.
     #[allow(clippy::too_many_lines)]
     pub fn new(
-        config: &Config, session: Session<Id, Source>, reload: Sender<String>,
-        waker: Option<Arc<Waker>>,
+        config: &Config, serve: bool, session: Session<Id, Source>,
+        reload: Sender<String>, waker: Option<Arc<Waker>>,
     ) -> Result<Self> {
         let mut sources = Vec::default();
 
@@ -110,7 +111,7 @@ impl Watcher {
 
         // Initialize file agent - we use a debounce interval of 20ms, which
         // should be sufficient to correctly determine rename events
-        let agent = Agent::new(Duration::from_millis(20), {
+        let agent = Agent::new(Duration::from_millis(20), serve, {
             let config = config.clone();
             move |res| {
                 // For now, we just swallow the event, as the file agent should
@@ -188,7 +189,7 @@ impl Watcher {
 
                         // Send path to reload channel and wake server polling
                         // loop, if available (i.e., serve mode is enabled)
-                        let _ = reload.send(path.into());
+                        let _ = reload.send(path);
                         if let Some(waker) = &waker {
                             waker.wake()?;
                         }

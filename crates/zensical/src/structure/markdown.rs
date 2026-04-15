@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use zrx::id::Id;
 use zrx::scheduler::step::{Error, Result};
-use zrx::scheduler::Value;
+use zrx::stream::Value;
 
 use crate::structure::dynamic::Dynamic;
 use crate::structure::nav::to_title;

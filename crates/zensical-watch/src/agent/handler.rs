@@ -31,7 +31,7 @@ use std::mem;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use super::error::Result;
+use super::error::{Error, Result};
 use super::event::Event;
 use super::manager::Manager;
 use super::monitor::Monitor;
@@ -40,6 +40,19 @@ use super::Action;
 mod builder;
 
 use builder::Builder;
+
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
+
+/// File mode.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Mode {
+    /// Build mode.
+    Build,
+    /// Serve mode.
+    Serve,
+}
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -83,7 +96,7 @@ impl Handler {
 
     /// Handles messages from the file agent and the file monitor.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
-    pub fn handle(&mut self, timeout: Duration) -> Result {
+    pub fn handle(&mut self, mode: Mode, timeout: Duration) -> Result {
         // When receiving events from the file system, we debounce processing
         // by the given timeout, as we need to give the file system some time
         // to settle down. This ensures, that we can correctly handle renames,
@@ -118,6 +131,13 @@ impl Handler {
                 // Handle errors
                 if let Err(err) = res {
                     (self.handler)(Err(err.into()))?;
+                }
+            }
+
+            // Hack: we need to rebuild build and serve mode
+            recv(after(Duration::from_millis(100))) -> _ => {
+                if self.queue.is_empty() && mode == Mode::Build {
+                    return Err(Error::Disconnected);
                 }
             }
 

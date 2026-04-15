@@ -35,7 +35,8 @@ use std::sync::Arc;
 use std::{fs, io};
 use zrx::id::{Id, Matcher};
 use zrx::module::{self, Context, Module};
-use zrx::stream::{Stream, Workflow};
+use zrx::scheduler::Scope;
+use zrx::stream::{Barrier, Stream, Workflow};
 
 use super::config::Config;
 use super::structure::markdown::Markdown;
@@ -79,9 +80,9 @@ impl Module for Main {
         // Set up workflow to process static assets, as well as Markdown files, and
         // create a barrier to wait for the completion of all Markdown files
         process_theme_assets(&self.config, &files);
-        // process_assets(&config, &files);
-        // let markdown = process_markdown(&config, &files);
-        // let wait = wait_for_markdown(&config, &files);
+        process_assets(&self.config, &files);
+        let markdown = process_markdown(&self.config, &files);
+        let wait = wait_for_markdown(&self.config, &files);
 
         // // Generate pages, and use the barrier to ensure that all pages have been
         // // processed, in order to create the navigation and search index
@@ -106,43 +107,45 @@ impl Module for Main {
 // Functions
 // ----------------------------------------------------------------------------
 
-// /// Create a stream to process static assets.
-// pub fn process_assets(config: &Config, files: &Stream<Id, String>) {
-//     let extra_templates = config.project.extra_templates.clone();
-//     let docs_dir = config.project.docs_dir.clone();
-//     let matcher = Arc::new(
-//         Matcher::from_str(&format!("zrs::::{docs_dir}::")).expect("invariant"),
-//     );
+/// Create a stream to process static assets.
+pub fn process_assets(config: &Config, files: &Stream<Id, Source>) {
+    let extra_templates = config.project.extra_templates.clone();
+    let docs_dir = config.project.docs_dir.clone();
+    let matcher = Arc::new(
+        Matcher::from_str(&format!("zrs::::{docs_dir}::")).expect("invariant"),
+    );
 
-//     // Create pipeline to copy static assets
-//     let site_dir = config.project.site_dir.clone();
-//     let root_dir = config.get_root_dir();
-//     files.map(with_id(move |id: &Id, from: String| {
-//         if !matcher.is_match(id).expect("invariant") {
-//             return Ok(());
-//         }
+    // Create pipeline to copy static assets
+    let site_dir = config.project.site_dir.clone();
+    let root_dir = config.get_root_dir();
+    files.map(move |id: &Id, from: Source| {
+        if !matcher.is_match(id).expect("invariant") {
+            return Ok(());
+        }
 
-//         // Don't copy Markdown files
-//         if id.location().ends_with(".md") {
-//             return Ok(());
-//         }
+        // Don't copy Markdown files
+        if id.location().ends_with(".md") {
+            return Ok(());
+        }
 
-//         // Don't copy template files that we render later
-//         if extra_templates.contains(&id.location().into_owned()) {
-//             return Ok(());
-//         }
+        // Don't copy template files that we render later
+        if extra_templates.contains(&id.location().into_owned()) {
+            return Ok(());
+        }
 
-//         // Create identifier builder, as we need to change the context in order
-//         // to copy the file over to the site directory
-//         let builder = id.to_builder().with_context(&site_dir);
-//         let id = builder.build().expect("invariant");
+        // Create identifier builder, as we need to change the context in order
+        // to copy the file over to the site directory
+        let builder = id.to_builder().context(&site_dir);
+        let id = builder.build().expect("invariant");
 
-//         // Compute parent path, create intermediate directories and copy files
-//         let to = root_dir.join(id.to_path());
-//         fs::create_dir_all(to.parent().expect("invariant"))?;
-//         copy_file(from, to)
-//     }));
-// }
+        // Compute parent path, create intermediate directories and copy files
+        let to = root_dir.join(id.to_path());
+        fs::create_dir_all(to.parent().expect("invariant"))
+            .map_err(|err| Box::new(err) as Box<_>)?;
+        copy_file(&*from, to).map_err(|err| Box::new(err) as Box<_>)?;
+        Ok(())
+    });
+}
 
 /// Create a stream to process static assets in theme.
 pub fn process_theme_assets(config: &Config, files: &Stream<Id, Source>) {
@@ -185,110 +188,108 @@ fn copy_file(
     io::copy(&mut from, &mut to).map(|_| ())
 }
 
-// /// Create a stream to process Markdown files.
-// pub fn process_markdown(
-//     config: &Config, files: &Stream<Id, String>,
-// ) -> Stream<Id, Markdown> {
-//     let matcher = Arc::new(
-//         Matcher::from_str(&format!(
-//             "zrs::::{}:**/*.md:",
-//             config.project.docs_dir
-//         ))
-//         .expect("invariant"),
-//     );
+/// Create a stream to process Markdown files.
+pub fn process_markdown(
+    config: &Config, files: &Stream<Id, Source>,
+) -> Stream<Id, Markdown> {
+    let matcher = Arc::new(
+        Matcher::from_str(&format!(
+            "zrs::::{}:**/*.md:",
+            config.project.docs_dir
+        ))
+        .expect("invariant"),
+    );
 
-//     // Create pipeline to render Markdown files
-//     let config = config.clone();
-//     files
-//         .filter(with_id(move |id: &Id, _: &_| {
-//             matcher.is_match(id).expect("invariant")
-//         }))
-//         // Render Markdown if we don't have a recent cached version at our own
-//         // disposal. Otherwise, just return that if the content did not change.
-//         // Note that we need to limit concurrency here, or we'll overwhelm the
-//         // Python interpreter with all tasks competing for the GIL.
-//         .map_concurrency(
-//             with_id(move |id: &Id, path: String| {
-//                 let data = fs::read_to_string(path)?;
+    // Create pipeline to render Markdown files
+    let config = config.clone();
+    files
+        .filter(move |id: &Id, _: &_| {
+            Ok(matcher.is_match(id).expect("invariant"))
+        })
+        // Render Markdown if we don't have a recent cached version at our own
+        // disposal. Otherwise, just return that if the content did not change.
+        // Note that we need to limit concurrency here, or we'll overwhelm the
+        // Python interpreter with all tasks competing for the GIL.
+        .map(move |id: &Id, path: Source| {
+            let data = fs::read_to_string(&*path)
+                .map_err(|err| Box::new(err) as Box<_>)?;
 
-//                 // Compute URL using same logic as Page::new()
-//                 let site_dir = config.project.site_dir.clone();
-//                 let use_directory_urls = config.project.use_directory_urls;
+            // Compute URL using same logic as Page::new()
+            let site_dir = config.project.site_dir.clone();
+            let use_directory_urls = config.project.use_directory_urls;
 
-//                 let builder = id.to_builder().with_context(&site_dir);
-//                 let url_id = builder.clone().build().expect("invariant");
+            let builder = id.to_builder().context(&site_dir);
+            let url_id = builder.clone().build().expect("invariant");
 
-//                 let mut url_path: PathBuf =
-//                     url_id.location().to_string().into();
-//                 let is_index = url_path.ends_with("index.md")
-//                     || url_path.ends_with("README.md");
+            let mut url_path: PathBuf = url_id.location().to_string().into();
+            let is_index = url_path.ends_with("index.md")
+                || url_path.ends_with("README.md");
 
-//                 if url_path.ends_with("README.md") {
-//                     url_path.pop();
-//                     url_path = url_path.join("index.md");
-//                 }
+            if url_path.ends_with("README.md") {
+                url_path.pop();
+                url_path = url_path.join("index.md");
+            }
 
-//                 if !use_directory_urls || is_index {
-//                     url_path.set_extension("html");
-//                 } else {
-//                     url_path.set_extension("");
-//                     url_path.push("index.html");
-//                 }
+            if !use_directory_urls || is_index {
+                url_path.set_extension("html");
+            } else {
+                url_path.set_extension("");
+                url_path.push("index.html");
+            }
 
-//                 let url_path = url_path.to_string_lossy().into_owned();
-//                 let url_id = builder
-//                     .with_location(url_path.replace('\\', "/"))
-//                     .build()
-//                     .expect("invariant");
+            let url_path = url_path.to_string_lossy().into_owned();
+            let url_id = builder
+                .location(url_path.replace('\\', "/"))
+                .build()
+                .expect("invariant");
 
-//                 let url = url_id.as_uri().to_string();
-//                 let url = if use_directory_urls {
-//                     url.trim_end_matches("index.html").to_string()
-//                 } else {
-//                     url
-//                 };
+            let url = url_id.as_uri().to_string();
+            let url = if use_directory_urls {
+                url.trim_end_matches("index.html").to_string()
+            } else {
+                url
+            };
 
-//                 // Don't cache page if it inserts (pymdownx) snippets.
-//                 // This is a hack while waiting for CommonMark (AST) and components,
-//                 // as well as topic-based authoring functionality.
-//                 if data.contains("--8<--") {
-//                     Markdown::new(id, url, data).into_report()
-//                 } else {
-//                     cached(
-//                         &config,
-//                         id,
-//                         (config.hash, data.clone(), url.clone()),
-//                         |(_, data, url)| Markdown::new(id, url, data),
-//                     )
-//                     .into_report()
-//                 }
-//             }),
-//             1,
-//         )
-// }
+            // Don't cache page if it inserts (pymdownx) snippets.
+            // This is a hack while waiting for CommonMark (AST) and components,
+            // as well as topic-based authoring functionality.
+            if data.contains("--8<--") {
+                Markdown::new(id, url, data)
+            } else {
+                cached(
+                    &config,
+                    id,
+                    (config.hash, data.clone(), url.clone()),
+                    |(_, data, url)| Markdown::new(id, url, data),
+                )
+            }
+        })
+}
 
-// /// Create a stream to wait for all Markdown files to be rendered.
-// pub fn wait_for_markdown(
-//     config: &Config, files: &Stream<Id, String>,
-// ) -> Stream<Id, Condition<Id>> {
-//     let name = config.path.file_name().expect("invariant");
-//     let matcher = Arc::new(
-//         Matcher::from_str(&format!("zrs:::::{}:", name.to_string_lossy()))
-//             .expect("invariant"),
-//     );
+/// Create a stream to wait for all Markdown files to be rendered.
+pub fn wait_for_markdown(
+    config: &Config, files: &Stream<Id, Source>,
+) -> Stream<Id, Barrier<Id>> {
+    let name = config.path.file_name().expect("invariant");
+    let matcher = Arc::new(
+        Matcher::from_str(&format!("zrs:::::{}:", name.to_string_lossy()))
+            .expect("invariant"),
+    );
 
-//     // Set up matcher to filter for the configuration file, and return a new
-//     // stream that emits a condition in order to implement barriers
-//     files.filter_map(with_id(move |id: &Id, _: _| {
-//         matcher.is_match(id).expect("invariant").then(|| {
-//             let matcher =
-//                 Matcher::from_str("zrs:::::**/*.md:").expect("invariant");
+    // Set up matcher to filter for the configuration file, and return a new
+    // stream that emits a condition in order to implement barriers
+    files.filter_map(move |id: &Id, _: _| {
+        Ok(matcher.is_match(id).expect("invariant").then(|| {
+            let matcher =
+                Matcher::from_str("zrs:::::**/*.md:").expect("invariant");
 
-//             // Return condition waiting for all Markdown files
-//             Condition::new(matcher)
-//         })
-//     }))
-// }
+            // Return condition waiting for all Markdown files
+            Barrier::new(move |id: &Scope<Id>| {
+                matcher.is_match(&id[0]).expect("invariant")
+            })
+        }))
+    })
+}
 
 // /// Generate pages from Markdown files.
 // pub fn generate_page(

@@ -37,6 +37,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{Duration, Instant};
 use std::{fs, io, thread};
+use zensical_watch::agent;
 use zrx::id::Id;
 use zrx::scheduler::Scheduler;
 
@@ -182,7 +183,9 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
             Some(create_server(&config, receiver, options.clone()))
         }
     };
-    let watcher = Watcher::new(&config, session, sender, waker.clone())?;
+
+    let serve = matches!(mode, Mode::Serve(_, _));
+    let watcher = Watcher::new(&config, serve, session, sender, waker.clone())?;
 
     // Hack: the scheduler and file agent are currently not synchronized, which
     // can lead to cases where the file agent is still busy reading the contents
