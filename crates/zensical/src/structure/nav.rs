@@ -32,7 +32,7 @@ use pyo3::types::PyAnyMethods;
 use pyo3::{FromPyObject, Python};
 use serde::Serialize;
 use zrx::id::Id;
-use zrx::scheduler::Value;
+use zrx::scheduler::{Scope, Value};
 
 use crate::structure::markdown::Autorefs;
 
@@ -72,7 +72,9 @@ pub struct Navigation {
 
 impl Navigation {
     /// Creates a navigation from the given items.
-    pub fn new(mut items: Vec<NavigationItem>, pages: Vec<(Id, Page)>) -> Self {
+    pub fn new(
+        mut items: Vec<NavigationItem>, pages: Vec<(Scope<Id>, Page)>,
+    ) -> Self {
         if items.is_empty() {
             return Self::from(pages);
         }
@@ -82,7 +84,7 @@ impl Navigation {
         let pages = pages
             .into_iter()
             .map(|(id, page)| {
-                let id = id.location().to_string();
+                let id = id[0].location().to_string();
                 (id, page)
             })
             .collect::<HashMap<_, _>>();
@@ -266,25 +268,25 @@ impl Value for Navigation {}
 
 // ----------------------------------------------------------------------------
 
-impl From<Vec<(Id, Page)>> for Navigation {
+impl From<Vec<(Scope<Id>, Page)>> for Navigation {
     /// Creates a navigation from pages.
     ///
     /// This mirrors the functionality of auto-populated navigation that MkDocs
     /// provides. In the future, we intend to refactor this into a more flexible
     /// system that allows for custom and modular navigation structures, but for
     /// now, compatibility is key.
-    fn from(pages: Vec<(Id, Page)>) -> Self {
+    fn from(pages: Vec<(Scope<Id>, Page)>) -> Self {
         let mut items: Vec<NavigationItem> = Vec::new();
 
         // Convert chunk into a vector for easier processing, and sort pages by
         // the exact same method that MkDocs uses
         let mut pages = Vec::from_iter(pages);
-        pages.sort_by_key(|(id, _)| file_sort_key(id));
+        pages.sort_by_key(|(id, _)| file_sort_key(&id[0]));
 
         // There can only be pages, no URLs, since we're auto-populating the
         // navigation from the files in the docs directory
         for (id, page) in pages {
-            let location = id.location();
+            let location = id[0].location();
 
             // Split location into components at slashes
             let mut components = location

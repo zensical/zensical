@@ -28,7 +28,7 @@
 use pyo3::FromPyObject;
 use serde::Serialize;
 use zrx::id::Id;
-use zrx::scheduler::Value;
+use zrx::scheduler::{Scope, Value};
 
 use crate::config::plugins::SearchPluginConfig;
 
@@ -70,14 +70,15 @@ impl SearchIndex {
     /// Creates a search index from pages.
     #[allow(clippy::assigning_clones)]
     pub fn new(
-        pages: Vec<(Id, Page)>, nav: &Navigation, config: SearchPluginConfig,
+        pages: Vec<(Scope<Id>, Page)>, nav: &Navigation,
+        config: SearchPluginConfig,
     ) -> Self {
         let mut items: Vec<SearchItem> = Vec::new();
 
         // Convert chunk into a vector for easier processing, and sort pages by
         // the exact same method that MkDocs uses
         let mut pages = Vec::from_iter(pages);
-        pages.sort_by_key(|(id, _)| file_sort_key(id));
+        pages.sort_by_key(|(id, _)| file_sort_key(&id[0]));
 
         // Assemble search index, combining all items from all pages into a
         // single, flat list, adjusting the location to include the page URL

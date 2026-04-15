@@ -33,7 +33,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{fs, io};
-use zrx::id::{Id, Matcher};
+use zrx::id::{id, Id, Matcher};
 use zrx::module::{self, Context, Module};
 use zrx::scheduler::Scope;
 use zrx::stream::{Barrier, Stream, Workflow};
@@ -82,19 +82,32 @@ impl Module for Main {
         process_theme_assets(&self.config, &files);
         process_assets(&self.config, &files);
         let markdown = process_markdown(&self.config, &files);
-        let wait = wait_for_markdown(&self.config, &files);
 
-        // // Generate pages, and use the barrier to ensure that all pages have been
-        // // processed, in order to create the navigation and search index
-        // let page = generate_page(&config, &markdown);
-        // let pages = page.select(&wait).chunks();
+        // Return condition waiting for all Markdown files
+        let matcher = Matcher::from_str("zrs:::::**/*.md:").expect("invariant");
+        let barrier = Barrier::new(move |id: &Scope<Id>| {
+            matcher.is_match(&id[0]).expect("invariant")
+        });
 
-        // // Generate navigation and search index
-        // let nav = generate_nav(&config, &pages);
-        // generate_search_index(&config, &nav, &pages);
+        // Generate pages, and use the barrier to ensure that all pages have been
+        // processed, in order to create the navigation and search index
+        let page = generate_page(&self.config, &markdown);
+        let pages = page.select_data([(
+            Scope::from_iter([id!(
+                provider = "file",
+                context = ".",
+                location = "."
+            )
+            .unwrap()]),
+            barrier,
+        )]);
 
-        // // Generate object inventory
-        // generate_object_inventory(&config, &pages);
+        // Generate navigation and search index
+        let nav = generate_nav(&self.config, &pages);
+        generate_search_index(&self.config, &nav, &pages);
+
+        // Generate object inventory
+        generate_object_inventory(&self.config, &pages);
 
         // // Render static and extra templates, as well as pages
         // render_templates(&config, &files, &nav);
@@ -266,103 +279,80 @@ pub fn process_markdown(
         })
 }
 
-/// Create a stream to wait for all Markdown files to be rendered.
-pub fn wait_for_markdown(
-    config: &Config, files: &Stream<Id, Source>,
-) -> Stream<Id, Barrier<Id>> {
-    let name = config.path.file_name().expect("invariant");
-    let matcher = Arc::new(
-        Matcher::from_str(&format!("zrs:::::{}:", name.to_string_lossy()))
-            .expect("invariant"),
-    );
+/// Generate pages from Markdown files.
+pub fn generate_page(
+    config: &Config, markdown: &Stream<Id, Markdown>,
+) -> Stream<Id, Page> {
+    let config = config.clone();
+    markdown.map(move |id: &Id, markdown| Ok(Page::new(&config, id, markdown)))
+}
 
-    // Set up matcher to filter for the configuration file, and return a new
-    // stream that emits a condition in order to implement barriers
-    files.filter_map(move |id: &Id, _: _| {
-        Ok(matcher.is_match(id).expect("invariant").then(|| {
-            let matcher =
-                Matcher::from_str("zrs:::::**/*.md:").expect("invariant");
-
-            // Return condition waiting for all Markdown files
-            Barrier::new(move |id: &Scope<Id>| {
-                matcher.is_match(&id[0]).expect("invariant")
-            })
-        }))
+/// Generate navigation from all pages.
+pub fn generate_nav(
+    config: &Config, pages: &Stream<Id, Vec<(Scope<Id>, Page)>>,
+) -> Stream<Id, Navigation> {
+    let config = config.clone();
+    pages.map(move |pages: Vec<(Scope<Id>, Page)>| {
+        Ok(Navigation::new(config.project.nav.clone(), pages))
     })
 }
 
-// /// Generate pages from Markdown files.
-// pub fn generate_page(
-//     config: &Config, markdown: &Stream<Id, Markdown>,
-// ) -> Stream<Id, Page> {
-//     let config = config.clone();
-//     markdown.map(with_id(move |id: &Id, markdown| {
-//         Page::new(&config, id, markdown)
-//     }))
-// }
+/// Generate object inventory
+pub fn generate_object_inventory(
+    config: &Config, pages: &Stream<Id, Vec<(Scope<Id>, Page)>>,
+) {
+    // Retrieve inventory from Python interpreter using pyo3
+    let config = config.clone();
+    pages.map(move |_| {
+        let data = Python::attach(|py| {
+            let module = py.import("zensical.compat.mkdocstrings")?;
+            module.call_method0("get_inventory")?.extract::<Vec<u8>>()
+        });
 
-// /// Generate navigation from all pages.
-// pub fn generate_nav(
-//     config: &Config, pages: &Stream<Id, Chunk<Id, Page>>,
-// ) -> Stream<Id, Navigation> {
-//     let config = config.clone();
-//     pages.map(move |pages: Chunk<Id, Page>| {
-//         Navigation::new(config.project.nav.clone(), pages)
-//     })
-// }
+        // Write object inventory to disk
+        let site_dir = config.get_site_dir();
+        if let Ok(data) = data {
+            let path = site_dir.join("objects.inv");
+            let _ = fs::create_dir_all(path.parent().expect("invariant"));
+            let _ = fs::write(path, &data);
+        }
+        Ok(())
+    });
+}
 
-// /// Generate object inventory
-// pub fn generate_object_inventory(
-//     config: &Config, pages: &Stream<Id, Chunk<Id, Page>>,
-// ) {
-//     // Retrieve inventory from Python interpreter using pyo3
-//     let config = config.clone();
-//     pages.map(move |_| {
-//         let data = Python::attach(|py| {
-//             let module = py.import("zensical.compat.mkdocstrings")?;
-//             module.call_method0("get_inventory")?.extract::<Vec<u8>>()
-//         });
+/// Generate search index
+pub fn generate_search_index(
+    config: &Config, nav: &Stream<Id, Navigation>,
+    pages: &Stream<Id, Vec<(Scope<Id>, Page)>>,
+) {
+    let config = config.clone();
+    pages.product(nav).map(move |pages, nav| {
+        let plugin = config.project.plugins.search.config.clone();
+        let search = SearchIndex::new(pages, &nav, plugin);
 
-//         // Write object inventory to disk
-//         let site_dir = config.get_site_dir();
-//         if let Ok(data) = data {
-//             let path = site_dir.join("objects.inv");
-//             let _ = fs::create_dir_all(path.parent().expect("invariant"));
-//             let _ = fs::write(path, &data);
-//         }
-//     });
-// }
+        // Serialize search index to json, and obtain site directory
+        let data = serde_json::to_string(&search).expect("invariant");
+        let site_dir = config.get_site_dir();
 
-// /// Generate search index
-// pub fn generate_search_index(
-//     config: &Config, nav: &Stream<Id, Navigation>,
-//     pages: &Stream<Id, Chunk<Id, Page>>,
-// ) {
-//     let config = config.clone();
-//     pages.product(nav).delta_map(with_splat(move |pages, nav| {
-//         let plugin = config.project.plugins.search.config.clone();
-//         let search = SearchIndex::new(pages, &nav, plugin);
+        // Write search index to disk
+        let path = site_dir.join("search.json");
+        fs::create_dir_all(path.parent().expect("invariant"))
+            .map_err(|err| Box::new(err) as Box<_>)?;
+        fs::write(path, &data).map_err(|err| Box::new(err) as Box<_>)?;
 
-//         // Serialize search index to json, and obtain site directory
-//         let data = serde_json::to_string(&search).expect("invariant");
-//         let site_dir = config.get_site_dir();
+        // If offline plugin is enabled, create search.js as well
+        if config.project.plugins.offline.config.enabled {
+            let path = site_dir.join("search.js");
+            fs::create_dir_all(path.parent().expect("invariant"))
+                .map_err(|err| Box::new(err) as Box<_>)?;
+            fs::write(path, format!("var __index = {data};").as_str())
+                .map_err(|err| Box::new(err) as Box<_>)?;
+        }
 
-//         // Write search index to disk
-//         let path = site_dir.join("search.json");
-//         fs::create_dir_all(path.parent().expect("invariant"))?;
-//         fs::write(path, &data)?;
-
-//         // If offline plugin is enabled, create search.js as well
-//         if config.project.plugins.offline.config.enabled {
-//             let path = site_dir.join("search.js");
-//             fs::create_dir_all(path.parent().expect("invariant"))?;
-//             fs::write(path, format!("var __index = {data};").as_str())?;
-//         }
-
-//         // All files were written successfully
-//         Ok::<_, io::Error>(())
-//     }));
-// }
+        // All files were written successfully
+        Ok(())
+    });
+}
 
 // /// Render static and extra templates.
 // pub fn render_templates(
