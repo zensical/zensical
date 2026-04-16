@@ -92,7 +92,7 @@ impl Module for Main {
         // Generate pages, and use the barrier to ensure that all pages have been
         // processed, in order to create the navigation and search index
         let page = generate_page(&self.config, &markdown);
-        let pages = page.select_data([(
+        let pages = page.select([(
             Scope::from_iter([id!(
                 provider = "file",
                 context = ".",
