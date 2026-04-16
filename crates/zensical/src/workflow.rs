@@ -57,7 +57,7 @@ use cached::cached;
 
 /// Regular expression to detect use of snippets
 static SNIPPET_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[ \t]*-+8<-+[ \t]+").expect("invariant"));
+    LazyLock::new(|| Regex::new(r"^[ \t]*-+8<-+").expect("invariant"));
 
 // ----------------------------------------------------------------------------
 // Structs
