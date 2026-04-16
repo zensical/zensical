@@ -51,6 +51,9 @@ mod cached;
 
 use cached::cached;
 
+static SNIPPET_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[ \t]*-+8<-+[ \t]+").expect("invariant"));
+
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
