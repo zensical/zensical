@@ -398,10 +398,7 @@ impl Monitor {
         // added a path that covers an actively watched path
         let mut watched: Option<&PathBuf> = None;
         for (current, active) in &mut self.paths {
-            if watched
-                .filter(|prefix| current.starts_with(prefix))
-                .is_some()
-            {
+            if watched.is_some_and(|prefix| current.starts_with(prefix)) {
                 // The actively watched path is a prefix of the current path,
                 // so a covering path was added, which means we must remove it
                 if *active == true {
