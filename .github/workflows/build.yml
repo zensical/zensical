@@ -283,7 +283,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
           buildkitd-flags: --debug
 

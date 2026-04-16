@@ -28,10 +28,11 @@
 use percent_encoding::percent_decode_str;
 use pyo3::types::PyAnyMethods;
 use pyo3::Python;
+use regex::Regex;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::{fs, io};
 use zrx::id::{id, Id, Matcher};
 use zrx::module::{self, Context, Module};
@@ -49,6 +50,14 @@ use super::watcher::Source;
 mod cached;
 
 use cached::cached;
+
+// ----------------------------------------------------------------------------
+// Constants
+// ----------------------------------------------------------------------------
+
+/// Regular expression to detect use of snippets
+static SNIPPET_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[ \t]*-+8<-+[ \t]+").expect("invariant"));
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -266,7 +275,7 @@ pub fn process_markdown(
             // Don't cache page if it inserts (pymdownx) snippets.
             // This is a hack while waiting for CommonMark (AST) and components,
             // as well as topic-based authoring functionality.
-            if data.contains("--8<--") {
+            if SNIPPET_RE.is_match(&data) {
                 Markdown::new(id, url, data)
             } else {
                 cached(
