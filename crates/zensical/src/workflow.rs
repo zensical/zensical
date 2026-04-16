@@ -93,7 +93,9 @@ impl Module for Main {
         let markdown = process_markdown(&self.config, &files);
 
         // Return condition waiting for all Markdown files
-        let matcher = Matcher::from_str("zrs:::::**/*.md:").expect("invariant");
+        let docs_dir = self.config.project.docs_dir.clone();
+        let matcher = Matcher::from_str(&format!("zrs::::{docs_dir}:**/*.md:"))
+            .expect("invariant");
         let barrier = Barrier::new(move |id: &Scope<Id>| {
             matcher.is_match(&id[0]).expect("invariant")
         });
