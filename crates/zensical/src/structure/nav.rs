@@ -130,7 +130,26 @@ impl Navigation {
 
         // Determine homepage - here, we mirror MkDocs behavior, which only
         // considers index pages at the root level as potential homepages
-        let homepage = items.iter().find(|item| item.is_index).cloned();
+        let mut homepage = items.iter().find(|item| item.is_index).cloned();
+        if homepage.is_none() {
+            // However, if we couldn't find anything, but there's still an index
+            // page, we check if it's out of navigation, and if so, use it
+            if let Some(page) = pages.get("index.md") {
+                if !Iter::new(&items)
+                    .any(|item| item.url.as_deref() == Some(&page.url))
+                {
+                    homepage = Some(NavigationItem {
+                        title: Some(page.title.clone()),
+                        url: Some(page.url.clone()),
+                        canonical_url: page.canonical_url.clone(),
+                        meta: Some(page.meta.clone()),
+                        children: Vec::new(),
+                        is_index: true,
+                        active: false,
+                    });
+                }
+            }
+        }
 
         // Precompute hash
         let hash = {
