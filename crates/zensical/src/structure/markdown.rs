@@ -29,6 +29,7 @@ use pyo3::types::PyAnyMethods;
 use pyo3::{FromPyObject, PyErr, Python};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::sync::{Mutex, OnceLock};
 use zrx::id::Id;
 use zrx::scheduler::step::{Error, Result};
 use zrx::stream::Value;
@@ -41,6 +42,13 @@ use crate::structure::toc::Section;
 mod autorefs;
 
 pub use autorefs::Autorefs;
+
+// ----------------------------------------------------------------------------
+// Constants
+// ----------------------------------------------------------------------------
+
+/// Global lock for rendering Markdown, to ensure thread safety of the Python
+static RENDER_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -71,20 +79,25 @@ impl Markdown {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
     pub fn new(id: &Id, url: String, content: String) -> Result<Markdown> {
         let id = id.clone();
-        Python::attach(|py| {
+        let guard = RENDER_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let res = Python::attach(|py| {
             let module = py.import("zensical.markdown")?;
             module
                 .call_method1("render", (content, id.location(), url))?
                 .extract::<Markdown>()
-        })
-        .map_err(|err: PyErr| Error::from(Box::new(err) as Box<_>))
-        .map(|markdown| Markdown {
-            title: extract_title(&id, &markdown),
-            meta: markdown.meta,
-            content: markdown.content,
-            search: markdown.search,
-            toc: markdown.toc,
-        })
+        });
+
+        // Explicitly drop the lock guard here, so we're sure to hold it just
+        // until after Python finished executing the rendering logic
+        drop(guard);
+        res.map_err(|err: PyErr| Error::from(Box::new(err) as Box<_>))
+            .map(|markdown| Markdown {
+                title: extract_title(&id, &markdown),
+                meta: markdown.meta,
+                content: markdown.content,
+                search: markdown.search,
+                toc: markdown.toc,
+            })
     }
 }
 
