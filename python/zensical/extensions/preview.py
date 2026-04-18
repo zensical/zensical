@@ -102,6 +102,8 @@ class PreviewProcessor(Treeprocessor):
                 # Skip footnotes
                 if "footnote-ref" in el.get("class", ""):
                     continue
+                if "footnote-backref" in el.get("class", ""):
+                    continue
 
                 # Skip headerlinks
                 if "headerlink" in el.get("class", ""):
