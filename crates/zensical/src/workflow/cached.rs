@@ -28,7 +28,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use zrx::scheduler::action::report::IntoReport;
+use zrx::scheduler::step::Result;
 use zrx::scheduler::Value;
 
 use crate::config::Config;
@@ -54,14 +54,11 @@ struct Cached<T> {
 /// input arguments. Note that this is only a preliminary implementation, and
 /// will be replaced with a more generic caching mechanism integrated into
 /// the runtime.
-pub fn cached<I, T, F, R, U>(
-    config: &Config, id: I, args: T, f: F,
-) -> impl IntoReport<U>
+pub fn cached<I, T, F, U>(config: &Config, id: I, args: T, f: F) -> Result<U>
 where
     I: Hash,
     T: Hash,
-    F: FnOnce(T) -> R,
-    R: IntoReport<U>,
+    F: FnOnce(T) -> Result<U>,
     U: Value + Serialize + for<'de> Deserialize<'de>,
 {
     // Compute hash of identifier
@@ -90,15 +87,15 @@ where
         if let Ok(cached) = serde_json::from_slice::<Cached<U>>(&data) {
             // In case content hashes match, return cached data
             if cached.hash == hash {
-                return cached.data.into_report();
+                return Ok(cached.data);
             }
         }
     }
 
     // Compute artifact and convert into report - note that we need to properly
     // handle encoding and file I/O errors here as well
-    f(args).into_report().inspect(|report| {
-        serde_json::to_string_pretty(&Cached { data: &report.data, hash })
+    f(args).inspect(|data| {
+        serde_json::to_string_pretty(&Cached { data, hash })
             .map(|content| fs::write(path, content).expect("invariant"))
             .expect("invariant");
     })

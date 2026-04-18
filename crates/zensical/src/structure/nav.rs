@@ -32,8 +32,7 @@ use pyo3::types::PyAnyMethods;
 use pyo3::{FromPyObject, Python};
 use serde::Serialize;
 use zrx::id::Id;
-use zrx::scheduler::Value;
-use zrx::stream::value::Chunk;
+use zrx::scheduler::{Scope, Value};
 
 use crate::structure::markdown::Autorefs;
 
@@ -73,7 +72,9 @@ pub struct Navigation {
 
 impl Navigation {
     /// Creates a navigation from the given items.
-    pub fn new(mut items: Vec<NavigationItem>, pages: Chunk<Id, Page>) -> Self {
+    pub fn new(
+        mut items: Vec<NavigationItem>, pages: Vec<(Scope<Id>, Page)>,
+    ) -> Self {
         if items.is_empty() {
             return Self::from(pages);
         }
@@ -82,9 +83,9 @@ impl Navigation {
         // icons from the file location of the respective page.
         let pages = pages
             .into_iter()
-            .map(|item| {
-                let id = item.id.location().to_string();
-                (id, item.data)
+            .map(|(id, page)| {
+                let id = id[0].location().to_string();
+                (id, page)
             })
             .collect::<HashMap<_, _>>();
 
@@ -129,7 +130,26 @@ impl Navigation {
 
         // Determine homepage - here, we mirror MkDocs behavior, which only
         // considers index pages at the root level as potential homepages
-        let homepage = items.iter().find(|item| item.is_index).cloned();
+        let mut homepage = items.iter().find(|item| item.is_index).cloned();
+        if homepage.is_none() {
+            // However, if we couldn't find anything, but there's still an index
+            // page, we check if it's out of navigation, and if so, use it
+            if let Some(page) = pages.get("index.md") {
+                if !Iter::new(&items)
+                    .any(|item| item.url.as_deref() == Some(&page.url))
+                {
+                    homepage = Some(NavigationItem {
+                        title: Some(page.title.clone()),
+                        url: Some(page.url.clone()),
+                        canonical_url: page.canonical_url.clone(),
+                        meta: Some(page.meta.clone()),
+                        children: Vec::new(),
+                        is_index: true,
+                        active: false,
+                    });
+                }
+            }
+        }
 
         // Precompute hash
         let hash = {
@@ -267,25 +287,25 @@ impl Value for Navigation {}
 
 // ----------------------------------------------------------------------------
 
-impl From<Chunk<Id, Page>> for Navigation {
+impl From<Vec<(Scope<Id>, Page)>> for Navigation {
     /// Creates a navigation from pages.
     ///
     /// This mirrors the functionality of auto-populated navigation that MkDocs
     /// provides. In the future, we intend to refactor this into a more flexible
     /// system that allows for custom and modular navigation structures, but for
     /// now, compatibility is key.
-    fn from(pages: Chunk<Id, Page>) -> Self {
+    fn from(pages: Vec<(Scope<Id>, Page)>) -> Self {
         let mut items: Vec<NavigationItem> = Vec::new();
 
         // Convert chunk into a vector for easier processing, and sort pages by
         // the exact same method that MkDocs uses
         let mut pages = Vec::from_iter(pages);
-        pages.sort_by_key(|item| file_sort_key(&item.id));
+        pages.sort_by_key(|(id, _)| file_sort_key(&id[0]));
 
         // There can only be pages, no URLs, since we're auto-populating the
         // navigation from the files in the docs directory
-        for page in pages {
-            let location = page.id.location();
+        for (id, page) in pages {
+            let location = id[0].location();
 
             // Split location into components at slashes
             let mut components = location
@@ -328,10 +348,10 @@ impl From<Chunk<Id, Page>> for Navigation {
 
             // Insert page into the section
             section.push(NavigationItem {
-                title: Some(page.data.title),
-                url: Some(page.data.url),
-                canonical_url: page.data.canonical_url,
-                meta: Some(page.data.meta.clone()),
+                title: Some(page.title),
+                url: Some(page.url),
+                canonical_url: page.canonical_url,
+                meta: Some(page.meta.clone()),
                 children: Vec::new(),
                 is_index: is_index(&file),
                 active: false,
