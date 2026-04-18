@@ -35,7 +35,7 @@ use zrx::id::Id;
 use zrx::scheduler::Value;
 
 use crate::config::Config;
-use crate::template::{Template, GENERATOR};
+use crate::template::{Output, Template, GENERATOR};
 
 use super::dynamic::Dynamic;
 use super::markdown::Markdown;
@@ -108,7 +108,7 @@ impl Page {
 
         // Create identifier builder, as we need to change the context in order
         // to copy the file over to the site directory
-        let builder = id.to_builder().with_context(&site_dir);
+        let builder = id.to_builder().context(&site_dir);
         let id = builder.clone().build().expect("invariant");
 
         // Next, obtain the path, and check whether it is an index file, which
@@ -136,7 +136,7 @@ impl Page {
         // more convenience function to the id crate, we can make this shorter
         let path = path.to_string_lossy().into_owned();
         let id = builder
-            .with_location(path.replace('\\', "/"))
+            .location(path.replace('\\', "/"))
             .build()
             .expect("invariant");
 
@@ -197,7 +197,7 @@ impl Page {
     )]
     pub fn render(
         &mut self, config: &Config, nav: Navigation,
-    ) -> Result<String, Error> {
+    ) -> Result<Output, Error> {
         let name = self.meta.get("template").map(ToString::to_string);
         let template = Template::new(
             name.unwrap_or(String::from("main.html")),
@@ -224,7 +224,7 @@ impl Page {
         })?;
 
         // Replace autorefs, if any
-        Ok(nav.autorefs.replace_in(output, &self.url))
+        Ok(Output::from(nav.autorefs.replace_in(output, &self.url)))
     }
 
     /// Returns the tags of the page.

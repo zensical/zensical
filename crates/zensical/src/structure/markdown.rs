@@ -30,9 +30,8 @@ use pyo3::{FromPyObject, PyErr, Python};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use zrx::id::Id;
-use zrx::scheduler::action::report::IntoReport;
-use zrx::scheduler::action::Error;
-use zrx::scheduler::Value;
+use zrx::scheduler::step::{Error, Result};
+use zrx::stream::Value;
 
 use crate::structure::dynamic::Dynamic;
 use crate::structure::nav::to_title;
@@ -70,9 +69,7 @@ pub struct Markdown {
 impl Markdown {
     /// Renders Markdown using Python Markdown.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
-    pub fn new(
-        id: &Id, url: String, content: String,
-    ) -> impl IntoReport<Markdown> {
+    pub fn new(id: &Id, url: String, content: String) -> Result<Markdown> {
         let id = id.clone();
         Python::attach(|py| {
             let module = py.import("zensical.markdown")?;

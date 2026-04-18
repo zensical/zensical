@@ -1186,9 +1186,9 @@ dependencies = [
 
 [[package]]
 name = "webbrowser"
-version = "1.2.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe985f41e291eecef5e5c0770a18d28390addb03331c043964d9e916453d6f16"
+checksum = "0fc95580916af1e68ff6a7be07446fc5db73ebf71cf092de939bbf5f7e189f72"
 dependencies = [
  "core-foundation",
  "jni",
@@ -1472,16 +1472,18 @@ checksum = "dfcd145825aace48cff44a8844de64bf75feec3080e0aa5cdbde72961ae51a65"
 
 [[package]]
 name = "zrx"
-version = "0.0.12"
+version = "0.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83047c9af3125774463cbcbbcf856cc89697b302f0fc49c2582a59ec66d4c026"
+checksum = "a751c426c2581f40dbc1131a3388c722a01d131c1c8313ecb14f3b1f344251af"
 dependencies = [
  "zrx-diagnostic",
  "zrx-executor",
  "zrx-graph",
  "zrx-id",
+ "zrx-module",
  "zrx-path",
  "zrx-scheduler",
+ "zrx-storage",
  "zrx-store",
  "zrx-stream",
 ]
@@ -1494,9 +1496,9 @@ checksum = "1cf90c723631486819bb50d9871072595f4f17b2f6c596534d9cbcf4b6c2ae54"
 
 [[package]]
 name = "zrx-executor"
-version = "0.0.1"
+version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c0ace038e234e564aa9a352419b7eb8ea64996351affbfb8f2b1a593c3b24d4"
+checksum = "51151cff60737328cc2512f6b21a781eb0bc4130a97f6628d261caea8c44f848"
 dependencies = [
  "crossbeam",
  "thiserror",
@@ -1504,9 +1506,9 @@ dependencies = [
 
 [[package]]
 name = "zrx-graph"
-version = "0.0.7"
+version = "0.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c40e047c9ddb9468f63046cf57a9952cfd9cc8607f60762cd140b7c6c940f374"
+checksum = "03f81542d95e53dc86ad2785074b480ff71b391356a2dba8d3413c0ebc6db7cf"
 dependencies = [
  "ahash",
  "thiserror",
@@ -1514,15 +1516,28 @@ dependencies = [
 
 [[package]]
 name = "zrx-id"
-version = "0.0.8"
+version = "0.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd509179c6edbfa9eb0a642c274b7241bacfc09f1a840ede358ed241962c0822"
+checksum = "c79bb424eaeb299ebe815e9340ebff062b30c84fdb0f3abeb81402dd7f05bf78"
 dependencies = [
+ "ahash",
  "globset",
  "percent-encoding",
  "slab",
  "thiserror",
  "zrx-path",
+ "zrx-scheduler",
+]
+
+[[package]]
+name = "zrx-module"
+version = "0.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4db8c41040c9d474934d3809806d890a6d7f8e4a7aa518003b42f2e56d6d287"
+dependencies = [
+ "thiserror",
+ "zrx-id",
+ "zrx-stream",
 ]
 
 [[package]]
@@ -1533,9 +1548,9 @@ checksum = "d578267e852d4f325ce124ecbffe0530d9f9013d58a3cfacec75daf04ac40d0b"
 
 [[package]]
 name = "zrx-scheduler"
-version = "0.0.9"
+version = "0.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c6b5d00390d0277ebbcfcab156896b9ac8869512386b34245e8989a433d5c9b7"
+checksum = "8142553f537ce3c5e0c82ae7bb4a84ae54942bce361c25f39f9cd656e08cc8fc"
 dependencies = [
  "ahash",
  "crossbeam",
@@ -1545,15 +1560,27 @@ dependencies = [
  "zrx-diagnostic",
  "zrx-executor",
  "zrx-graph",
- "zrx-id",
+ "zrx-storage",
+ "zrx-store",
+]
+
+[[package]]
+name = "zrx-storage"
+version = "0.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ac271e365aa03e537b5cedabfa8f945c3f65b2302ca92cc1ba2c8011eb56935"
+dependencies = [
+ "ahash",
+ "slab",
+ "thiserror",
  "zrx-store",
 ]
 
 [[package]]
 name = "zrx-store"
-version = "0.0.5"
+version = "0.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a496e11596686700ce05773f46a570ed617abb5f0f6923e50785d681caff696"
+checksum = "c60a5745e6a4b9afaf183be1bc32f35f74c93ce6cca84e0ad801f53f502a951b"
 dependencies = [
  "ahash",
  "slab",
@@ -1561,14 +1588,13 @@ dependencies = [
 
 [[package]]
 name = "zrx-stream"
-version = "0.0.9"
+version = "0.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cde3ce73eac8413efa37e026df2a1b41aa46cb6d274559272788e67f2c8396a"
+checksum = "32839b219080c3c9581432baa63e00dcc3a68bae5cf0bc18a45f9d55bf3d0fed"
 dependencies = [
- "ahash",
  "thiserror",
  "tracing",
- "zrx-id",
  "zrx-scheduler",
+ "zrx-storage",
  "zrx-store",
 ]

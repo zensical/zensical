@@ -34,13 +34,10 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::{fs, io};
-use zrx::id::{Id, Matcher};
-use zrx::scheduler::action::report::IntoReport;
-use zrx::stream::barrier::Condition;
-use zrx::stream::function::{with_id, with_splat};
-use zrx::stream::value::{Chunk, Delta};
-use zrx::stream::workspace::Workspace;
-use zrx::stream::Stream;
+use zrx::id::{id, Id, Matcher};
+use zrx::module::{self, Context, Module};
+use zrx::scheduler::Scope;
+use zrx::stream::{Barrier, Stream, Workflow};
 
 use super::config::Config;
 use super::structure::markdown::Markdown;
@@ -48,20 +45,94 @@ use super::structure::nav::Navigation;
 use super::structure::page::Page;
 use super::structure::search::SearchIndex;
 use super::template::Template;
+use super::watcher::Source;
 
 mod cached;
 
 use cached::cached;
 
+// ----------------------------------------------------------------------------
+// Constants
+// ----------------------------------------------------------------------------
+
+/// Regular expression to detect use of snippets
 static SNIPPET_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[ \t]*-+8<-+").expect("invariant"));
+
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
+
+/// Main module.
+///
+/// With the advent of the module system at the beginning of April 2026, we can
+/// start our journey to migrate all logic into modules. We now move the entire
+/// build process into a single module, and then factor out functionality into
+/// smaller, logically self-contained units. This approach ensures that we can
+/// ship the module system as fast as possible, allowing us to work on feature
+/// parity, while testing the module system in a real-world codebase.
+#[derive(Debug)]
+pub struct Main {
+    /// Configuration.
+    config: Config,
+}
+
+// ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
+
+impl Module for Main {
+    /// Initializes the module.
+    fn setup(&self, ctx: &mut Context) -> module::Result {
+        let files = ctx.add::<Source>();
+
+        // Set up workflow to process static assets, as well as Markdown files, and
+        // create a barrier to wait for the completion of all Markdown files
+        process_theme_assets(&self.config, &files);
+        process_assets(&self.config, &files);
+        let markdown = process_markdown(&self.config, &files);
+
+        // Return condition waiting for all Markdown files
+        let docs_dir = self.config.project.docs_dir.clone();
+        let matcher = Matcher::from_str(&format!("zrs::::{docs_dir}:**/*.md:"))
+            .expect("invariant");
+        let barrier = Barrier::new(move |id: &Scope<Id>| {
+            matcher.is_match(&id[0]).expect("invariant")
+        });
+
+        // Generate pages, and use the barrier to ensure that all pages have been
+        // processed, in order to create the navigation and search index
+        let page = generate_page(&self.config, &markdown);
+        let pages = page.select([(
+            Scope::from_iter([id!(
+                provider = "file",
+                context = ".",
+                location = "."
+            )
+            .unwrap()]),
+            barrier,
+        )]);
+
+        // Generate navigation and search index
+        let nav = generate_nav(&self.config, &pages);
+        generate_search_index(&self.config, &nav, &pages);
+
+        // Generate object inventory
+        generate_object_inventory(&self.config, &pages);
+
+        // // Render static and extra templates, as well as pages
+        render_templates(&self.config, &files, &nav);
+        render_pages(&self.config, &page, &nav);
+        Ok(())
+    }
+}
 
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
 
 /// Create a stream to process static assets.
-pub fn process_assets(config: &Config, files: &Stream<Id, String>) {
+pub fn process_assets(config: &Config, files: &Stream<Id, Source>) {
     let extra_templates = config.project.extra_templates.clone();
     let docs_dir = config.project.docs_dir.clone();
     let matcher = Arc::new(
@@ -71,7 +142,7 @@ pub fn process_assets(config: &Config, files: &Stream<Id, String>) {
     // Create pipeline to copy static assets
     let site_dir = config.project.site_dir.clone();
     let root_dir = config.get_root_dir();
-    files.map(with_id(move |id: &Id, from: String| {
+    files.map(move |id: &Id, from: Source| {
         if !matcher.is_match(id).expect("invariant") {
             return Ok(());
         }
@@ -88,25 +159,27 @@ pub fn process_assets(config: &Config, files: &Stream<Id, String>) {
 
         // Create identifier builder, as we need to change the context in order
         // to copy the file over to the site directory
-        let builder = id.to_builder().with_context(&site_dir);
+        let builder = id.to_builder().context(&site_dir);
         let id = builder.build().expect("invariant");
 
         // Compute parent path, create intermediate directories and copy files
         let to = root_dir.join(id.to_path());
-        fs::create_dir_all(to.parent().expect("invariant"))?;
-        copy_file(from, to)
-    }));
+        fs::create_dir_all(to.parent().expect("invariant"))
+            .map_err(|err| Box::new(err) as Box<_>)?;
+        copy_file(&*from, to).map_err(|err| Box::new(err) as Box<_>)?;
+        Ok(())
+    });
 }
 
 /// Create a stream to process static assets in theme.
-pub fn process_theme_assets(config: &Config, files: &Stream<Id, String>) {
+pub fn process_theme_assets(config: &Config, files: &Stream<Id, Source>) {
     let matcher =
         Arc::new(Matcher::from_str("zrs::::templates/*::").expect("invariant"));
 
     // Create pipeline to copy static assets
     let site_dir = config.project.site_dir.clone();
     let root_dir = config.get_root_dir();
-    files.map(with_id(move |id: &Id, from: String| {
+    files.map(move |id: &Id, from: Source| {
         if !matcher.is_match(id).expect("invariant") {
             return Ok(());
         }
@@ -118,14 +191,16 @@ pub fn process_theme_assets(config: &Config, files: &Stream<Id, String>) {
 
         // Create identifier builder, as we need to change the context in order
         // to copy the file over to the site directory
-        let builder = id.to_builder().with_context(&site_dir);
+        let builder = id.to_builder().context(&site_dir);
         let id = builder.build().expect("invariant");
 
         // Compute parent path, create intermediate directories and copy files
         let to = root_dir.join(id.to_path());
-        fs::create_dir_all(to.parent().expect("invariant"))?;
-        copy_file(from, to)
-    }));
+        fs::create_dir_all(to.parent().expect("invariant"))
+            .map_err(|err| Box::new(err) as Box<_>)?;
+        copy_file(&*from, to).map_err(|err| Box::new(err) as Box<_>)?;
+        Ok(())
+    });
 }
 
 /// Copy a file to a new location, without copying its permissions.
@@ -139,7 +214,7 @@ fn copy_file(
 
 /// Create a stream to process Markdown files.
 pub fn process_markdown(
-    config: &Config, files: &Stream<Id, String>,
+    config: &Config, files: &Stream<Id, Source>,
 ) -> Stream<Id, Markdown> {
     let matcher = Arc::new(
         Matcher::from_str(&format!(
@@ -152,94 +227,67 @@ pub fn process_markdown(
     // Create pipeline to render Markdown files
     let config = config.clone();
     files
-        .filter(with_id(move |id: &Id, _: &_| {
-            matcher.is_match(id).expect("invariant")
-        }))
+        .filter(move |id: &Id, _: &_| {
+            Ok(matcher.is_match(id).expect("invariant"))
+        })
         // Render Markdown if we don't have a recent cached version at our own
         // disposal. Otherwise, just return that if the content did not change.
         // Note that we need to limit concurrency here, or we'll overwhelm the
         // Python interpreter with all tasks competing for the GIL.
-        .map_concurrency(
-            with_id(move |id: &Id, path: String| {
-                let data = fs::read_to_string(path)?;
+        .map(move |id: &Id, path: Source| {
+            let data = fs::read_to_string(&*path)
+                .map_err(|err| Box::new(err) as Box<_>)?;
 
-                // Compute URL using same logic as Page::new()
-                let site_dir = config.project.site_dir.clone();
-                let use_directory_urls = config.project.use_directory_urls;
+            // Compute URL using same logic as Page::new()
+            let site_dir = config.project.site_dir.clone();
+            let use_directory_urls = config.project.use_directory_urls;
 
-                let builder = id.to_builder().with_context(&site_dir);
-                let url_id = builder.clone().build().expect("invariant");
+            let builder = id.to_builder().context(&site_dir);
+            let url_id = builder.clone().build().expect("invariant");
 
-                let mut url_path: PathBuf =
-                    url_id.location().to_string().into();
-                let is_index = url_path.ends_with("index.md")
-                    || url_path.ends_with("README.md");
+            let mut url_path: PathBuf = url_id.location().to_string().into();
+            let is_index = url_path.ends_with("index.md")
+                || url_path.ends_with("README.md");
 
-                if url_path.ends_with("README.md") {
-                    url_path.pop();
-                    url_path = url_path.join("index.md");
-                }
+            if url_path.ends_with("README.md") {
+                url_path.pop();
+                url_path = url_path.join("index.md");
+            }
 
-                if !use_directory_urls || is_index {
-                    url_path.set_extension("html");
-                } else {
-                    url_path.set_extension("");
-                    url_path.push("index.html");
-                }
+            if !use_directory_urls || is_index {
+                url_path.set_extension("html");
+            } else {
+                url_path.set_extension("");
+                url_path.push("index.html");
+            }
 
-                let url_path = url_path.to_string_lossy().into_owned();
-                let url_id = builder
-                    .with_location(url_path.replace('\\', "/"))
-                    .build()
-                    .expect("invariant");
+            let url_path = url_path.to_string_lossy().into_owned();
+            let url_id = builder
+                .location(url_path.replace('\\', "/"))
+                .build()
+                .expect("invariant");
 
-                let url = url_id.as_uri().to_string();
-                let url = if use_directory_urls {
-                    url.trim_end_matches("index.html").to_string()
-                } else {
-                    url
-                };
+            let url = url_id.as_uri().to_string();
+            let url = if use_directory_urls {
+                url.trim_end_matches("index.html").to_string()
+            } else {
+                url
+            };
 
-                // Don't cache page if it inserts (pymdownx) snippets.
-                // This is a hack while waiting for CommonMark (AST) and components,
-                // as well as topic-based authoring functionality.
-                if SNIPPET_RE.is_match(&data) {
-                    Markdown::new(id, url, data).into_report()
-                } else {
-                    cached(
-                        &config,
-                        id,
-                        (config.hash, data.clone(), url.clone()),
-                        |(_, data, url)| Markdown::new(id, url, data),
-                    )
-                    .into_report()
-                }
-            }),
-            1,
-        )
-}
-
-/// Create a stream to wait for all Markdown files to be rendered.
-pub fn wait_for_markdown(
-    config: &Config, files: &Stream<Id, String>,
-) -> Stream<Id, Condition<Id>> {
-    let name = config.path.file_name().expect("invariant");
-    let matcher = Arc::new(
-        Matcher::from_str(&format!("zrs:::::{}:", name.to_string_lossy()))
-            .expect("invariant"),
-    );
-
-    // Set up matcher to filter for the configuration file, and return a new
-    // stream that emits a condition in order to implement barriers
-    files.filter_map(with_id(move |id: &Id, _: _| {
-        matcher.is_match(id).expect("invariant").then(|| {
-            let matcher =
-                Matcher::from_str("zrs:::::**/*.md:").expect("invariant");
-
-            // Return condition waiting for all Markdown files
-            Condition::new(matcher)
+            // Don't cache page if it inserts (pymdownx) snippets.
+            // This is a hack while waiting for CommonMark (AST) and components,
+            // as well as topic-based authoring functionality.
+            if SNIPPET_RE.is_match(&data) {
+                Markdown::new(id, url, data)
+            } else {
+                cached(
+                    &config,
+                    id.as_str(),
+                    (config.hash, data.clone(), url.clone()),
+                    |(_, data, url)| Markdown::new(id, url, data),
+                )
+            }
         })
-    }))
 }
 
 /// Generate pages from Markdown files.
@@ -247,24 +295,22 @@ pub fn generate_page(
     config: &Config, markdown: &Stream<Id, Markdown>,
 ) -> Stream<Id, Page> {
     let config = config.clone();
-    markdown.map(with_id(move |id: &Id, markdown| {
-        Page::new(&config, id, markdown)
-    }))
+    markdown.map(move |id: &Id, markdown| Ok(Page::new(&config, id, markdown)))
 }
 
 /// Generate navigation from all pages.
 pub fn generate_nav(
-    config: &Config, pages: &Stream<Id, Chunk<Id, Page>>,
+    config: &Config, pages: &Stream<Id, Vec<(Scope<Id>, Page)>>,
 ) -> Stream<Id, Navigation> {
     let config = config.clone();
-    pages.map(move |pages: Chunk<Id, Page>| {
-        Navigation::new(config.project.nav.clone(), pages)
+    pages.map(move |pages: Vec<(Scope<Id>, Page)>| {
+        Ok(Navigation::new(config.project.nav.clone(), pages))
     })
 }
 
 /// Generate object inventory
 pub fn generate_object_inventory(
-    config: &Config, pages: &Stream<Id, Chunk<Id, Page>>,
+    config: &Config, pages: &Stream<Id, Vec<(Scope<Id>, Page)>>,
 ) {
     // Retrieve inventory from Python interpreter using pyo3
     let config = config.clone();
@@ -281,16 +327,17 @@ pub fn generate_object_inventory(
             let _ = fs::create_dir_all(path.parent().expect("invariant"));
             let _ = fs::write(path, &data);
         }
+        Ok(())
     });
 }
 
 /// Generate search index
 pub fn generate_search_index(
     config: &Config, nav: &Stream<Id, Navigation>,
-    pages: &Stream<Id, Chunk<Id, Page>>,
+    pages: &Stream<Id, Vec<(Scope<Id>, Page)>>,
 ) {
     let config = config.clone();
-    pages.product(nav).delta_map(with_splat(move |pages, nav| {
+    pages.product(nav).map(move |pages, nav| {
         let plugin = config.project.plugins.search.config.clone();
         let search = SearchIndex::new(pages, &nav, plugin);
 
@@ -300,25 +347,28 @@ pub fn generate_search_index(
 
         // Write search index to disk
         let path = site_dir.join("search.json");
-        fs::create_dir_all(path.parent().expect("invariant"))?;
-        fs::write(path, &data)?;
+        fs::create_dir_all(path.parent().expect("invariant"))
+            .map_err(|err| Box::new(err) as Box<_>)?;
+        fs::write(path, &data).map_err(|err| Box::new(err) as Box<_>)?;
 
         // If offline plugin is enabled, create search.js as well
         if config.project.plugins.offline.config.enabled {
             let path = site_dir.join("search.js");
-            fs::create_dir_all(path.parent().expect("invariant"))?;
-            fs::write(path, format!("var __index = {data};").as_str())?;
+            fs::create_dir_all(path.parent().expect("invariant"))
+                .map_err(|err| Box::new(err) as Box<_>)?;
+            fs::write(path, format!("var __index = {data};").as_str())
+                .map_err(|err| Box::new(err) as Box<_>)?;
         }
 
         // All files were written successfully
-        Ok::<_, io::Error>(())
-    }));
+        Ok(())
+    });
 }
 
 /// Render static and extra templates.
 pub fn render_templates(
-    config: &Config, files: &Stream<Id, String>, nav: &Stream<Id, Navigation>,
-) -> Stream<Id, Delta<Id, ()>> {
+    config: &Config, files: &Stream<Id, Source>, nav: &Stream<Id, Navigation>,
+) -> Stream<Id, ()> {
     let docs_dir = config.project.docs_dir.clone();
 
     // Retrieve template names
@@ -339,9 +389,9 @@ pub fn render_templates(
 
     // Create matcher from builder, and filter templates
     let matcher = Arc::new(builder.build().expect("invariant"));
-    let templates = files.filter(with_id(move |id: &Id, _: &String| {
-        matcher.is_match(id).expect("invariant")
-    }));
+    let templates = files.filter(move |id: &Id, _: &Source| {
+        Ok(matcher.is_match(id).expect("invariant"))
+    });
 
     // Add docs directory to theme templates
     let mut theme_dirs = config.theme_dirs.clone();
@@ -349,35 +399,33 @@ pub fn render_templates(
 
     // Create pipeline to render templates
     let config = config.clone();
-    templates.product(nav).delta_map(with_splat(
-        move |template: String, nav: Navigation| {
-            let name = Path::new(&template).file_name().expect("invariant");
-            let site_dir = config.get_site_dir();
+    templates.product(nav).map(move |template: Source, nav| {
+        let name = Path::new(&*template).file_name().expect("invariant");
+        let site_dir = config.get_site_dir();
 
-            // Obtain template
-            let template =
-                Template::new(name.to_string_lossy(), theme_dirs.clone());
+        // Obtain template
+        let template =
+            Template::new(name.to_string_lossy(), theme_dirs.clone());
 
-            // Render template and write to disk
-            template
-                .render(&config, &nav)
-                .into_report()
-                .and_then(|report| {
-                    let path = site_dir.join(name);
-                    fs::create_dir_all(path.parent().expect("invariant"))?;
-                    fs::write(path, &report.data).map_err(Into::into)
-                })
-        },
-    ))
+        // Render template and write to disk
+        let data = template
+            .render(&config, &nav)
+            .map_err(|err| Box::new(err) as Box<_>)?;
+        let path = site_dir.join(name);
+        fs::create_dir_all(path.parent().expect("invariant"))
+            .map_err(|err| Box::new(err) as Box<_>)?;
+        fs::write(path, &data).map_err(|err| Box::new(err) as Box<_>)?;
+        Ok(())
+    })
 }
 
 /// Render pages.
 pub fn render_pages(
     config: &Config, page: &Stream<Id, Page>, nav: &Stream<Id, Navigation>,
-) -> Stream<Id, Delta<Id, ()>> {
+) -> Stream<Id, ()> {
     let config = config.clone();
-    page.product(nav).delta_map(with_splat(
-        move |mut page: Page, nav: Navigation| {
+    page.product(nav)
+        .map(move |mut page: Page, nav: Navigation| {
             let id = page.url.clone();
 
             // Compute hash of page content
@@ -391,57 +439,31 @@ pub fn render_pages(
             // Render page if we don't have a recent cached version at our own
             // disposal. Otherwise, just return if the content did not change.
             let args = (config.hash, nav.hash, hash);
-            cached(&config, id, args, |(_, _, _)| page.render(&config, nav))
-                .into_report()
-                .and_then(|report| {
-                    let path = Path::new(&page.path);
-                    fs::create_dir_all(path.parent().expect("invariant"))?;
-                    fs::write(path, &report.data).map_err(Into::into).inspect(
-                        |()| {
-                            let url = percent_decode_str(&page.url);
-                            println!("+ /{}", url.decode_utf8_lossy());
-                        },
-                    )
-                })
-        },
-    ))
+            cached(&config, id, args, |(_, _, _)| {
+                Ok(page
+                    .render(&config, nav)
+                    .map_err(|err| Box::new(err) as Box<_>)?)
+            })
+            .and_then(|data| {
+                let path = Path::new(&page.path);
+                fs::create_dir_all(path.parent().expect("invariant"))
+                    .map_err(|err| Box::new(err) as Box<_>)?;
+                fs::write(path, &*data)
+                    .map_err(|err| Box::new(err) as Box<_>)
+                    .map_err(Into::into)
+                    .inspect(|()| {
+                        let url = percent_decode_str(&page.url);
+                        println!("+ /{}", url.decode_utf8_lossy());
+                    })
+            })
+        })
 }
 
-/// Creates a new workspace for the given config.
-pub fn create_workspace(config: &Config) -> Workspace<Id> {
-    let workspace = Workspace::new();
-    let config = config.clone();
-
-    // Right now, we use a single workflow for the entirety of the build. Later,
-    // when we work on the module system, modules will have their own workflows.
-    // Create a source for files, so the file agent can submit file creation,
-    // change and delete events to the workflow
-    let workflow = workspace.add_workflow();
-    let files = workflow.add_source::<String>();
-
-    // Set up workflow to process static assets, as well as Markdown files, and
-    // create a barrier to wait for the completion of all Markdown files
-    process_theme_assets(&config, &files);
-    process_assets(&config, &files);
-    let markdown = process_markdown(&config, &files);
-    let wait = wait_for_markdown(&config, &files);
-
-    // Generate pages, and use the barrier to ensure that all pages have been
-    // processed, in order to create the navigation and search index
-    let page = generate_page(&config, &markdown);
-    let pages = page.select(&wait).chunks();
-
-    // Generate navigation and search index
-    let nav = generate_nav(&config, &pages);
-    generate_search_index(&config, &nav, &pages);
-
-    // Generate object inventory
-    generate_object_inventory(&config, &pages);
-
-    // Render static and extra templates, as well as pages
-    render_templates(&config, &files, &nav);
-    render_pages(&config, &page, &nav);
-
-    // Return workspace
-    workspace
+/// Creates a workflow for the given config.
+pub fn create_workflow(config: &Config) -> Workflow<Id> {
+    let mut context = Context::default();
+    Main { config: config.clone() }
+        .setup(&mut context)
+        .expect("invariant");
+    context.into()
 }

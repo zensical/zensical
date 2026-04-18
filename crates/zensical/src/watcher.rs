@@ -39,6 +39,10 @@ use zrx::scheduler::Session;
 
 use super::config::Config;
 
+mod source;
+
+pub use source::Source;
+
 // ----------------------------------------------------------------------------
 // Structs
 // ----------------------------------------------------------------------------
@@ -60,8 +64,8 @@ impl Watcher {
     /// Creates a file watcher.
     #[allow(clippy::too_many_lines)]
     pub fn new(
-        config: &Config, session: Session<Id, String>, reload: Sender<String>,
-        waker: Option<Arc<Waker>>,
+        config: &Config, serve: bool, session: Session<Id, Source>,
+        reload: Sender<String>, waker: Option<Arc<Waker>>,
     ) -> Result<Self> {
         let mut sources = Vec::default();
 
@@ -106,7 +110,7 @@ impl Watcher {
 
         // Initialize file agent - we use a debounce interval of 20ms, which
         // should be sufficient to correctly determine rename events
-        let agent = Agent::new(Duration::from_millis(20), {
+        let agent = Agent::new(Duration::from_millis(20), serve, {
             let config = config.clone();
             move |res| {
                 // For now, we just swallow the event, as the file agent should
@@ -200,14 +204,15 @@ impl Watcher {
                         Event::Create { path, .. }
                         | Event::Modify { path, .. } => {
                             let data = path.to_string_lossy().into_owned();
-                            session.insert(to_id(path, &sources), data)?;
+                            session
+                                .insert(to_id(path, &sources), data.into())?;
                         }
 
                         // File was renamed
                         Event::Rename { from, to, .. } => {
                             let data = to.to_string_lossy().into_owned();
                             session.remove(to_id(from, &sources))?;
-                            session.insert(to_id(to, &sources), data)?;
+                            session.insert(to_id(to, &sources), data.into())?;
                         }
 
                         // File was removed
@@ -252,7 +257,6 @@ impl Watcher {
     }
 }
 
-
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
@@ -267,9 +271,9 @@ fn to_id(path: Arc<PathBuf>, sources: &[(PathBuf, String)]) -> Id {
             let location = suffix.to_str().unwrap_or("");
             Some(
                 Id::builder()
-                    .with_provider("file")
-                    .with_context(context.replace('\\', "/"))
-                    .with_location(location.replace('\\', "/"))
+                    .provider("file")
+                    .context(context.replace('\\', "/"))
+                    .location(location.replace('\\', "/"))
                     .build()
                     .expect("invariant"),
             )

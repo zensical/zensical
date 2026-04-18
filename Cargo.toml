@@ -68,8 +68,8 @@ tracing = { version = "0.1" }
 tracing-chrome = "0.7"
 tracing-subscriber = "0.3.23"
 walkdir = "2.5"
-webbrowser = "1.2.0"
-zrx = "0.0.12"
+webbrowser = "1.2.1"
+zrx = "0.0.21"
 
 [workspace.dependencies.pyo3]
 version = "0.28.3"
