@@ -85,9 +85,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 FROM build AS bundle
 
-# Install project wheel, runtime dependencies, and PyInstaller
+# Install project wheel, runtime dependencies, and PyInstaller, then remove
+# mypyc-compiled .so files (e.g. from tomli, griffe) so PyInstaller collects
+# the pure-Python sources instead – avoids missing mypyc runtime .so
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install /dist/*.whl mkdocstrings-python pyinstaller
+    uv pip install /dist/*.whl mkdocstrings-python pyinstaller && \
+    find $(uv run python -c "import sysconfig; print(sysconfig.get_path('purelib'))") \
+        -name '*__mypyc*.so' -delete && \
+    find $(uv run python -c "import sysconfig; print(sysconfig.get_path('purelib'))") \
+        -path '*/tomli/*.so' -delete
 
 # Bundle into a self-contained directory (onedir avoids /tmp extraction overhead)
 RUN uv run pyinstaller \
