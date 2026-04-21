@@ -117,12 +117,13 @@ RUN apk upgrade --update-cache -a && \
         tini && \
     adduser -D -u 1000 zensical
 
+# Set working directory
+WORKDIR /docs
+RUN chown zensical:zensical /docs
+
 # Copy the self-contained PyInstaller bundle (no Python package required)
 COPY --from=bundle /bundle/zensical /app
 
-# Set working directory and expose preview server port
-WORKDIR /docs
-RUN chown zensical:zensical /docs
 USER zensical
 EXPOSE 8000
 
