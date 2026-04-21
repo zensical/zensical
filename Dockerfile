@@ -120,6 +120,7 @@ FROM alpine:3.23.4@sha256:5b10f432ef3da1b8d4c7eb6c487f2f5a8f096bc91145e68878dd4a
 RUN apk upgrade --update-cache -a && \
     apk add --no-cache \
         libgcc \
+        su-exec \
         tini && \
     adduser -D -u 1000 zensical
 
@@ -127,12 +128,15 @@ RUN apk upgrade --update-cache -a && \
 WORKDIR /docs
 RUN chown zensical:zensical /docs
 
+# Copy entrypoint script
+COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
 # Copy the self-contained PyInstaller bundle (no Python package required)
 COPY --from=bundle /bundle/zensical /app
 
-USER zensical
 EXPOSE 8000
 
-# Start preview server by default
-ENTRYPOINT ["/sbin/tini", "--", "/app/zensical"]
+# The entrypoint script adjusts the UID/GID of the zensical user at runtime
+# to match the host user (via PUID/PGID env vars), then drops privileges.
+ENTRYPOINT ["/sbin/tini", "--", "docker-entrypoint.sh", "/app/zensical"]
 CMD ["serve", "--dev-addr=0.0.0.0:8000"]
