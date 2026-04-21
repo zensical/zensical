@@ -1335,7 +1335,7 @@ dependencies = [
 
 [[package]]
 name = "zensical"
-version = "0.0.33"
+version = "0.0.34"
 dependencies = [
  "ahash",
  "crossbeam",
@@ -1377,7 +1377,7 @@ dependencies = [
 
 [[package]]
 name = "zensical-watch"
-version = "0.0.4"
+version = "0.0.5"
 dependencies = [
  "ahash",
  "crossbeam",
