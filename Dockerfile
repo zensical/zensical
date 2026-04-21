@@ -23,26 +23,23 @@
 
 # -----------------------------------------------------------------------------
 
-FROM python:3.14-alpine3.23 AS base
+FROM python:3.14-alpine3.23@sha256:dd4d2bd5b53d9b25a51da13addf2be586beebd5387e289e798e4083d94ca837a AS base
 
 FROM base AS build
 
 # Disable bytecode caching during build
 ENV PYTHONDONTWRITEBYTECODE=1
 
-# Install build dependencies
-RUN apk upgrade --update-cache -a
-RUN apk add --no-cache \
-    curl \
-    git \
-    gcc \
-    libffi-dev \
-    musl-dev \
-    tini \
-    uv
-
-# Install Rust toolchain
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+# Install build dependencies and Rust toolchain
+RUN apk upgrade --update-cache -a && \
+    apk add --no-cache \
+        curl \
+        git \
+        gcc \
+        libffi-dev \
+        musl-dev \
+        uv && \
+    curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
 ENV PATH="/root/.cargo/bin:${PATH}"
 
 # Copy files to prepare build
@@ -54,11 +51,11 @@ RUN python scripts/prepare.py
 
 # Create a stub project, which will allow us to install dependencies and have
 # them properly cached while changes to sources won't invalidate the cache
-RUN mkdir crates
-RUN cargo new --lib crates/zensical
-RUN cargo add pyo3 \
-    --manifest-path crates/zensical/Cargo.toml \
-    --features extension-module
+RUN mkdir -p crates && \
+    cargo new --lib crates/zensical && \
+    cargo add pyo3 \
+        --manifest-path crates/zensical/Cargo.toml \
+        --features extension-module
 
 # Copy files to install dependencies - these will get installed into a virtual
 # environment, which is fine, since uv can later reuse the cached versions
@@ -86,22 +83,49 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # -----------------------------------------------------------------------------
 
-FROM base AS image
+FROM build AS bundle
 
-# Add libgcc to allow running Rust extensions
-RUN apk add --no-cache \
-    libgcc \
-    tini
+# Install project wheel, runtime dependencies, and PyInstaller
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install /dist/*.whl mkdocstrings-python pyinstaller
 
-# Install project and runtime dependency extensions
-COPY --from=build /dist /dist
-RUN pip install --no-cache-dir /dist/*.whl mkdocstrings-python \
-    && rm -rf /dist
+# Bundle into a self-contained directory (onedir avoids /tmp extraction overhead)
+RUN uv run pyinstaller \
+    --onedir \
+    --name zensical \
+    --distpath /bundle \
+    --collect-all zensical \
+    --collect-all markdown \
+    --collect-all pymdownx \
+    --collect-all pygments \
+    --collect-all click \
+    --collect-all yaml \
+    --collect-all deepmerge \
+    --collect-all tomli \
+    --collect-all mkdocstrings \
+    --collect-all griffe \
+    $(uv run which zensical)
+
+# -----------------------------------------------------------------------------
+
+FROM alpine:3.23.4 AS image
+
+# Add only the C runtime needed by the Rust extension, and tini as init
+RUN apk upgrade --update-cache -a && \
+    apk add --no-cache \
+        libgcc \
+        tini && \
+    adduser -D -u 1000 zensical
+
+# Copy the self-contained PyInstaller bundle (no Python package required)
+COPY --from=bundle /bundle/zensical /app
 
 # Set working directory and expose preview server port
 WORKDIR /docs
+RUN chown zensical:zensical /docs
+USER zensical
 EXPOSE 8000
 
 # Start preview server by default
-ENTRYPOINT ["/sbin/tini", "--", "zensical"]
+ENTRYPOINT ["/sbin/tini", "--", "/app/zensical"]
 CMD ["serve", "--dev-addr=0.0.0.0:8000"]
