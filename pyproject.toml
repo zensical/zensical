@@ -31,7 +31,8 @@ description = "A modern static site generator built by the creators of Material 
 authors = [
     { name = "Zensical", email = "contributors@zensical.org" }
 ]
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE.md"]
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
@@ -82,5 +83,4 @@ manifest-path = "crates/zensical/Cargo.toml"
 include = [
   "python/zensical/bootstrap/**/*",
   "python/zensical/templates/**/*",
-  "LICENSE.md",
 ]

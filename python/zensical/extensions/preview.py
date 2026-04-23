@@ -30,7 +30,7 @@ from urllib.parse import urlparse
 from markdown import Extension, Markdown
 from markdown.treeprocessors import Treeprocessor
 
-from zensical.extensions.links import LinksProcessor
+from zensical.extensions.links import LinksTreeprocessor
 from zensical.extensions.utilities.filter import Filter
 
 if TYPE_CHECKING:
@@ -67,7 +67,7 @@ class PreviewProcessor(Treeprocessor):
         # changes, we would need to wrap this extension in a plugin, but for
         # the time being we are sneaky and will probably get away with it.
         processor = self.md.treeprocessors[at]
-        if not isinstance(processor, LinksProcessor):
+        if not isinstance(processor, LinksTreeprocessor):
             raise TypeError("Links processor not registered")
 
         # Normalize configurations
@@ -127,7 +127,7 @@ class PreviewProcessor(Treeprocessor):
 
 
 class PreviewExtension(Extension):
-    """A Markdown extension to enable instant previews on links.
+    """Markdown extension to enable instant previews on links.
 
     This extensions allows to automatically add the `data-preview` attribute to
     internal links matching specific criteria, so Material for MkDocs renders a

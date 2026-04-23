@@ -38,6 +38,8 @@ use serde::{Deserialize, Serialize};
 pub struct Section {
     /// Section title.
     pub title: String,
+    /// Section content (title as HTML).
+    pub content: String,
     /// Section ID.
     pub id: String,
     /// Section URL.

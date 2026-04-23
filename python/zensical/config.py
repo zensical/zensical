@@ -43,6 +43,7 @@ from yaml.constructor import ConstructorError
 
 from zensical.compat.autorefs import get_autorefs_extension
 from zensical.compat.mkdocstrings import get_mkdocstrings_extension
+from zensical.extensions import glightbox
 from zensical.extensions.emoji import to_svg, twemoji
 
 if TYPE_CHECKING:
@@ -533,6 +534,21 @@ def _apply_defaults(config: dict, path: str) -> dict:
                 "installed. Please install autorefs or disable the "
                 "plugin."
             )
+
+    # Map glightbox plugin configuration to the extension configuration
+    if "glightbox" in config["plugins"]:
+        plugin = config["plugins"]["glightbox"]["config"]
+        config["markdown_extensions"].append(
+            glightbox.makeExtension(
+                width=plugin.get("width"),
+                height=plugin.get("height"),
+                skip_classes=plugin.get("skip_classes"),
+                auto=not plugin.get("manual", False),
+                auto_themed=plugin.get("auto_themed"),
+                auto_caption=plugin.get("auto_caption"),
+                caption_position=plugin.get("caption_position"),
+            )
+        )
 
     # List all source files for mkdocstrings
     config["source_files"] = _list_sources(config, path)

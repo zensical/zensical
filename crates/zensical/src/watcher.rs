@@ -114,9 +114,22 @@ impl Watcher {
             let config = config.clone();
             move |res| {
                 // For now, we just swallow the event, as the file agent should
-                // to take care of it, and skip anything other than files
+                // Skip anything other than files and symbolic links.
+                // Link events allow assets provided via editable installs
+                // (e.g. symlinked theme directories) to enter the build.
                 if let Ok(event) = res {
-                    if event.kind() != Kind::File {
+                    if !matches!(event.kind(), Kind::File | Kind::Link) {
+                        return Ok(());
+                    }
+
+                    // Ignore symbolic links that don't resolve to files.
+                    // Directory links are expanded by the watcher backend,
+                    // but forwarding the link itself would later be treated as
+                    // a file in the workflow and can fail with IsADirectory.
+                    if event.kind() == Kind::Link
+                        && !fs::metadata(event.path().as_path())
+                            .is_ok_and(|meta| meta.is_file())
+                    {
                         return Ok(());
                     }
 
