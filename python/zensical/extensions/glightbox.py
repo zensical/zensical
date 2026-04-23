@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, cast
 from xml.etree.ElementTree import Element, ParseError, fromstring, tostring
 
 from markdown.extensions import Extension
-from markdown.postprocessors import RawHtmlPostprocessor
+from markdown.postprocessors import Postprocessor
 from markdown.treeprocessors import Treeprocessor
 
 if TYPE_CHECKING:
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 # Constants
 # -----------------------------------------------------------------------------
 
-_IMG_RE = re.compile(r"<img\s[^>]*?>", re.IGNORECASE | re.DOTALL)
+_RE = re.compile(r"<img\s[^>]*?>", re.IGNORECASE | re.DOTALL)
 """Match images in stashed raw HTML blocks."""
 
 # -----------------------------------------------------------------------------
@@ -147,7 +147,7 @@ class GlightboxTreeprocessor(Treeprocessor):
         )
 
 
-class GlightboxPostprocessor(RawHtmlPostprocessor):
+class GlightboxPostprocessor(Postprocessor):
     """Wraps stashed images in anchors, delegating to the treeprocessor.
 
     This postprocessor uses a regular expression to find image tags in stashed
@@ -164,14 +164,14 @@ class GlightboxPostprocessor(RawHtmlPostprocessor):
         )
 
     def run(self, text: str) -> str:
-        """Wrap images in stashed HTML blocks, then reinstate all raw HTML."""
+        """Wrap images in stashed HTML blocks."""
         for i, raw in enumerate(self.md.htmlStash.rawHtmlBlocks):
-            self.md.htmlStash.rawHtmlBlocks[i] = _IMG_RE.sub(
-                self._maybe_wrap, raw
-            )
+            self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(self._maybe_wrap, raw)
+            print(self.md.htmlStash.rawHtmlBlocks[i])
 
-        # Delegate to parent postprocessor to reinstate raw HTML
-        return super().run(text)
+        # Return text unmodified, as we only need to modify the stashed raw HTML
+        # blocks, which will later be reinstated by the raw HTML postprocessor
+        return text
 
     def _maybe_wrap(self, m: re.Match[str]) -> str:
         """Wrap a single matched image, delegating to the treeprocessor."""
