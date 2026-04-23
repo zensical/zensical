@@ -23,41 +23,46 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
-from markdown import Extension, Markdown
+from markdown.extensions import Extension
+from markdown.postprocessors import Postprocessor
 from markdown.treeprocessors import Treeprocessor
 from markdown.util import AMP_SUBSTITUTE
 
 if TYPE_CHECKING:
     from xml.etree.ElementTree import Element
 
+    from markdown import Markdown
+
+# -----------------------------------------------------------------------------
+# Constants
+# -----------------------------------------------------------------------------
+
+_RE = re.compile(
+    r'(?:href|src)=(?P<quote>["\'])(?P<value>[^"\']+)(?P=quote)',
+    re.IGNORECASE,
+)
+"""Match `href` and `src` attribute values in stashed raw HTML blocks."""
 
 # -----------------------------------------------------------------------------
 # Classes
 # -----------------------------------------------------------------------------
 
 
-class LinksProcessor(Treeprocessor):
-    """Tree processor to replace links in Markdown with URLs.
-
-    Note that we view this as a bandaid until we can do processing on proper
-    HTML ASTs in Rust. In the meantime, we just replace them as we find them.
-    This processor will replace links to other Markdown files, as well as
-    adjust asset links if directory URLs are used.
-    """
+class LinksTreeprocessor(Treeprocessor):
+    """Rewrites relative links."""
 
     def __init__(self, md: Markdown, path: str, use_directory_urls: bool):
         super().__init__(md)
-        self.path = path  # Current page
+        self.path = path
         self.use_directory_urls = use_directory_urls
 
     def run(self, root: Element) -> None:
-        # Now, we determine whether the current page is an index page, as we
-        # must apply slightly different handling in case of directory URLs
-        current_is_index = get_name(self.path) in ("index.md", "README.md")
+        """Walk the element tree and rewrites `href` and `src` attributes."""
         for el in root.iter():
             # In case the element has a `href` or `src` attribute, we parse it
             # as an URL, so we can analyze and alter its path
@@ -65,65 +70,88 @@ class LinksProcessor(Treeprocessor):
             if not key:
                 continue
 
-            # Extract value - Python Markdown does some weird stuff where it
-            # replaces mailto: links with double encoded entities. MkDocs just
-            # skips if it detects that, so we do the same.
-            value = el.get(key, "")
-            if AMP_SUBSTITUTE in value:
-                continue
+            # Rewrite relative links, leaving absolute URLs unchanged
+            if url := _rewrite_url(
+                el.get(key, ""), self.path, self.use_directory_urls
+            ):
+                el.set(key, url)
 
-            # Parse URL and skip everything that is not a relative link
-            url = urlparse(value)
-            if url.scheme or url.netloc or url.path.startswith("/"):
-                continue
 
-            # Leave anchors that go to the same page as they are
-            if not url.path and url.fragment:
-                continue
+class LinksPostprocessor(Postprocessor):
+    """Rewrites relative links in stashed raw HTML blocks.
 
-            # Now, adjust relative links to Markdown files
-            path = url.path
-            if path.endswith(".md"):
-                path = path.removesuffix(".md") + ".html"
-                name = get_name(path)
-                if self.use_directory_urls:
-                    if name in ("index.html", "README.html"):
-                        path = path.removesuffix(name)
-                    elif path.endswith(".html"):
-                        path = path.removesuffix(".html") + "/"
-                elif name == "README.html":
-                    path = path.removesuffix("README.html") + "index.html"
+    This postprocessor complements the :class:`LinksTreeprocessor` by applying
+    the same URL rewriting logic to raw HTML blocks that Python-Markdown stashes
+    before tree processing and reinstates afterward. This ensures that links
+    inside raw HTML are handled consistently as well.
+    """
 
-            # If the current page is not an index page, and we should render
-            # directory URLs, we need to prepend a "../" to all links
-            if not current_is_index and self.use_directory_urls:
-                path = f"../{path}"
+    def __init__(self, md: Markdown, path: str, use_directory_urls: bool):
+        super().__init__(md)
+        self._path = path
+        self._use_directory_urls = use_directory_urls
+        self._processed: set[int] = set()
 
-            # Reassemble URL and update link
-            el.set(key, url._replace(path=path).geturl())
+    def run(self, text: str) -> str:
+        """Rewrite `href` and `src` attributes of stashed HTML blocks."""
+        for i, raw in enumerate(self.md.htmlStash.rawHtmlBlocks):
+            if i not in self._processed:
+                self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(
+                    self._maybe_process, raw
+                )
+                self._processed.add(i)
+
+        # Return text unmodified, as we only need to modify the stashed raw HTML
+        # blocks, which will later be reinstated by the raw HTML postprocessor
+        return text
+
+    def _maybe_process(self, m: re.Match[str]) -> str:
+        """Rewrite a single matched `href` or `src` value."""
+        value = m.group("value")
+
+        # Rewrite relative links, leaving absolute URLs unchanged
+        updated = _rewrite_url(value, self._path, self._use_directory_urls)
+        if updated is None:
+            return m.group(0)
+
+        # Reconstruct the attribute with the original quote style preserved
+        q = m.group("quote")
+        attr = m.group(0).split("=")[0]
+        return f"{attr}={q}{updated}{q}"
 
 
 # -----------------------------------------------------------------------------
 
 
 class LinksExtension(Extension):
-    """A Markdown extension to resolve links to other Markdown files."""
+    """Markdown extension to rewrite relative links to other files.
 
-    def __init__(self, path: str, use_directory_urls: bool):
+    Registers both a treeprocessor for links in the normal Markdown flow and
+    a postprocessor for links inside stashed raw HTML blocks, so that all
+    relative URLs are rewritten consistently regardless of how they appear in
+    the source document.
+    """
+
+    def __init__(self, path: str, use_directory_urls: bool) -> None:
         """Initialize the extension."""
-        self.path = path  # Current page
+        self.path = path
         self.use_directory_urls = use_directory_urls
 
     def extendMarkdown(self, md: Markdown) -> None:  # noqa: N802
         """Register Markdown extension."""
         md.registerExtension(self)
 
-        # Create and register treeprocessor - we use the same priority as the
-        # `relpath` treeprocessor, the latter of which is guaranteed to run
-        # after our treeprocessor, so we can check the original Markdown URIs
-        # before they are resolved to URLs.
-        processor = LinksProcessor(md, self.path, self.use_directory_urls)
-        md.treeprocessors.register(processor, "zrelpath", 0)
+        # Register treeprocessor
+        treeprocessor = LinksTreeprocessor(
+            md, self.path, self.use_directory_urls
+        )
+        md.treeprocessors.register(treeprocessor, "zrelpath", 0)
+
+        # Register postprocessor before `raw_html` processor
+        postprocessor = LinksPostprocessor(
+            md, self.path, self.use_directory_urls
+        )
+        md.postprocessors.register(postprocessor, "zrelpath_raw", 35)
 
 
 # -----------------------------------------------------------------------------
@@ -131,7 +159,78 @@ class LinksExtension(Extension):
 # -----------------------------------------------------------------------------
 
 
-def get_name(path: str) -> str:
-    """Get the name of a file from a given path."""
-    pure_path = PurePosixPath(path)
-    return pure_path.name
+def _get_name(path: str) -> str:
+    """Return the filename component of a POSIX-style path."""
+    path = PurePosixPath(path)
+    return path.name
+
+
+def _is_relative(value: str) -> bool:
+    """Determine whether a URL string is a relative link."""
+    if AMP_SUBSTITUTE in value:
+        return False
+
+    # Absolute URLs (e.g. `https://example.com`) and protocol-relative URLs
+    url = urlparse(value)
+    if url.scheme or url.netloc or url.path.startswith("/"):
+        return False
+
+    # Anchor-only references (e.g. `#section`) should not be rewritten, as they
+    # point to a section within the same page rather than a different page
+    return not (not url.path and url.fragment)
+
+
+def _md_path_to_html(path: str, use_directory_urls: bool) -> str:
+    """Convert a relative `.md` path to its final HTML form."""
+    if not path.endswith(".md"):
+        return path
+
+    # Convert the `.md` extension to `.html` and extract the file name
+    path = path.removesuffix(".md") + ".html"
+    name = _get_name(path)
+
+    # When directory URLs are enabled, `index.html` and `README.html` collapse
+    # to their parent directory, while all other pages become directories with
+    # a trailing slash. When directory URLs are disabled, `README.html` is
+    # served as `index.html`, while all other pages remain unchanged.
+    if use_directory_urls:
+        if name in ("index.html", "README.html"):
+            return path.removesuffix(name)
+
+        # All other pages become directories (trailing slash)
+        return path.removesuffix(".html") + "/"
+
+    # README.html is served as index.html in flat URL mode
+    if name == "README.html":
+        return path.removesuffix("README.html") + "index.html"
+
+    # No change needed
+    return path
+
+
+def _apply_directory_prefix(
+    value: str, path: str, use_directory_urls: bool
+) -> str:
+    """Prepend `../` for non-index pages when directory URLs are enabled."""
+    is_index = _get_name(path) in ("index.md", "README.md")
+    if not is_index and use_directory_urls:
+        return f"../{value}"
+
+    # No change needed
+    return value
+
+
+def _rewrite_url(value: str, path: str, use_directory_urls: bool) -> str | None:
+    """Rewrite a relative URL."""
+    if not _is_relative(value):
+        return None
+
+    # Parse URL, so we can analyze and alter its path while preserving other
+    # components like query parameters and fragments
+    url = urlparse(value)
+
+    # Rewrite the path component, noting that the URL may be relative to the
+    # current page, so we need to adjust it accordingly
+    value = _md_path_to_html(url.path, use_directory_urls)
+    value = _apply_directory_prefix(value, path, use_directory_urls)
+    return url._replace(path=value).geturl()
