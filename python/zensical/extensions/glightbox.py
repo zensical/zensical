@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 # Constants
 # -----------------------------------------------------------------------------
 
-_RE = re.compile(r"<img\s[^>]*?>", re.IGNORECASE | re.DOTALL)
+_RE = re.compile(r"<img\s[^>]*?>", re.IGNORECASE)
 """Match images in stashed raw HTML blocks."""
 
 # -----------------------------------------------------------------------------
@@ -47,13 +47,13 @@ _RE = re.compile(r"<img\s[^>]*?>", re.IGNORECASE | re.DOTALL)
 
 
 class GlightboxTreeprocessor(Treeprocessor):
-    """Wraps image elements in anchor tags to enable GLightbox functionality."""
+    """Wraps image elements in anchor tags to integrate with GLightbox."""
 
     SKIP_CLASSES: frozenset[str] = frozenset(
         {"emojione", "twemoji", "gemoji", "off-glb"}
     )
 
-    def __init__(self, md: Markdown, config: dict[str, object]) -> None:
+    def __init__(self, md: Markdown, config: dict[str, object]):
         super().__init__(md)
         self.config = config
 
@@ -69,7 +69,7 @@ class GlightboxTreeprocessor(Treeprocessor):
                 self._wrap_with_anchor(img, root)
 
     def _should_skip(self, img: Element, skip_classes: frozenset[str]) -> bool:
-        """Return if this image should be excluded from wrapping."""
+        """Determine if this image should be excluded from wrapping."""
         classes = set(img.get("class", "").split())
         if classes & skip_classes:
             return True
@@ -174,7 +174,7 @@ class GlightboxPostprocessor(Postprocessor):
     parse and modify the HTML with an actual parser.
     """
 
-    def __init__(self, md: Markdown, config: dict[str, object]) -> None:
+    def __init__(self, md: Markdown, config: dict[str, object]):
         super().__init__(md)
         self._processor = GlightboxTreeprocessor(md, config)
         self._processed: set[int] = set()
@@ -189,7 +189,7 @@ class GlightboxPostprocessor(Postprocessor):
         for i, raw in enumerate(self.md.htmlStash.rawHtmlBlocks):
             if i not in self._processed:
                 self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(
-                    self._maybe_wrap, raw
+                    self._maybe_process, raw
                 )
                 self._processed.add(i)
 
@@ -197,7 +197,7 @@ class GlightboxPostprocessor(Postprocessor):
         # blocks, which will later be reinstated by the raw HTML postprocessor
         return text
 
-    def _maybe_wrap(self, m: re.Match[str]) -> str:
+    def _maybe_process(self, m: re.Match[str]) -> str:
         """Wrap a single matched image, delegating to the treeprocessor."""
         raw = m.group(0)
         try:
