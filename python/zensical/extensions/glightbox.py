@@ -84,11 +84,11 @@ class GlightboxTreeprocessor(Treeprocessor):
             return
 
         # Wrap image with anchor
-        idx = list(parent).index(img)
+        index = list(parent).index(img)
         el = self._build_anchor(img)
         parent.remove(img)
         el.append(img)
-        parent.insert(idx, el)
+        parent.insert(index, el)
 
     def _build_anchor(self, img: Element) -> Element:
         """Construct the anchor from image attributes."""
@@ -125,6 +125,19 @@ class GlightboxTreeprocessor(Treeprocessor):
         # Set gallery grouping
         if gallery := self._resolve_gallery(img):
             el.set("data-gallery", gallery)
+
+        # Remove sourced attributes from img now that they live on the anchor
+        for attr in (
+            "data-width",
+            "data-height",
+            "data-src",
+            "data-title",
+            "data-description",
+            "data-caption-position",
+            "data-gallery",
+        ):
+            if attr in img.attrib:
+                img.attrib.pop(attr)
 
         # Return element
         return el
