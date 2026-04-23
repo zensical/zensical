@@ -26,7 +26,6 @@ from __future__ import annotations
 import hashlib
 import importlib
 import os
-from tomli import load as toml_load
 import pickle
 from importlib.util import find_spec
 from pathlib import Path
@@ -36,6 +35,7 @@ from urllib.parse import urljoin, urlparse
 import yaml
 from click import ClickException
 from deepmerge import always_merger
+from tomli import load as toml_load
 from yaml import BaseLoader, Loader, YAMLError
 from yaml.constructor import ConstructorError
 
