@@ -53,7 +53,7 @@ class GlightboxTreeprocessor(Treeprocessor):
         {"emojione", "twemoji", "gemoji", "off-glb"}
     )
 
-    def __init__(self, md: Markdown | None, config: dict[str, object]) -> None:
+    def __init__(self, md: Markdown, config: dict[str, object]) -> None:
         super().__init__(md)
         self.config = config
 
@@ -174,7 +174,7 @@ class GlightboxPostprocessor(Postprocessor):
     parse and modify the HTML with an actual parser.
     """
 
-    def __init__(self, md: Markdown | None, config: dict[str, object]) -> None:
+    def __init__(self, md: Markdown, config: dict[str, object]) -> None:
         super().__init__(md)
         self._processor = GlightboxTreeprocessor(md, config)
         self._processed: set[int] = set()
