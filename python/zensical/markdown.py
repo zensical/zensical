@@ -120,9 +120,9 @@ def render(content: str, path: str, url: str) -> dict:
     # Return Markdown with metadata
     return {
         "meta": meta,
+        "title": "",
         "content": content,
         "search": search_processor.data,
-        "title": "",
         "toc": [_convert_toc(item) for item in getattr(md, "toc_tokens", [])],
     }
 
@@ -131,6 +131,7 @@ def _convert_toc(item: Any) -> dict:
     """Convert a table of contents item to navigation item format."""
     toc_item = {
         "title": item["data-toc-label"] or item["name"],
+        "content": item["data-toc-label"] or item["html"],
         "id": item["id"],
         "url": f"#{item['id']}",
         "children": [],
