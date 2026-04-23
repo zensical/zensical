@@ -127,7 +127,7 @@ class PreviewProcessor(Treeprocessor):
 
 
 class PreviewExtension(Extension):
-    """A Markdown extension to enable instant previews on links.
+    """Markdown extension to enable instant previews on links.
 
     This extensions allows to automatically add the `data-preview` attribute to
     internal links matching specific criteria, so Material for MkDocs renders a
