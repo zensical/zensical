@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, cast
 from xml.etree.ElementTree import Element, ParseError, fromstring, tostring
 
 from markdown.extensions import Extension
-from markdown.postprocessors import RawHtmlPostprocessor
+from markdown.postprocessors import Postprocessor
 from markdown.treeprocessors import Treeprocessor
 
 if TYPE_CHECKING:
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 # Constants
 # -----------------------------------------------------------------------------
 
-_IMG_RE = re.compile(r"<img\s[^>]*?>", re.IGNORECASE | re.DOTALL)
+_RE = re.compile(r"<img\s[^>]*?>", re.IGNORECASE | re.DOTALL)
 """Match images in stashed raw HTML blocks."""
 
 # -----------------------------------------------------------------------------
@@ -96,8 +96,12 @@ class GlightboxTreeprocessor(Treeprocessor):
         el.set("class", "glightbox")
         el.set("href", img.get("data-src") or img.get("src") or "")
         el.set("data-type", "image")
-        el.set("data-width", str(self.config.get("width", "auto")))
-        el.set("data-height", str(self.config.get("height", "auto")))
+
+        # Only set width/height if explicitly configured
+        if width := self.config.get("width"):
+            el.set("data-width", str(width))
+        if height := self.config.get("height"):
+            el.set("data-height", str(height))
 
         # Set image title
         auto_caption: bool = bool(self.config.get("auto_caption", False))
@@ -112,10 +116,11 @@ class GlightboxTreeprocessor(Treeprocessor):
             el.set("data-description", description)
 
         # Set image description position
-        caption_position = img.get("data-caption-position") or str(
-            self.config.get("caption_position", "bottom")
-        )
-        el.set("data-desc-position", caption_position)
+        if caption_position := (
+            img.get("data-caption-position")
+            or self.config.get("caption_position")
+        ):
+            el.set("data-desc-position", str(caption_position))
 
         # Set gallery grouping
         if gallery := self._resolve_gallery(img):
@@ -147,7 +152,7 @@ class GlightboxTreeprocessor(Treeprocessor):
         )
 
 
-class GlightboxPostprocessor(RawHtmlPostprocessor):
+class GlightboxPostprocessor(Postprocessor):
     """Wraps stashed images in anchors, delegating to the treeprocessor.
 
     This postprocessor uses a regular expression to find image tags in stashed
@@ -159,19 +164,25 @@ class GlightboxPostprocessor(RawHtmlPostprocessor):
     def __init__(self, md: Markdown | None, config: dict[str, object]) -> None:
         super().__init__(md)
         self._processor = GlightboxTreeprocessor(md, config)
+        self._processed: set[int] = set()
+
+        # Source classes to skip from postprocessor
         self._skip_classes = GlightboxTreeprocessor.SKIP_CLASSES | frozenset(
             cast("list[str]", config.get("skip_classes") or [])
         )
 
     def run(self, text: str) -> str:
-        """Wrap images in stashed HTML blocks, then reinstate all raw HTML."""
+        """Wrap images in stashed HTML blocks."""
         for i, raw in enumerate(self.md.htmlStash.rawHtmlBlocks):
-            self.md.htmlStash.rawHtmlBlocks[i] = _IMG_RE.sub(
-                self._maybe_wrap, raw
-            )
+            if i not in self._processed:
+                self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(
+                    self._maybe_wrap, raw
+                )
+                self._processed.add(i)
 
-        # Delegate to parent postprocessor to reinstate raw HTML
-        return super().run(text)
+        # Return text unmodified, as we only need to modify the stashed raw HTML
+        # blocks, which will later be reinstated by the raw HTML postprocessor
+        return text
 
     def _maybe_wrap(self, m: re.Match[str]) -> str:
         """Wrap a single matched image, delegating to the treeprocessor."""
