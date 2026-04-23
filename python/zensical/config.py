@@ -41,8 +41,8 @@ from yaml.constructor import ConstructorError
 
 from zensical.compat.autorefs import get_autorefs_extension
 from zensical.compat.mkdocstrings import get_mkdocstrings_extension
-from zensical.extensions.emoji import to_svg, twemoji
 from zensical.extensions import glightbox
+from zensical.extensions.emoji import to_svg, twemoji
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
