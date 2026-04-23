@@ -164,6 +164,9 @@ class GlightboxPostprocessor(Postprocessor):
     def __init__(self, md: Markdown | None, config: dict[str, object]) -> None:
         super().__init__(md)
         self._processor = GlightboxTreeprocessor(md, config)
+        self._processed: set[int] = set()
+
+        # Source classes to skip from postprocessor
         self._skip_classes = GlightboxTreeprocessor.SKIP_CLASSES | frozenset(
             cast("list[str]", config.get("skip_classes") or [])
         )
@@ -171,8 +174,11 @@ class GlightboxPostprocessor(Postprocessor):
     def run(self, text: str) -> str:
         """Wrap images in stashed HTML blocks."""
         for i, raw in enumerate(self.md.htmlStash.rawHtmlBlocks):
-            self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(self._maybe_wrap, raw)
-            print(self.md.htmlStash.rawHtmlBlocks[i])
+            if i not in self._processed:
+                self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(
+                    self._maybe_wrap, raw
+                )
+                self._processed.add(i)
 
         # Return text unmodified, as we only need to modify the stashed raw HTML
         # blocks, which will later be reinstated by the raw HTML postprocessor
