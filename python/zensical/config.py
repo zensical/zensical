@@ -26,7 +26,6 @@ from __future__ import annotations
 import hashlib
 import importlib
 import os
-from tomli import load as toml_load
 import pickle
 from importlib.util import find_spec
 from pathlib import Path
@@ -36,12 +35,14 @@ from urllib.parse import urljoin, urlparse
 import yaml
 from click import ClickException
 from deepmerge import always_merger
+from tomli import load as toml_load
 from yaml import BaseLoader, Loader, YAMLError
 from yaml.constructor import ConstructorError
 
 from zensical.compat.autorefs import get_autorefs_extension
 from zensical.compat.mkdocstrings import get_mkdocstrings_extension
 from zensical.extensions.emoji import to_svg, twemoji
+from zensical.extensions import glightbox
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -469,6 +470,21 @@ def _apply_defaults(config: dict, path: str) -> dict:
                 "installed. Please install autorefs or disable the "
                 "plugin."
             )
+
+    # Map glightbox plugin configuration to the extension configuration
+    if "glightbox" in config["plugins"]:
+        plugin = config["plugins"]["glightbox"]["config"]
+        config["markdown_extensions"].append(
+            glightbox.makeExtension(
+                width=plugin.get("width"),
+                height=plugin.get("height"),
+                skip_classes=plugin.get("skip_classes"),
+                auto=not plugin.get("manual", False),
+                auto_themed=plugin.get("auto_themed"),
+                auto_caption=plugin.get("auto_caption"),
+                caption_position=plugin.get("caption_position"),
+            )
+        )
 
     # List all source files for mkdocstrings
     config["source_files"] = _list_sources(config, path)
