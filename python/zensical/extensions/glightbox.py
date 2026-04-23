@@ -96,8 +96,12 @@ class GlightboxTreeprocessor(Treeprocessor):
         el.set("class", "glightbox")
         el.set("href", img.get("data-src") or img.get("src") or "")
         el.set("data-type", "image")
-        el.set("data-width", str(self.config.get("width", "auto")))
-        el.set("data-height", str(self.config.get("height", "auto")))
+
+        # Only set width/height if explicitly configured
+        if width := self.config.get("width"):
+            el.set("data-width", str(width))
+        if height := self.config.get("height"):
+            el.set("data-height", str(height))
 
         # Set image title
         auto_caption: bool = bool(self.config.get("auto_caption", False))
@@ -112,10 +116,11 @@ class GlightboxTreeprocessor(Treeprocessor):
             el.set("data-description", description)
 
         # Set image description position
-        caption_position = img.get("data-caption-position") or str(
-            self.config.get("caption_position", "bottom")
-        )
-        el.set("data-desc-position", caption_position)
+        if caption_position := (
+            img.get("data-caption-position")
+            or self.config.get("caption_position")
+        ):
+            el.set("data-desc-position", str(caption_position))
 
         # Set gallery grouping
         if gallery := self._resolve_gallery(img):
