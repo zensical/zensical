@@ -21,7 +21,6 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
-[mypy]
-ignore_missing_imports = true
-warn_unused_ignores = true
-show_error_codes = true
+[terminal]
+error-on-warning = true
+output-format = "concise"

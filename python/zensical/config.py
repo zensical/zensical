@@ -114,7 +114,7 @@ def parse_mkdocs_config(path: str) -> dict:
 def get_config() -> dict:
     """Return configuration."""
     # We assume this function is only called after populating `_CONFIG`.
-    return _CONFIG  # type: ignore[return-value]
+    return _CONFIG  # ty:ignore[invalid-return-type]
 
 
 @functools.cache
@@ -539,7 +539,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     if "glightbox" in config["plugins"]:
         plugin = config["plugins"]["glightbox"]["config"]
         config["markdown_extensions"].append(
-            glightbox.makeExtension(
+            glightbox.makeExtension(  # ty:ignore[invalid-argument-type]
                 width=plugin.get("width"),
                 height=plugin.get("height"),
                 skip_classes=plugin.get("skip_classes"),

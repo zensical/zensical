@@ -113,7 +113,7 @@ def render(content: str, path: str, url: str) -> dict:
             meta[key] = value.isoformat()
 
     # Obtain search index data, unless page is excluded
-    search_processor: SearchProcessor = md.postprocessors["search"]  # type: ignore[assignment]
+    search_processor: SearchProcessor = md.postprocessors["search"]
     if meta.get("search", {}).get("exclude", False):
         search_processor.data = []
 
