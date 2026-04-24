@@ -38,6 +38,8 @@ use std::path::PathBuf;
 #[derive(Debug, Hash, FromPyObject, Serialize)]
 #[pyo3(from_item_all)]
 pub struct Theme {
+    /// Theme name.
+    pub name: Option<String>,
     /// Theme custom directory.
     pub custom_dir: Option<PathBuf>,
     /// Theme variant.
