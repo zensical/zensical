@@ -131,7 +131,7 @@ def _convert_toc(item: Any) -> dict:
     """Convert a table of contents item to navigation item format."""
     toc_item = {
         "title": item["data-toc-label"] or item["name"],
-        "content": item["data-toc-label"] or item["html"],
+        "content": item["data-toc-label"] or _remove_links(item["html"]),
         "id": item["id"],
         "url": f"#{item['id']}",
         "children": [],
@@ -144,3 +144,9 @@ def _convert_toc(item: Any) -> dict:
 
     # Return table of contents item
     return toc_item
+
+
+def _remove_links(html: str) -> str:
+    """Remove links from HTML string."""
+    html = re.sub(r"id=\"?[^\">]+\"?", "", html)
+    return re.sub(r"<a\s+[^>]+>(.*?)</a>", r"\1", html, flags=re.DOTALL)
