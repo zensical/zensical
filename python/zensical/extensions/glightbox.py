@@ -266,7 +266,7 @@ class GlightboxExtension(Extension):
 
         # Register postprocessor - run before `raw_html` (priority 30)
         postprocessor = GlightboxPostprocessor(md, self.getConfigs())
-        md.postprocessors.register(postprocessor, "glightbox_raw", 29)
+        md.postprocessors.register(postprocessor, "glightbox", 29)
 
 
 # -----------------------------------------------------------------------------

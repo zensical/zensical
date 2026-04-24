@@ -151,7 +151,7 @@ class LinksExtension(Extension):
         postprocessor = LinksPostprocessor(
             md, self.path, self.use_directory_urls
         )
-        md.postprocessors.register(postprocessor, "zrelpath_raw", 29)
+        md.postprocessors.register(postprocessor, "zrelpath", 29)
 
 
 # -----------------------------------------------------------------------------
