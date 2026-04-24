@@ -83,12 +83,21 @@ class GlightboxTreeprocessor(Treeprocessor):
         if parent is None or parent.tag == "a":
             return
 
-        # Wrap image with anchor
+        # Create anchor element with appropriate attributes based on the image
+        # and config settings, then wrap the image with the anchor
+        anchor = self._build_anchor(img)
+        anchor.append(img)
+
+        # If there's text adjacent to the image element, we need to clear it
+        # from the image and move it to the anchor, see https://t.ly/dLA-l
+        anchor.tail = img.tail
+        img.tail = None
+
+        # Remove image from current position and append to anchor, then insert
+        # anchor back into the original position in the tree
         index = list(parent).index(img)
-        el = self._build_anchor(img)
         parent.remove(img)
-        el.append(img)
-        parent.insert(index, el)
+        parent.insert(index, anchor)
 
     def _build_anchor(self, img: Element) -> Element:
         """Construct the anchor from image attributes."""
