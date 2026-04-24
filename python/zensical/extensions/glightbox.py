@@ -83,12 +83,21 @@ class GlightboxTreeprocessor(Treeprocessor):
         if parent is None or parent.tag == "a":
             return
 
-        # Wrap image with anchor
+        # Create anchor element with appropriate attributes based on the image
+        # and config settings, then wrap the image with the anchor
+        anchor = self._build_anchor(img)
+        anchor.append(img)
+
+        # If there's text adjacent to the image element, we need to clear it
+        # from the image and move it to the anchor, see https://t.ly/dLA-l
+        anchor.tail = img.tail
+        img.tail = None
+
+        # Remove image from current position and append to anchor, then insert
+        # anchor back into the original position in the tree
         index = list(parent).index(img)
-        el = self._build_anchor(img)
         parent.remove(img)
-        el.append(img)
-        parent.insert(index, el)
+        parent.insert(index, anchor)
 
     def _build_anchor(self, img: Element) -> Element:
         """Construct the anchor from image attributes."""
@@ -104,7 +113,7 @@ class GlightboxTreeprocessor(Treeprocessor):
             el.set("data-height", str(height))
 
         # Set image title
-        auto_caption: bool = bool(self.config.get("auto_caption", False))
+        auto_caption = bool(self.config.get("auto_caption", False))
         title = img.get("data-title") or (
             img.get("alt") if auto_caption else None
         )
@@ -250,7 +259,7 @@ class GlightboxExtension(Extension):
                 "Use img alt attribute as the caption when no title is set.",
             ],
             "caption_position": [
-                "bottom",
+                None,
                 "Default caption position: bottom, top, left, or right.",
             ],
         }
@@ -260,13 +269,13 @@ class GlightboxExtension(Extension):
         """Register Markdown extension."""
         md.registerExtension(self)
 
-        # Register treeprocessor
+        # Register treeprocessor - run before `attr_list` (priority 8)
         treeprocessor = GlightboxTreeprocessor(md, self.getConfigs())
-        md.treeprocessors.register(treeprocessor, "glightbox", 15)
+        md.treeprocessors.register(treeprocessor, "glightbox", 7)
 
-        # Register postprocessor just before raw_html
+        # Register postprocessor - run before `raw_html` (priority 30)
         postprocessor = GlightboxPostprocessor(md, self.getConfigs())
-        md.postprocessors.register(postprocessor, "glightbox_raw", 35)
+        md.postprocessors.register(postprocessor, "glightbox", 29)
 
 
 # -----------------------------------------------------------------------------

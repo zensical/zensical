@@ -141,17 +141,17 @@ class LinksExtension(Extension):
         """Register Markdown extension."""
         md.registerExtension(self)
 
-        # Register treeprocessor
+        # Register treeprocessor - run before `inline` (priority 20)
         treeprocessor = LinksTreeprocessor(
             md, self.path, self.use_directory_urls
         )
         md.treeprocessors.register(treeprocessor, "zrelpath", 0)
 
-        # Register postprocessor before `raw_html` processor
+        # Register postprocessor - run before `raw_html` (priority 30)
         postprocessor = LinksPostprocessor(
             md, self.path, self.use_directory_urls
         )
-        md.postprocessors.register(postprocessor, "zrelpath_raw", 35)
+        md.postprocessors.register(postprocessor, "zrelpath", 29)
 
 
 # -----------------------------------------------------------------------------
