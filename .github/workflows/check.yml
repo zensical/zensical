@@ -69,8 +69,8 @@ jobs:
       - name: Run ruff
         run: uv run ruff check --no-fix-only .
 
-      - name: Run mypy
-        run: uv run mypy .
+      - name: Run ty
+        run: uv run ty check .
 
   format:
     name: Format
