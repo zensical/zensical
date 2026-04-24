@@ -28,7 +28,10 @@ from typing import TYPE_CHECKING, Any
 from zensical.compat.autorefs import get_autorefs_plugin
 
 if TYPE_CHECKING:
-    from mkdocstrings import Handlers, MkdocstringsExtension
+    from mkdocstrings import (  # ty:ignore[unresolved-import]
+        Handlers,
+        MkdocstringsExtension,
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -55,7 +58,10 @@ def get_mkdocstrings_extension(
     path: str,
 ) -> MkdocstringsExtension:
     """Create the mkdocstrings Markdown extension."""
-    from mkdocstrings import Handlers, MkdocstringsExtension  # noqa: PLC0415
+    from mkdocstrings import (  # noqa: PLC0415  # ty:ignore[unresolved-import]
+        Handlers,
+        MkdocstringsExtension,
+    )
 
     autorefs = get_autorefs_plugin()
 

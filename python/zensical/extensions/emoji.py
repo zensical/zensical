@@ -58,7 +58,7 @@ def to_svg(
 ) -> Element[str]:
     """Load icon."""
     if not uc:
-        icons = md.inlinePatterns["emoji"].emoji_index["emoji"]  # type: ignore[attr-defined]
+        icons = md.inlinePatterns["emoji"].emoji_index["emoji"]  # ty:ignore[unresolved-attribute]
 
         # Create and return element to host icon
         el = Element("span", {"class": options.get("classes", index)})

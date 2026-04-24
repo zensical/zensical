@@ -26,7 +26,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from mkdocs_autorefs import AutorefsExtension
+    from mkdocs_autorefs import (  # ty:ignore[unresolved-import]
+        AutorefsExtension,
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -96,10 +98,12 @@ def get_autorefs_plugin() -> AutorefsPlugin:
 def get_autorefs_extension() -> AutorefsExtension | None:
     """Get the MkDocs Autorefs extension."""
     try:
-        from mkdocs_autorefs import AutorefsExtension  # noqa: PLC0415
+        from mkdocs_autorefs import (  # ty:ignore[unresolved-import]  # noqa: PLC0415
+            AutorefsExtension,
+        )
     except ImportError:
         return None
-    return AutorefsExtension(get_autorefs_plugin())  # type: ignore[arg-type,unused-ignore]
+    return AutorefsExtension(get_autorefs_plugin())
 
 
 def set_autorefs_page(url: str, path: str) -> None:
