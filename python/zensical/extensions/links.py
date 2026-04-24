@@ -159,9 +159,9 @@ class LinksExtension(Extension):
 # -----------------------------------------------------------------------------
 
 
-def _get_name(path: str) -> str:
+def _get_name(value: str) -> str:
     """Return the filename component of a POSIX-style path."""
-    path = PurePosixPath(path)
+    path = PurePosixPath(value)
     return path.name
 
 
