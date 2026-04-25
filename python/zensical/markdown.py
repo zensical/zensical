@@ -101,6 +101,20 @@ def render(content: str, path: str, url: str) -> dict:
         except Exception:  # noqa: BLE001
             pass
 
+    # Inject meta into the Markdown instance for extension compatibility
+    md.front_matter = meta
+    # Optionally set md.Meta for Python-Markdown compatibility (list-of-strings values)
+    if not hasattr(md, "Meta") or md.Meta is None:
+        md.Meta = {}
+    for k, v in meta.items():
+        # Python-Markdown Meta extension expects list-of-strings
+        if isinstance(v, list):
+            md.Meta[k] = [str(i) for i in v]
+        elif v is not None:
+            md.Meta[k] = [str(v)]
+        else:
+            md.Meta[k] = []
+
     # Convert Markdown and set nullish metadata to empty string, since we
     # currently don't have a null value for metadata in the Rust runtime
     content = md.convert(content)
