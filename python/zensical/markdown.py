@@ -90,7 +90,7 @@ def render(content: str, path: str, url: str) -> dict:
     # First, extract metadata - the Python Markdown parser brings a metadata
     # extension, but the implementation is broken, as it does not support full
     # YAML syntax, e.g. lists. Thus, we just parse the metadata with YAML.
-    meta = {}
+    meta: dict = {}
     if match := FRONT_MATTER_RE.match(content):
         try:
             meta = yaml.load(match.group(1), SafeLoader)
@@ -101,16 +101,9 @@ def render(content: str, path: str, url: str) -> dict:
         except Exception:  # noqa: BLE001
             pass
 
-    # Convert Markdown and set nullish metadata to empty string, since we
-    # currently don't have a null value for metadata in the Rust runtime
+    # Convert Markdown and sanitize metadata before sending back to Rust
     content = md.convert(content)
-    for key, value in meta.items():
-        if value is None:
-            meta[key] = ""
-
-        # Convert datetime back to ISO format (for now)
-        if isinstance(value, (date, datetime)):
-            meta[key] = value.isoformat()
+    meta = {k: _sanitize(v) for k, v in meta.items()}
 
     # Obtain search index data, unless page is excluded
     search_processor: SearchProcessor = md.postprocessors["search"]
@@ -125,6 +118,19 @@ def render(content: str, path: str, url: str) -> dict:
         "search": search_processor.data,
         "toc": [_convert_toc(item) for item in getattr(md, "toc_tokens", [])],
     }
+
+
+def _sanitize(value: Any) -> Any:
+    # We currently don't have a null value for metadata in the Rust runtime
+    if value is None:
+        return ""
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {k: _sanitize(x) for k, x in value.items()}
+    if isinstance(value, list):
+        return [_sanitize(x) for x in value]
+    return value
 
 
 def _convert_toc(item: Any) -> dict:
