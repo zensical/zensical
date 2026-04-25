@@ -40,11 +40,8 @@ class Span:
     and when interoperating with Markdown internals that operate on strings.
     """
 
-    value: str
-    """Exact substring covered by `range`."""
+    start: int
+    """Start offset of the span."""
 
-    range: slice
-    """Range covering the bytes matched by this span."""
-
-    def __repr__(self) -> str:
-        return f"{self.value!r} ({self.range.start}..{self.range.stop})"
+    end: int
+    """End offset of the span."""

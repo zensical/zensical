@@ -136,12 +136,12 @@ def snippets(lines: list[str]) -> Iterator[Snippet]:
         # Select the appropriate regex based on whether we're in a block or not
         match = (_ENTRY_RE if in_block else _SINGLE_RE).match(value)
         if match:
-            range = slice(shift, shift + len(value))
+            start, end = shift, shift + len(value)
             path = _span(shift, match, "path")
 
             # Parse the optional suffix for section and line range information
             section, ranges = _parse_suffix(match.group("suffix"))
-            yield Snippet(value, range, path, section, ranges)
+            yield Snippet(start, end, path, section, ranges)
 
 
 # ----------------------------------------------------------------------------
@@ -150,7 +150,7 @@ def snippets(lines: list[str]) -> Iterator[Snippet]:
 def _span(shift: int, match: Match[str], name: str) -> Span:
     """Build a span for a named capture group within a match."""
     start, end = match.start(name), match.end(name)
-    return Span(match.group(name), slice(shift + start, shift + end))
+    return Span(shift + start, shift + end)
 
 
 def _parse_suffix(suffix: str | None) -> tuple[str | None, list[LineRange]]:
