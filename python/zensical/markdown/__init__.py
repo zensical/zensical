@@ -54,6 +54,21 @@ Regex pattern to extract front matter.
 
 
 # ----------------------------------------------------------------------------
+# Classes
+# ----------------------------------------------------------------------------
+
+
+class MarkdownExt(Markdown):
+    """Subclass of `Markdown`.
+
+    We need to subclass the `Markdown` class to provide additional data to the
+    processors, such as page information and configuration, someting that isn't
+    supported by the original Markdown `Markdown` class. It allows to implement
+    several features that previously required MkDocs plugins more efficiently.
+    """
+
+
+# ----------------------------------------------------------------------------
 # Functions
 # ----------------------------------------------------------------------------
 
@@ -71,7 +86,7 @@ def render(content: str, path: str, url: str) -> dict:
     set_autorefs_page(url, path)
 
     # Initialize Markdown parser
-    md = Markdown(
+    md = MarkdownExt(
         extensions=config["markdown_extensions"],
         extension_configs=config["mdx_configs"],
     )
