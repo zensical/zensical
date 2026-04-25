@@ -237,7 +237,7 @@ class GlightboxExtension(Extension):
     are processed by Markdown.
     """
 
-    def __init__(self, **kwargs: object) -> None:
+    def __init__(self, **kwargs: object):
         """Initialize the extension."""
         self.config: dict[str, list[object]] = {
             "width": ["auto", "Width of the lightbox overlay."],
@@ -269,13 +269,13 @@ class GlightboxExtension(Extension):
         """Register Markdown extension."""
         md.registerExtension(self)
 
-        # Register treeprocessor - run before `attr_list` (priority 8)
+        # Register treeprocessor - run after `attr_list` (priority 8)
         treeprocessor = GlightboxTreeprocessor(md, self.getConfigs())
         md.treeprocessors.register(treeprocessor, "glightbox", 7)
 
         # Register postprocessor - run before `raw_html` (priority 30)
         postprocessor = GlightboxPostprocessor(md, self.getConfigs())
-        md.postprocessors.register(postprocessor, "glightbox", 29)
+        md.postprocessors.register(postprocessor, "glightbox", 31)
 
 
 # -----------------------------------------------------------------------------
