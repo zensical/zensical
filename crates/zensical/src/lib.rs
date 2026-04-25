@@ -41,6 +41,7 @@ use zrx::id::Id;
 use zrx::scheduler::Scheduler;
 
 mod config;
+mod python;
 mod server;
 mod structure;
 mod template;
