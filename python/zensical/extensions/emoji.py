@@ -32,14 +32,14 @@ from xml.etree.ElementTree import Element
 from pymdownx import emoji, twemoji_db
 
 if TYPE_CHECKING:
-    from markdown import Markdown
+    from zensical.markdown import MarkdownExt
 
 # -----------------------------------------------------------------------------
 # Functions
 # -----------------------------------------------------------------------------
 
 
-def twemoji(options: dict, md: Markdown) -> dict:  # noqa: ARG001
+def twemoji(options: dict, md: MarkdownExt) -> dict:  # noqa: ARG001
     """Create twemoji index."""
     paths = options.get("custom_icons", [])[:]
     return _load_twemoji_index(tuple(paths))
@@ -54,7 +54,7 @@ def to_svg(
     title: str,
     category: str,
     options: dict,
-    md: Markdown,
+    md: MarkdownExt,
 ) -> Element[str]:
     """Load icon."""
     if not uc:

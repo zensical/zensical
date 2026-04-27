@@ -28,7 +28,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from markdown import Markdown
+from markdown import Extension, Markdown
 from yaml import SafeLoader
 
 from zensical.compat.autorefs import set_autorefs_page
@@ -66,6 +66,18 @@ class MarkdownExt(Markdown):
     supported by the original Markdown `Markdown` class. It allows to implement
     several features that previously required MkDocs plugins more efficiently.
     """
+
+
+class ExtensionExt(Extension):
+    """Subclass of `Extension`.
+
+    We need to subclass the `Extension` to allow access to our modified
+    `MarkdownExt` instance, which includes the page and configuration.
+    """
+
+    def extendMarkdown(self, md: MarkdownExt) -> None:  # noqa: N802  # ty:ignore[invalid-method-override]
+        """Register Markdown extension."""
+        super().extendMarkdown(md)
 
 
 # ----------------------------------------------------------------------------
@@ -121,7 +133,7 @@ def render(content: str, path: str, url: str) -> dict:
     meta = {k: _sanitize(v) for k, v in meta.items()}
 
     # Obtain search index data, unless page is excluded
-    search_processor: SearchProcessor = md.postprocessors["search"]
+    search_processor: SearchProcessor = md.postprocessors["search"]  # ty:ignore[invalid-assignment]
     if meta.get("search", {}).get("exclude", False):
         search_processor.data = []
 

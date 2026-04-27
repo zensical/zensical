@@ -27,12 +27,11 @@ import re
 from typing import TYPE_CHECKING, Any, cast
 from xml.etree.ElementTree import Element, ParseError, fromstring, tostring
 
-from markdown.extensions import Extension
-from markdown.postprocessors import Postprocessor
-from markdown.treeprocessors import Treeprocessor
+from zensical.markdown import ExtensionExt, MarkdownExt
+from zensical.markdown.processors import PostprocessorExt, TreeprocessorExt
 
 if TYPE_CHECKING:
-    from markdown import Markdown
+    from zensical.markdown import MarkdownExt
 
 # -----------------------------------------------------------------------------
 # Constants
@@ -46,14 +45,14 @@ _RE = re.compile(r"<img\s[^>]*?>", re.IGNORECASE)
 # -----------------------------------------------------------------------------
 
 
-class GlightboxTreeprocessor(Treeprocessor):
+class GlightboxTreeprocessor(TreeprocessorExt):
     """Wraps image elements in anchor tags to integrate with GLightbox."""
 
     SKIP_CLASSES: frozenset[str] = frozenset(
         {"emojione", "twemoji", "gemoji", "off-glb"}
     )
 
-    def __init__(self, md: Markdown, config: dict[str, object]):
+    def __init__(self, md: MarkdownExt, config: dict[str, object]):
         super().__init__(md)
         self.config = config
 
@@ -174,7 +173,7 @@ class GlightboxTreeprocessor(Treeprocessor):
         )
 
 
-class GlightboxPostprocessor(Postprocessor):
+class GlightboxPostprocessor(PostprocessorExt):
     """Wraps stashed images in anchors, delegating to the treeprocessor.
 
     This postprocessor uses a regular expression to find image tags in stashed
@@ -183,7 +182,7 @@ class GlightboxPostprocessor(Postprocessor):
     parse and modify the HTML with an actual parser.
     """
 
-    def __init__(self, md: Markdown, config: dict[str, object]):
+    def __init__(self, md: MarkdownExt, config: dict[str, object]):
         super().__init__(md)
         self._processor = GlightboxTreeprocessor(md, config)
         self._processed: set[int] = set()
@@ -197,7 +196,7 @@ class GlightboxPostprocessor(Postprocessor):
         """Wrap images in stashed HTML blocks."""
         for i, raw in enumerate(self.md.htmlStash.rawHtmlBlocks):
             if i not in self._processed:
-                self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(
+                self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(  # ty:ignore[no-matching-overload]
                     self._maybe_process, raw
                 )
                 self._processed.add(i)
@@ -228,7 +227,7 @@ class GlightboxPostprocessor(Postprocessor):
 # -----------------------------------------------------------------------------
 
 
-class GlightboxExtension(Extension):
+class GlightboxExtension(ExtensionExt):
     """Markdown extension that wraps images in GLightbox anchor tags.
 
     This extension provides both a treeprocessor to wrap images in the normal
@@ -265,7 +264,7 @@ class GlightboxExtension(Extension):
         }
         super().__init__(**kwargs)
 
-    def extendMarkdown(self, md: Markdown) -> None:  # noqa: N802
+    def extendMarkdown(self, md: MarkdownExt) -> None:  # noqa: N802
         """Register Markdown extension."""
         md.registerExtension(self)
 

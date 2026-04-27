@@ -72,7 +72,6 @@ dev = [
     "maturin>=1.10.2",
     "ruff>=0.12.8",
     "ty>=0.0.32",
-    "types-markdown>=3.10.0",
     "types-pyyaml>=6.0.12",
 ]
 

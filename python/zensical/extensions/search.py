@@ -25,18 +25,18 @@ from html import escape
 from html.parser import HTMLParser
 from typing import Any
 
-from markdown import Extension, Markdown
-from markdown.postprocessors import Postprocessor
+from zensical.markdown import ExtensionExt, MarkdownExt
+from zensical.markdown.processors import PostprocessorExt
 
 # -----------------------------------------------------------------------------
 # Classes
 # -----------------------------------------------------------------------------
 
 
-class SearchProcessor(Postprocessor):
+class SearchProcessor(PostprocessorExt):
     """Post processor to extract searchable content from the rendered HTML."""
 
-    def __init__(self, md: Markdown) -> None:
+    def __init__(self, md: MarkdownExt) -> None:
         super().__init__(md)
         self.data: list[dict[str, Any]] = []
 
@@ -71,14 +71,14 @@ class SearchProcessor(Postprocessor):
         return text
 
 
-class SearchExtension(Extension):
+class SearchExtension(ExtensionExt):
     """Markdown extension for search indexing."""
 
     def __init__(self, **kwargs: Any) -> None:
         self.config = {"keep": [set(), "Set of HTML tags to keep in output"]}
         super().__init__(**kwargs)
 
-    def extendMarkdown(self, md: Markdown) -> None:  # noqa: N802
+    def extendMarkdown(self, md: MarkdownExt) -> None:  # noqa: N802
         """Register the PostProcessor with Markdown."""
         processor = SearchProcessor(md)
         md.postprocessors.register(processor, "search", 0)
