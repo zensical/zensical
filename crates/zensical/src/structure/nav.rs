@@ -32,7 +32,7 @@ use pyo3::types::PyAnyMethods;
 use pyo3::{FromPyObject, Python};
 use serde::Serialize;
 use zrx::id::Id;
-use zrx::scheduler::{Scope, Value};
+use zrx::scheduler::{Key, Value};
 
 use crate::structure::markdown::Autorefs;
 
@@ -73,7 +73,7 @@ pub struct Navigation {
 impl Navigation {
     /// Creates a navigation from the given items.
     pub fn new(
-        mut items: Vec<NavigationItem>, pages: Vec<(Scope<Id>, Page)>,
+        mut items: Vec<NavigationItem>, pages: Vec<(Key<Id>, Page)>,
     ) -> Self {
         if items.is_empty() {
             return Self::from(pages);
@@ -287,14 +287,14 @@ impl Value for Navigation {}
 
 // ----------------------------------------------------------------------------
 
-impl From<Vec<(Scope<Id>, Page)>> for Navigation {
+impl From<Vec<(Key<Id>, Page)>> for Navigation {
     /// Creates a navigation from pages.
     ///
     /// This mirrors the functionality of auto-populated navigation that MkDocs
     /// provides. In the future, we intend to refactor this into a more flexible
     /// system that allows for custom and modular navigation structures, but for
     /// now, compatibility is key.
-    fn from(pages: Vec<(Scope<Id>, Page)>) -> Self {
+    fn from(pages: Vec<(Key<Id>, Page)>) -> Self {
         let mut items: Vec<NavigationItem> = Vec::new();
 
         // Convert chunk into a vector for easier processing, and sort pages by
