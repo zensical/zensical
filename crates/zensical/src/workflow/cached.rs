@@ -25,10 +25,10 @@
 
 //! Workflow cache.
 
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use zrx::scheduler::step::Result;
 use zrx::scheduler::Value;
 
 use crate::config::Config;

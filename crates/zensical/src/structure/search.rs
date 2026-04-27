@@ -28,7 +28,7 @@
 use pyo3::FromPyObject;
 use serde::Serialize;
 use zrx::id::Id;
-use zrx::scheduler::{Scope, Value};
+use zrx::scheduler::{Key, Value};
 
 use crate::config::plugins::SearchPluginConfig;
 
@@ -70,7 +70,7 @@ impl SearchIndex {
     /// Creates a search index from pages.
     #[allow(clippy::assigning_clones)]
     pub fn new(
-        pages: Vec<(Scope<Id>, Page)>, nav: &Navigation,
+        pages: Vec<(Key<Id>, Page)>, nav: &Navigation,
         config: SearchPluginConfig,
     ) -> Self {
         let mut items: Vec<SearchItem> = Vec::new();

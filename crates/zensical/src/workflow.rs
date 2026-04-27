@@ -36,7 +36,7 @@ use std::sync::{Arc, LazyLock};
 use std::{fs, io};
 use zrx::id::{id, Id, Matcher};
 use zrx::module::{self, Context, Module};
-use zrx::scheduler::Scope;
+use zrx::scheduler::Key;
 use zrx::stream::{Barrier, Stream, Workflow};
 
 use super::config::Config;
@@ -96,7 +96,7 @@ impl Module for Main {
         let docs_dir = self.config.project.docs_dir.clone();
         let matcher = Matcher::from_str(&format!("zrs::::{docs_dir}:**/*.md:"))
             .expect("invariant");
-        let barrier = Barrier::new(move |id: &Scope<Id>| {
+        let barrier = Barrier::new(move |id: &Key<Id>| {
             matcher.is_match(&id[0]).expect("invariant")
         });
 
@@ -104,7 +104,7 @@ impl Module for Main {
         // processed, in order to create the navigation and search index
         let page = generate_page(&self.config, &markdown);
         let pages = page.select([(
-            Scope::from_iter([id!(
+            Key::from_iter([id!(
                 provider = "file",
                 context = ".",
                 location = "."
@@ -164,10 +164,9 @@ pub fn process_assets(config: &Config, files: &Stream<Id, Source>) {
 
         // Compute parent path, create intermediate directories and copy files
         let to = root_dir.join(id.to_path());
-        fs::create_dir_all(to.parent().expect("invariant"))
-            .map_err(|err| Box::new(err) as Box<_>)?;
-        copy_file(&*from, to).map_err(|err| Box::new(err) as Box<_>)?;
-        Ok(())
+        fs::create_dir_all(to.parent().expect("invariant"))?;
+        copy_file(&*from, to)?;
+        Ok::<(), anyhow::Error>(())
     });
 }
 
@@ -196,10 +195,9 @@ pub fn process_theme_assets(config: &Config, files: &Stream<Id, Source>) {
 
         // Compute parent path, create intermediate directories and copy files
         let to = root_dir.join(id.to_path());
-        fs::create_dir_all(to.parent().expect("invariant"))
-            .map_err(|err| Box::new(err) as Box<_>)?;
-        copy_file(&*from, to).map_err(|err| Box::new(err) as Box<_>)?;
-        Ok(())
+        fs::create_dir_all(to.parent().expect("invariant"))?;
+        copy_file(&*from, to)?;
+        Ok::<_, anyhow::Error>(())
     });
 }
 
@@ -227,16 +225,13 @@ pub fn process_markdown(
     // Create pipeline to render Markdown files
     let config = config.clone();
     files
-        .filter(move |id: &Id, _: &_| {
-            Ok(matcher.is_match(id).expect("invariant"))
-        })
+        .filter(move |id: &Id| matcher.is_match(id).expect("invariant"))
         // Render Markdown if we don't have a recent cached version at our own
         // disposal. Otherwise, just return that if the content did not change.
         // Note that we need to limit concurrency here, or we'll overwhelm the
         // Python interpreter with all tasks competing for the GIL.
         .map(move |id: &Id, path: Source| {
-            let data = fs::read_to_string(&*path)
-                .map_err(|err| Box::new(err) as Box<_>)?;
+            let data = fs::read_to_string(&*path)?;
 
             // Compute URL using same logic as Page::new()
             let site_dir = config.project.site_dir.clone();
@@ -295,22 +290,22 @@ pub fn generate_page(
     config: &Config, markdown: &Stream<Id, Markdown>,
 ) -> Stream<Id, Page> {
     let config = config.clone();
-    markdown.map(move |id: &Id, markdown| Ok(Page::new(&config, id, markdown)))
+    markdown.map(move |id: &Id, markdown| Page::new(&config, id, markdown))
 }
 
 /// Generate navigation from all pages.
 pub fn generate_nav(
-    config: &Config, pages: &Stream<Id, Vec<(Scope<Id>, Page)>>,
+    config: &Config, pages: &Stream<Id, Vec<(Key<Id>, Page)>>,
 ) -> Stream<Id, Navigation> {
     let config = config.clone();
-    pages.map(move |pages: Vec<(Scope<Id>, Page)>| {
-        Ok(Navigation::new(config.project.nav.clone(), pages))
+    pages.map(move |pages: Vec<(Key<Id>, Page)>| {
+        Navigation::new(config.project.nav.clone(), pages)
     })
 }
 
 /// Generate object inventory
 pub fn generate_object_inventory(
-    config: &Config, pages: &Stream<Id, Vec<(Scope<Id>, Page)>>,
+    config: &Config, pages: &Stream<Id, Vec<(Key<Id>, Page)>>,
 ) {
     // Retrieve inventory from Python interpreter using pyo3
     let config = config.clone();
@@ -327,14 +322,13 @@ pub fn generate_object_inventory(
             let _ = fs::create_dir_all(path.parent().expect("invariant"));
             let _ = fs::write(path, &data);
         }
-        Ok(())
     });
 }
 
 /// Generate search index
 pub fn generate_search_index(
     config: &Config, nav: &Stream<Id, Navigation>,
-    pages: &Stream<Id, Vec<(Scope<Id>, Page)>>,
+    pages: &Stream<Id, Vec<(Key<Id>, Page)>>,
 ) {
     let config = config.clone();
     pages.product(nav).map(move |pages, nav| {
@@ -347,21 +341,18 @@ pub fn generate_search_index(
 
         // Write search index to disk
         let path = site_dir.join("search.json");
-        fs::create_dir_all(path.parent().expect("invariant"))
-            .map_err(|err| Box::new(err) as Box<_>)?;
-        fs::write(path, &data).map_err(|err| Box::new(err) as Box<_>)?;
+        fs::create_dir_all(path.parent().expect("invariant"))?;
+        fs::write(path, &data)?;
 
         // If offline plugin is enabled, create search.js as well
         if config.project.plugins.offline.config.enabled {
             let path = site_dir.join("search.js");
-            fs::create_dir_all(path.parent().expect("invariant"))
-                .map_err(|err| Box::new(err) as Box<_>)?;
-            fs::write(path, format!("var __index = {data};").as_str())
-                .map_err(|err| Box::new(err) as Box<_>)?;
+            fs::create_dir_all(path.parent().expect("invariant"))?;
+            fs::write(path, format!("var __index = {data};").as_str())?;
         }
 
         // All files were written successfully
-        Ok(())
+        Ok::<_, anyhow::Error>(())
     });
 }
 
@@ -389,9 +380,8 @@ pub fn render_templates(
 
     // Create matcher from builder, and filter templates
     let matcher = Arc::new(builder.build().expect("invariant"));
-    let templates = files.filter(move |id: &Id, _: &Source| {
-        Ok(matcher.is_match(id).expect("invariant"))
-    });
+    let templates =
+        files.filter(move |id: &Id| matcher.is_match(id).expect("invariant"));
 
     // Add docs directory to theme templates
     let mut theme_dirs = config.theme_dirs.clone();
@@ -408,14 +398,11 @@ pub fn render_templates(
             Template::new(name.to_string_lossy(), theme_dirs.clone());
 
         // Render template and write to disk
-        let data = template
-            .render(&config, &nav)
-            .map_err(|err| Box::new(err) as Box<_>)?;
+        let data = template.render(&config, &nav)?;
         let path = site_dir.join(name);
-        fs::create_dir_all(path.parent().expect("invariant"))
-            .map_err(|err| Box::new(err) as Box<_>)?;
-        fs::write(path, &data).map_err(|err| Box::new(err) as Box<_>)?;
-        Ok(())
+        fs::create_dir_all(path.parent().expect("invariant"))?;
+        fs::write(path, &data)?;
+        Ok::<_, anyhow::Error>(())
     })
 }
 
@@ -439,22 +426,19 @@ pub fn render_pages(
             // Render page if we don't have a recent cached version at our own
             // disposal. Otherwise, just return if the content did not change.
             let args = (config.hash, nav.hash, hash);
-            cached(&config, id, args, |(_, _, _)| {
-                Ok(page
-                    .render(&config, nav)
-                    .map_err(|err| Box::new(err) as Box<_>)?)
-            })
+            cached(
+                &config,
+                id,
+                args,
+                |(_, _, _)| Ok(page.render(&config, nav)?),
+            )
             .and_then(|data| {
                 let path = Path::new(&page.path);
-                fs::create_dir_all(path.parent().expect("invariant"))
-                    .map_err(|err| Box::new(err) as Box<_>)?;
-                fs::write(path, &*data)
-                    .map_err(|err| Box::new(err) as Box<_>)
-                    .map_err(Into::into)
-                    .inspect(|()| {
-                        let url = percent_decode_str(&page.url);
-                        println!("+ /{}", url.decode_utf8_lossy());
-                    })
+                fs::create_dir_all(path.parent().expect("invariant"))?;
+                fs::write(path, &*data).map_err(Into::into).inspect(|()| {
+                    let url = percent_decode_str(&page.url);
+                    println!("+ /{}", url.decode_utf8_lossy());
+                })
             })
         })
 }
