@@ -43,7 +43,7 @@ from yaml.constructor import ConstructorError
 
 from zensical.compat.autorefs import get_autorefs_extension
 from zensical.compat.mkdocstrings import get_mkdocstrings_extension
-from zensical.extensions import glightbox
+from zensical.extensions import glightbox, macros
 from zensical.extensions.emoji import to_svg, twemoji
 
 if TYPE_CHECKING:
@@ -593,10 +593,17 @@ def _apply_defaults(config: dict, path: str) -> dict:
             )
         )
 
+    # Map macros plugin configuration to the extension configuration
+    if "macros" in config["plugins"]:
+        plugin = config["plugins"]["macros"]["config"]
+        config["markdown_extensions"].append(macros.MacrosExtension.name)
+        config["mdx_configs"][macros.MacrosExtension.name] = plugin
+
     # List files along with their hashes, so we can rebuild when they change
     config["watched_files"] = sorted(
         _list_sources(config, path)  # mkdocstrings
         | _list_snippet_files(config, path)  # pymdownx.snippets
+        | _list_macros_files(config, path)  # macros
     )
 
     # Hash all templates, so we rebuild if something changes
@@ -681,15 +688,13 @@ def _list_sources(config: dict, config_file: str) -> set[tuple[str, int]]:
         path = root.joinpath(python_path).resolve()
         if path.is_dir() and path.is_relative_to(root) and path != root:
             for py_module in _list_py_modules(path):
-                files_with_hash.add(  # noqa: PERF401
+                files_with_hash.add(
                     (str(py_module), int(os.path.getmtime(py_module)))
                 )
     return files_with_hash
 
 
-def _list_snippet_files(
-    config: dict, config_file: str
-) -> set[tuple[str, int]]:
+def _list_snippet_files(config: dict, config_file: str) -> set[tuple[str, int]]:
     """List files referenced in pymdownx.snippets auto_append configuration."""
     snippets_config = config["mdx_configs"].get("pymdownx.snippets", {})
     auto_append = snippets_config.get("auto_append", [])
@@ -704,6 +709,53 @@ def _list_snippet_files(
                 mtime = int(os.path.getmtime(candidate))
                 files_with_mtime.add((str(candidate), mtime))
                 break
+
+    return files_with_mtime
+
+
+def _list_macros_files(config: dict, config_file: str) -> set[tuple[str, int]]:
+    """List files referenced in macros plugin/extension."""
+    root = Path(config_file).parent.resolve()
+    macros_config = config["mdx_configs"].get(macros.MacrosExtension.name, {})
+    macros_files = []
+    files_with_mtime = set()
+
+    module = macros_config.get("module", "main")
+    if (module_path := root.joinpath(module + ".py").resolve()).is_file():
+        macros_files.append(module_path)
+
+    pluglets = macros_config.get("modules", [])
+    for pluglet in pluglets:
+        try:
+            pluglet_module = importlib.import_module(pluglet)
+        except ImportError:  # noqa: PERF203
+            continue
+        else:
+            macros_files.append(pluglet_module.__file__)
+
+    include_yaml: list[str] | dict[str, str] = macros_config.get(
+        "include_yaml", []
+    )
+    if isinstance(include_yaml, dict):
+        include_yaml = list(include_yaml.values())
+    for yaml_file in include_yaml:
+        candidate = root.joinpath(yaml_file).resolve()
+        if candidate.is_file():
+            macros_files.append(candidate)
+
+    for file_path in macros_files:
+        mtime = int(os.path.getmtime(file_path))
+        files_with_mtime.add((str(file_path), mtime))
+
+    include_dir = macros_config.get("include_dir", None)
+    if include_dir:
+        candidate_dir = root.joinpath(include_dir).resolve()
+        if candidate_dir.is_dir():
+            for root, _, files in os.walk(candidate_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    mtime = int(os.path.getmtime(file_path))
+                    files_with_mtime.add((file_path, mtime))
 
     return files_with_mtime
 

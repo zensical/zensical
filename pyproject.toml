@@ -50,6 +50,7 @@ dynamic = ["version"]
 dependencies = [
     "click>=8.1.8",
     "deepmerge>=2.0",
+    "jinja2>=3.1",
     "markdown>=3.7",
     "pygments>=2.20",
     "pymdown-extensions>=10.21.2",
@@ -70,7 +71,7 @@ zensical = "zensical.main:cli"
 [dependency-groups]
 dev = [
     "maturin>=1.10.2",
-    "pytest>=8.0",
+    "pytest>=9.0.3",
     "ruff>=0.12.8",
     "ty>=0.0.32",
     "types-pyyaml>=6.0.12",
