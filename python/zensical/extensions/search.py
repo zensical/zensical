@@ -40,11 +40,11 @@ class SearchProcessor(Postprocessor):
         super().__init__(md)
         self.data: list[dict[str, Any]] = []
 
-    def run(self, html: str) -> str:
+    def run(self, text: str) -> str:
         """Process the rendered HTML and extract text length."""
         # Divide page content into sections
         parser = Parser()
-        parser.feed(html)
+        parser.feed(text)
         parser.close()
 
         # Extract data from sections that are not excluded
@@ -53,7 +53,7 @@ class SearchProcessor(Postprocessor):
             if not section.is_excluded():
                 # Compute title and text
                 title = "".join(section.title).strip()
-                text = "".join(section.text).strip()
+                content = "".join(section.text).strip()
 
                 # Store data for external access
                 self.data.append(
@@ -61,14 +61,14 @@ class SearchProcessor(Postprocessor):
                         "location": section.id,
                         "level": section.level,
                         "title": title,
-                        "text": text,
+                        "text": content,
                         "path": [],
                         "tags": [],
                     }
                 )
 
         # Return the original HTML unchanged
-        return html
+        return text
 
 
 class SearchExtension(Extension):
