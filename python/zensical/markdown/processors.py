@@ -30,7 +30,7 @@ from markdown.preprocessors import Preprocessor
 from markdown.treeprocessors import Treeprocessor
 
 if TYPE_CHECKING:
-    from zensical.markdown import MarkdownExt
+    from zensical.markdown.extensions import MarkdownExt
 
 # -----------------------------------------------------------------------------
 # Classes

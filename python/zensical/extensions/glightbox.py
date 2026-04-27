@@ -27,11 +27,11 @@ import re
 from typing import TYPE_CHECKING, Any, cast
 from xml.etree.ElementTree import Element, ParseError, fromstring, tostring
 
-from zensical.markdown import ExtensionExt, MarkdownExt
+from zensical.markdown.extensions import ExtensionExt, MarkdownExt
 from zensical.markdown.processors import PostprocessorExt, TreeprocessorExt
 
 if TYPE_CHECKING:
-    from zensical.markdown import MarkdownExt
+    from zensical.markdown.extensions import MarkdownExt
 
 # -----------------------------------------------------------------------------
 # Constants

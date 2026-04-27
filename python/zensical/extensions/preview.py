@@ -29,7 +29,7 @@ from urllib.parse import urlparse
 
 from zensical.extensions.links import LinksTreeprocessor
 from zensical.extensions.utilities.filter import Filter
-from zensical.markdown import ExtensionExt, MarkdownExt
+from zensical.markdown.extensions import ExtensionExt, MarkdownExt
 from zensical.markdown.processors import TreeprocessorExt
 
 if TYPE_CHECKING:

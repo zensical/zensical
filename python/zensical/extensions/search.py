@@ -25,7 +25,7 @@ from html import escape
 from html.parser import HTMLParser
 from typing import Any
 
-from zensical.markdown import ExtensionExt, MarkdownExt
+from zensical.markdown.extensions import ExtensionExt, MarkdownExt
 from zensical.markdown.processors import PostprocessorExt
 
 # -----------------------------------------------------------------------------

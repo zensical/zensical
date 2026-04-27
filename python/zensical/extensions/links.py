@@ -30,13 +30,13 @@ from urllib.parse import urlparse
 
 from markdown.util import AMP_SUBSTITUTE
 
-from zensical.markdown import ExtensionExt
+from zensical.markdown.extensions import ExtensionExt
 from zensical.markdown.processors import PostprocessorExt, TreeprocessorExt
 
 if TYPE_CHECKING:
     from xml.etree.ElementTree import Element
 
-    from zensical.markdown import MarkdownExt
+    from zensical.markdown.extensions import MarkdownExt
 
 # -----------------------------------------------------------------------------
 # Constants

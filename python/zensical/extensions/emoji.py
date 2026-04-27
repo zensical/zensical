@@ -32,7 +32,7 @@ from xml.etree.ElementTree import Element
 from pymdownx import emoji, twemoji_db
 
 if TYPE_CHECKING:
-    from zensical.markdown import MarkdownExt
+    from zensical.markdown.extensions import MarkdownExt
 
 # -----------------------------------------------------------------------------
 # Functions

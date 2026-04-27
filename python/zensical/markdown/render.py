@@ -1,0 +1,158 @@
+# Copyright (c) 2025-2026 Zensical and contributors
+
+# SPDX-License-Identifier: MIT
+# All contributions are certified under the DCO
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to
+# deal in the Software without restriction, including without limitation the
+# rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+# sell copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+# IN THE SOFTWARE.
+
+from __future__ import annotations
+
+import re
+from datetime import date, datetime
+from typing import TYPE_CHECKING, Any
+
+import yaml
+from yaml import SafeLoader
+
+from zensical.compat.autorefs import set_autorefs_page
+from zensical.config import get_config
+from zensical.extensions.links import LinksExtension
+from zensical.extensions.search import SearchExtension
+from zensical.markdown.extensions import MarkdownExt
+
+if TYPE_CHECKING:
+    from zensical.extensions.search import SearchProcessor
+
+# ----------------------------------------------------------------------------
+# Constants
+# ----------------------------------------------------------------------------
+
+
+FRONT_MATTER_RE = re.compile(
+    r"^-{3}[ \r\t]*?\n(.*?\r?\n)(?:\.{3}|-{3})[ \r\t]*\n",
+    re.UNICODE | re.DOTALL,
+)
+"""
+Regex pattern to extract front matter.
+"""
+
+
+# ----------------------------------------------------------------------------
+# Functions
+# ----------------------------------------------------------------------------
+
+
+def render(content: str, path: str, url: str) -> dict:
+    """Render Markdown and return HTML.
+
+    This function returns rendered HTML as well as the table of contents and
+    metadata. Now, this is the part where Zensical needs to call into Python,
+    in order to support the specific syntax of Python Markdown. We're working
+    on moving the entire rendering chain to Rust.
+    """
+    config = get_config()
+
+    set_autorefs_page(url, path)
+
+    # Initialize Markdown parser
+    md = MarkdownExt(
+        extensions=config["markdown_extensions"],
+        extension_configs=config["mdx_configs"],
+    )
+
+    # Register links extension, which is equivalent to MkDocs' path resolution
+    # Markdown extension. This is a bandaid, until we move this to Rust
+    links = LinksExtension(
+        use_directory_urls=config["use_directory_urls"], path=path
+    )
+    links.extendMarkdown(md)
+
+    # Register search extension, which extracts text for search indexing
+    search_extension = SearchExtension()
+    search_extension.extendMarkdown(md)
+
+    # First, extract metadata - the Python Markdown parser brings a metadata
+    # extension, but the implementation is broken, as it does not support full
+    # YAML syntax, e.g. lists. Thus, we just parse the metadata with YAML.
+    meta: dict = {}
+    if match := FRONT_MATTER_RE.match(content):
+        try:
+            meta = yaml.load(match.group(1), SafeLoader)
+            if isinstance(meta, dict):
+                content = content[match.end() :].lstrip("\n")
+            else:
+                meta = {}
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Convert Markdown and sanitize metadata before sending back to Rust
+    content = md.convert(content)
+    meta = {k: _sanitize(v) for k, v in meta.items()}
+
+    # Obtain search index data, unless page is excluded
+    search_processor: SearchProcessor = md.postprocessors["search"]  # ty:ignore[invalid-assignment]
+    if meta.get("search", {}).get("exclude", False):
+        search_processor.data = []
+
+    # Return Markdown with metadata
+    return {
+        "meta": meta,
+        "title": "",
+        "content": content,
+        "search": search_processor.data,
+        "toc": [_convert_toc(item) for item in getattr(md, "toc_tokens", [])],
+    }
+
+
+def _sanitize(value: Any) -> Any:
+    # We currently don't have a null value for metadata in the Rust runtime
+    if value is None:
+        return ""
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {k: _sanitize(x) for k, x in value.items()}
+    if isinstance(value, list):
+        return [_sanitize(x) for x in value]
+    return value
+
+
+def _convert_toc(item: Any) -> dict:
+    """Convert a table of contents item to navigation item format."""
+    toc_item = {
+        "title": item["data-toc-label"] or item["name"],
+        "content": item["data-toc-label"] or _remove_links(item["html"]),
+        "id": item["id"],
+        "url": f"#{item['id']}",
+        "children": [],
+        "level": item["level"],
+    }
+
+    # Recursively convert items
+    for child in item["children"]:
+        toc_item["children"].append(_convert_toc(child))
+
+    # Return table of contents item
+    return toc_item
+
+
+def _remove_links(html: str) -> str:
+    """Remove links from HTML string."""
+    html = re.sub(r"id=\"?[^\">]+\"?", "", html)
+    return re.sub(r"<a\s+[^>]+>(.*?)</a>", r"\1", html, flags=re.DOTALL)

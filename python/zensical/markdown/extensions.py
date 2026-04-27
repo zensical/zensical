@@ -20,3 +20,34 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
+
+from __future__ import annotations
+
+from markdown import Extension, Markdown
+
+# ----------------------------------------------------------------------------
+# Classes
+# ----------------------------------------------------------------------------
+
+
+class MarkdownExt(Markdown):
+    """Subclass of `Markdown`.
+
+    We need to subclass the `Markdown` class to provide additional data to the
+    processors, such as page information and configuration, someting that isn't
+    supported by the original Markdown `Markdown` class. It allows to implement
+    several features that previously required MkDocs plugins more efficiently.
+    """
+
+
+class ExtensionExt(Extension):
+    """Subclass of `Extension`.
+
+    We need to subclass the `Extension` to allow access to our modified
+    `MarkdownExt` instance, which includes the page and configuration.
+    """
+
+    def extendMarkdown(self, md: MarkdownExt) -> None:  # noqa: N802  # ty:ignore[invalid-method-override]
+        """Register Markdown extension."""
+        super().extendMarkdown(md)
+
