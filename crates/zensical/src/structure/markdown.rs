@@ -81,7 +81,7 @@ impl Markdown {
         let id = id.clone();
         let guard = RENDER_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let res = Python::attach(|py| {
-            let module = py.import("zensical.markdown")?;
+            let module = py.import("zensical.markdown.render")?;
             module
                 .call_method1("render", (content, id.location(), url))?
                 .extract::<Markdown>()

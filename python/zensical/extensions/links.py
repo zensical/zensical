@@ -28,15 +28,15 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
-from markdown.extensions import Extension
-from markdown.postprocessors import Postprocessor
-from markdown.treeprocessors import Treeprocessor
 from markdown.util import AMP_SUBSTITUTE
+
+from zensical.markdown.extensions import ExtensionExt
+from zensical.markdown.processors import PostprocessorExt, TreeprocessorExt
 
 if TYPE_CHECKING:
     from xml.etree.ElementTree import Element
 
-    from markdown import Markdown
+    from zensical.markdown.extensions import MarkdownExt
 
 # -----------------------------------------------------------------------------
 # Constants
@@ -53,10 +53,10 @@ _RE = re.compile(
 # -----------------------------------------------------------------------------
 
 
-class LinksTreeprocessor(Treeprocessor):
+class LinksTreeprocessor(TreeprocessorExt):
     """Rewrites relative links."""
 
-    def __init__(self, md: Markdown, path: str, use_directory_urls: bool):
+    def __init__(self, md: MarkdownExt, path: str, use_directory_urls: bool):
         super().__init__(md)
         self.path = path
         self.use_directory_urls = use_directory_urls
@@ -77,7 +77,7 @@ class LinksTreeprocessor(Treeprocessor):
                 el.set(key, url)
 
 
-class LinksPostprocessor(Postprocessor):
+class LinksPostprocessor(PostprocessorExt):
     """Rewrites relative links in stashed raw HTML blocks.
 
     This postprocessor complements the :class:`LinksTreeprocessor` by applying
@@ -86,7 +86,7 @@ class LinksPostprocessor(Postprocessor):
     inside raw HTML are handled consistently as well.
     """
 
-    def __init__(self, md: Markdown, path: str, use_directory_urls: bool):
+    def __init__(self, md: MarkdownExt, path: str, use_directory_urls: bool):
         super().__init__(md)
         self._path = path
         self._use_directory_urls = use_directory_urls
@@ -96,7 +96,7 @@ class LinksPostprocessor(Postprocessor):
         """Rewrite `href` and `src` attributes of stashed HTML blocks."""
         for i, raw in enumerate(self.md.htmlStash.rawHtmlBlocks):
             if i not in self._processed:
-                self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(
+                self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(  # ty:ignore[no-matching-overload]
                     self._maybe_process, raw
                 )
                 self._processed.add(i)
@@ -123,7 +123,7 @@ class LinksPostprocessor(Postprocessor):
 # -----------------------------------------------------------------------------
 
 
-class LinksExtension(Extension):
+class LinksExtension(ExtensionExt):
     """Markdown extension to rewrite relative links to other files.
 
     Registers both a treeprocessor for links in the normal Markdown flow and
@@ -137,7 +137,7 @@ class LinksExtension(Extension):
         self.path = path
         self.use_directory_urls = use_directory_urls
 
-    def extendMarkdown(self, md: Markdown) -> None:  # noqa: N802
+    def extendMarkdown(self, md: MarkdownExt) -> None:  # noqa: N802
         """Register Markdown extension."""
         md.registerExtension(self)
 
