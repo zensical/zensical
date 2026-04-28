@@ -67,7 +67,7 @@ class LinkReference(Span):
     """Span of the visible link text (or image alt text)."""
 
     id: Span
-    """Span of the normalized reference id."""
+    """Span of the link id."""
 
 
 @dataclass
@@ -75,7 +75,7 @@ class LinkDefinition(Span):
     """A link or image definition, e.g. `[id]: href`."""
 
     id: Span
-    """Span of the normalized reference id."""
+    """Span of the link id."""
 
     href: Span
     """Span of the link destination."""
@@ -89,7 +89,7 @@ class FootnoteReference(Span):
     """A footnote reference, e.g. `[^id]`."""
 
     id: Span
-    """Span of the normalized referenced id."""
+    """Span of the footnote id."""
 
 
 @dataclass
@@ -97,10 +97,10 @@ class FootnoteDefinition(Span):
     """A footnote definition, e.g. `[^id]: body`."""
 
     id: Span
-    """Span of the normalized referenced id."""
+    """Span of the footnote id."""
 
     body: Span
-    """Span of the definition body, including multiline text."""
+    """Span of the footnote body, including multiline text."""
 
 
 # ----------------------------------------------------------------------------
@@ -273,86 +273,71 @@ def references(markdown: str) -> Iterator[Reference]:
     for match in _RE.finditer(markdown):
         kind = match.lastgroup
 
-        # Extract the start and end positions of the full match, as well as the
-        # matched text, and build a partial function to extract spans
+        # Extract the start and end positions of the full match, and build a
+        # partial function to extract spans from named capture groups
         start, end = match.start(), match.end()
-        value, range = markdown[start:end], slice(start, end)
-        span = partial(_span, markdown, match)
+        span = partial(_span, match)
 
         # Inline link
         if kind == "link":
             text, href = span("link_text"), span("link_href")
-            yield Link(value, range, "link", text, href)
+            yield Link(start, end, "link", text, href)
 
         # Inline image
         elif kind == "image":
             text, href = span("image_alt"), span("image_href")
-            yield Link(value, range, "image", text, href)
+            yield Link(start, end, "image", text, href)
 
         # Image reference
         elif kind == "imageref":
             text = span("imageref_alt")
-            id = _id_span(markdown, match, "imageref_id") or text
-            yield LinkReference(value, range, "image", text, id)
+            id = _id_span(match, "imageref_id") or text
+            yield LinkReference(start, end, "image", text, id)
 
         # Link reference
         elif kind == "linkref":
             text = span("linkref_text")
-            id = _id_span(markdown, match, "linkref_id") or text
-            yield LinkReference(value, range, "link", text, id)
+            id = _id_span(match, "linkref_id") or text
+            yield LinkReference(start, end, "link", text, id)
 
         # Link definition
         elif kind == "linkdef":
             id, href = span("linkdef_id"), span("linkdef_href")
-            yield LinkDefinition(value, range, id, href)
+            yield LinkDefinition(start, end, id, href)
 
         # Footnote reference
         elif kind == "footref":
             id = span("footref_id")
-            yield FootnoteReference(value, range, id)
+            yield FootnoteReference(start, end, id)
 
         # Footnote definition
         elif kind == "footdef":
             id, body = span("footdef_id"), span("footdef_body")
-            yield FootnoteDefinition(value, range, id, body)
+            yield FootnoteDefinition(start, end, id, body)
 
         # Wikilink
         elif kind == "wikilink":
             text = span("wikilink_text")
-            yield Link(value, range, "wikilink", text, text)
+            yield Link(start, end, "wikilink", text, text)
 
         # Autolink
         elif kind == "autolink":
             href = span("autolink_href")
-            yield Link(value, range, "autolink", href, href)
+            yield Link(start, end, "autolink", href, href)
 
 
 # ----------------------------------------------------------------------------
 
 
-def _span(markdown: str, match: Match[str], name: str) -> Span:
+def _span(match: Match[str], name: str) -> Span:
     """Build a span for a named capture group within a match."""
-    start, end = match.start(name), match.end(name)
-    return Span(markdown[start:end], slice(start, end))
+    return Span(match.start(name), match.end(name))
 
 
-def _id_span(markdown: str, match: Match[str], name: str) -> Span | None:
+def _id_span(match: Match[str], name: str) -> Span | None:
     """Build a reference id span for a named capture group within a match."""
-    if not match.group(name):
-        return None
+    if match.group(name):
+        return Span(match.start(name), match.end(name))
 
-    # Extract the start and end positions of the matched id text, and normalize
-    # it for lookup against link and footnote definitions
-    start, end = match.start(name), match.end(name)
-    return Span(_normalize(markdown[start:end]), slice(start, end))
-
-
-def _normalize(markdown: str) -> str:
-    """Normalize a reference id for lookup, collapsing internal whitespace.
-
-    Markdown allows reference labels with flexible whitespace. This function
-    normalizes them by collapsing runs of whitespace (spaces, tabs, newlines)
-    to a single space and lowercasing the result, matching how Markdown parsers
-    treat reference lookup.
-    """
-    return " ".join(markdown.split()).lower()
+    # Return nothing
+    return None
