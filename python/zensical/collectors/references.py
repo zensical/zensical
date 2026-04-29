@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
+from zensical.collectors.exclusions import exclusions
 from zensical.utilities.span import Span
 
 if TYPE_CHECKING:
@@ -128,7 +129,15 @@ additional metadata for the relevant subcomponents.
 # ----------------------------------------------------------------------------
 
 _RE = re.compile(
-    r"""
+    rb"""
+    # Escaped characters:
+    #
+    #   \[ \] \! \*
+    #
+    (?P<escape>
+        \\[\[\]!*`]
+    )
+    |
     # Footnote definition:
     #
     #   [^id]: body
@@ -179,12 +188,13 @@ _RE = re.compile(
     # Image reference:
     #
     #   ![alt][id]
+    #   ![alt]\n[id]   (label on next line)
     #   ![alt][]       (collapsed)
     #   ![alt]         (shortcut)
     #
     (?P<imageref>
         !\[(?P<imageref_alt>[^\]]*)\]
-        (?:\[(?P<imageref_id>[^\]]*)\])?
+        (?:[^\S\n]*\n?[^\S\n]*\[(?![\^])(?P<imageref_id>[^\]]*)\])?
     )
     |
     # Inline link:
@@ -205,15 +215,24 @@ _RE = re.compile(
         <(?P<autolink_href>https?://[^>]+)>
     )
     |
+    # Abbreviation definitions:
+    #
+    #   *[HTML]: Hyper Text Markup Language
+    #
+    (?P<abbr>
+        ^\*\[(?P<abbr_text>[^\]]+)\]:[^\n]*$
+    )
+    |
     # Link reference:
     #
     #   [text][id]
+    #   [text]\n[id]   (label on next line)
     #   [text][]       (collapsed)
     #   [text]         (shortcut)
     #
     (?P<linkref>
         \[(?P<linkref_text>[^\]]+)\]
-        (?:\[(?P<linkref_id>[^\]]*)\])?
+        (?:[^\S\n]*\n?[^\S\n]*\[(?![\^])(?P<linkref_id>[^\]]*)\])?
     )
     """,
     re.VERBOSE | re.MULTILINE,
@@ -223,21 +242,24 @@ Match link-like constructs in Markdown.
 
 **Extraction and matching order**
 
-References are extracted via the compiled regex in this module (`_RE`). The
-regex uses alternation with carefully ordered branches - specificity matters:
+References are extracted via the compiled regex. The regex uses alternation
+with carefully ordered branches - specificity matters:
 
-1. **Footnote definition** - `[^id]: body` (block-level, can span lines)
-2. **Link definition** - `[id]: href` (block-level, with optional title)
-3. **Footnote reference** - `[^id]` (inline)
-4. **Wikilink** - `[[target]]` (inline, standalone syntax)
-5. **Inline image** - `![alt](href)` (inline)
-6. **Image reference** - `![alt][id]`, `![alt][]`, `![alt]` (inline)
-7. **Inline link** - `[text](href)` (inline)
-8. **Autolink** - `<https://...>` (inline, angle-bracket syntax)
-9. **Link reference** - `[text][id]`, `[text][]`, `[text]` (inline)
+- **Escaped characters** - `[` `]` `!` `*` (skipped, not treated as references)
+- **Footnote definition** - `[^id]: body` (block-level, can span lines)
+- **Link definition** - `[id]: href` (block-level, with optional title)
+- **Footnote reference** - `[^id]` (inline)
+- **Wikilink** - `[[target]]` (inline, standalone syntax)
+- **Inline image** - `![alt](href)` (inline)
+- **Image reference** - `![alt][id]`, `![alt][]`, `![alt]` (inline)
+- **Inline link** - `[text](href)` (inline)
+- **Autolink** - `<https://...>` (inline, angle-bracket syntax)
+- **Abbreviations** - `*[HTML]: Hyper Text Markup Language`
+- **Link reference** - `[text][id]`, `[text][]`, `[text]` (inline)
 
 **Why order matters**
 
+- Escaped characters are skipped and not treated as references.
 - Block-level definitions (footnote, link) are checked before inline patterns
   to avoid overlaps with similar bracket syntax.
 - Images must be checked before links: `![alt](href)` starts with `!`, but
@@ -262,7 +284,7 @@ In collapsed and shortcut forms, the reference id defaults to the visible text.
 # ----------------------------------------------------------------------------
 
 
-def references(markdown: str) -> Iterator[Reference]:
+def references(markdown: bytes) -> Iterator[Reference]:
     """Scan Markdown and yield all references.
 
     Performs a single left-to-right pass over the given Markdown by using an
@@ -270,6 +292,8 @@ def references(markdown: str) -> Iterator[Reference]:
     state is carried between matches. Results can be collected into a list
     or processed lazily.
     """
+    exclude = iter(exclusions(markdown))
+    current = next(exclude, None)
     for match in _RE.finditer(markdown):
         kind = match.lastgroup
 
@@ -277,6 +301,14 @@ def references(markdown: str) -> Iterator[Reference]:
         # partial function to extract spans from named capture groups
         start, end = match.start(), match.end()
         span = partial(_span, match)
+
+        # Advance past exclusions that end before this match
+        while current and current.end <= start:
+            current = next(exclude, None)
+
+        # If the current exclusion covers the match, skip it
+        if current and current.contains(start):
+            continue
 
         # Inline link
         if kind == "link":
@@ -291,13 +323,13 @@ def references(markdown: str) -> Iterator[Reference]:
         # Image reference
         elif kind == "imageref":
             text = span("imageref_alt")
-            id = _id_span(match, "imageref_id") or text
+            id = _span_for_id(match, "imageref_id") or text
             yield LinkReference(start, end, "image", text, id)
 
         # Link reference
         elif kind == "linkref":
             text = span("linkref_text")
-            id = _id_span(match, "linkref_id") or text
+            id = _span_for_id(match, "linkref_id") or text
             yield LinkReference(start, end, "link", text, id)
 
         # Link definition
@@ -329,13 +361,13 @@ def references(markdown: str) -> Iterator[Reference]:
 # ----------------------------------------------------------------------------
 
 
-def _span(match: Match[str], name: str) -> Span:
+def _span(match: Match[bytes], name: str) -> Span:
     """Build a span for a named capture group within a match."""
     return Span(match.start(name), match.end(name))
 
 
-def _id_span(match: Match[str], name: str) -> Span | None:
-    """Build a reference id span for a named capture group within a match."""
+def _span_for_id(match: Match[bytes], name: str) -> Span | None:
+    """Build an id span for a named capture group within a match."""
     if match.group(name):
         return Span(match.start(name), match.end(name))
 
