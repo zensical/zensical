@@ -57,11 +57,21 @@ use workflow::create_workflow;
 // Enums
 // ----------------------------------------------------------------------------
 
+/// Serve options.
+#[derive(Clone, Debug, FromPyObject, PartialEq, Eq)]
+#[pyo3(from_item_all)]
+pub struct BuildOptions {
+    /// Whether to clean the cache directory before building.
+    pub clean: Option<bool>,
+    /// Whether to enable strict mode - abort the build on any warnings.
+    pub strict: Option<bool>,
+}
+
 /// Build mode.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Mode {
     /// Build the project once.
-    Build(bool),
+    Build(BuildOptions),
     /// Build the project continuously.
     Serve(ServeOptions, u64),
 }
@@ -129,11 +139,13 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     };
 
     // Clean cache directory if requested
-    if let Mode::Build(true) = mode {
-        let cache_dir = config.get_cache_dir();
-        if cache_dir.exists() {
-            std::fs::remove_dir_all(&cache_dir)
-                .expect("cache directory could not be removed");
+    if let Mode::Build(options) = &mode {
+        if options.clean.unwrap_or(false) {
+            let cache_dir = config.get_cache_dir();
+            if cache_dir.exists() {
+                std::fs::remove_dir_all(&cache_dir)
+                    .expect("cache directory could not be removed");
+            }
         }
     }
 
@@ -147,8 +159,14 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
             .expect("site directory could not be removed");
     }
 
+    // Determine if strict mode is enabled
+    let strict = match &mode {
+        Mode::Build(options) => options.strict.unwrap_or(false),
+        Mode::Serve(_, _) => false,
+    };
+
     // Create workspace and scheduler
-    let workflow = create_workflow(&config);
+    let workflow = create_workflow(&config, strict);
     let mut scheduler = Scheduler::<Id>::default();
     scheduler.attach(workflow);
 
@@ -201,11 +219,17 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     // file agent with the scheduler, the sleep can be removed
     println!("Build started");
     let time = Instant::now();
+    let mut maybe_err = None;
     loop {
         match mode {
             // Build mode - just exit when we're done
             Mode::Build(..) => {
-                scheduler.tick_timeout(Duration::from_millis(100));
+                if let Err(err) =
+                    scheduler.tick_timeout(Duration::from_millis(100))
+                {
+                    maybe_err = Some(err);
+                    break;
+                }
                 if scheduler.is_empty() {
                     let elapsed = time.elapsed().as_secs_f32();
                     println!("Build finished in {elapsed:.2}s");
@@ -217,7 +241,12 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
             // the scheduler with the agent, we can remove this temporary hack
             // and have immediate reloading.
             Mode::Serve(..) => {
-                scheduler.tick_timeout(Duration::from_millis(100));
+                if let Err(err) =
+                    scheduler.tick_timeout(Duration::from_millis(100))
+                {
+                    maybe_err = Some(err);
+                    break;
+                }
                 if watcher.is_terminated() {
                     // Wake the server
                     if let Some(waker) = &waker {
@@ -231,8 +260,14 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         // Allow Python to handle signals (e.g., Ctrl+C)
         if Python::attach(|py| py.check_signals().is_err()) {
             println!("Received interrupt, exiting");
-            break;
+            std::process::exit(0);
         }
+    }
+
+    // Exit with error, if any
+    if let Some(err) = maybe_err {
+        println!("{err}");
+        std::process::exit(1);
     }
 
     // All good
@@ -243,9 +278,11 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
 
 /// Builds the project.
 #[pyfunction]
-fn build(py: Python, config_file: PathBuf, clean: bool) -> PyResult<()> {
+fn build(
+    py: Python, config_file: PathBuf, options: BuildOptions,
+) -> PyResult<()> {
     py.detach(|| {
-        run(&config_file, Mode::Build(clean))?;
+        run(&config_file, Mode::Build(options))?;
         Ok(())
     })
 }

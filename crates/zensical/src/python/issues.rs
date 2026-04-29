@@ -38,6 +38,10 @@ use super::collector::reference::Reference;
 use super::collector::{Anchors, References};
 use super::span::Span;
 
+mod error;
+
+pub use error::{Error, Result};
+
 // ----------------------------------------------------------------------------
 // Enums
 // ----------------------------------------------------------------------------
@@ -328,7 +332,7 @@ impl Issues {
 
     /// Prints the issue to stderr.
     #[allow(clippy::match_same_arms)]
-    pub fn print(&self) -> io::Result<()> {
+    pub fn print(&self, strict: bool) -> Result {
         for issue in &self.inner {
             // Determine the path and kind of report
             let path = issue.path().to_string_lossy();
@@ -389,13 +393,14 @@ impl Issues {
                 .eprint((path.as_ref(), Source::from(source)))?;
         }
 
-        if self.is_empty() {
-            eprintln!("No issues found.");
-        } else {
+        // Print summary, if any issues were found
+        if !self.is_empty() {
             let s = if self.len() == 1 { "" } else { "s" };
             eprintln!("{} issue{s} found", self.len());
+            if strict {
+                return Err(Error::Strict);
+            }
         }
-
         Ok(())
     }
 

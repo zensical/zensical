@@ -64,7 +64,7 @@ def cli() -> None:
     "--strict",
     default=False,
     is_flag=True,
-    help="Strict mode (currently unsupported).",
+    help="Enable strict mode - abort the build on warnings.",
 )
 def execute_build(config_file: str | None, **kwargs: Any) -> None:
     """Build a project."""
@@ -75,12 +75,10 @@ def execute_build(config_file: str | None, **kwargs: Any) -> None:
                 break
         else:
             raise ClickException("No config file found in the current folder.")
-    if kwargs.get("strict", False):
-        print("Warning: Strict mode is currently unsupported.")
 
     # Build project in Rust runtime, calling back into Python when necessary,
     # e.g., to parse MkDocs configuration format or render Markdown
-    build(os.path.abspath(config_file), kwargs.get("clean", False))
+    build(os.path.abspath(config_file), kwargs)
 
 
 @cli.command(name="serve")

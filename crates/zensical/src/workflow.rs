@@ -75,6 +75,8 @@ static SNIPPET_RE: LazyLock<Regex> =
 pub struct Main {
     /// Configuration.
     config: Config,
+    /// Strict mode.
+    strict: bool,
 }
 
 // ----------------------------------------------------------------------------
@@ -100,7 +102,7 @@ impl Module for Main {
         // Collect all anchors and references from pages, to validate links
         let references = collect_references(&files);
         let anchors = collect_anchors(&page);
-        validate(&self.config, references, anchors);
+        validate(&self.config, self.strict, references, anchors);
 
         // Generate navigation and search index
         let nav = generate_nav(&self.config, &pages);
@@ -161,10 +163,13 @@ pub fn collect_anchors(pages: &Stream<Id, Page>) -> Stream<Id, Anchors> {
 
 /// Create a stream to validate references against anchors.
 pub fn validate(
-    config: &Config, refs: Stream<Id, References>, anchors: Stream<Id, Anchors>,
+    config: &Config, strict: bool, refs: Stream<Id, References>,
+    anchors: Stream<Id, Anchors>,
 ) {
     let combined = refs.join(&anchors).select([wait_for_markdown(config)]);
-    combined.map(Issues::new).inspect(Issues::print);
+    combined
+        .map(Issues::new)
+        .inspect(move |issues: &Issues| issues.print(strict));
 }
 
 /// Create a stream to process static assets.
@@ -477,9 +482,9 @@ pub fn render_pages(
 }
 
 /// Creates a workflow for the given config.
-pub fn create_workflow(config: &Config) -> Workflow<Id> {
+pub fn create_workflow(config: &Config, strict: bool) -> Workflow<Id> {
     let mut context = Context::default();
-    Main { config: config.clone() }
+    Main { config: config.clone(), strict }
         .setup(&mut context)
         .expect("invariant");
     context.into()
