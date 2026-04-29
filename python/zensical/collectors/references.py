@@ -155,7 +155,7 @@ _RE = re.compile(
     #       body on next line
     #
     (?P<footdef>
-        ^[^\S\n]{0,3}\[\^(?P<footdef_id>[^\]]+)\]:[^\S\n]*
+        ^[^\S\n]*\[\^(?P<footdef_id>[^\]]+)\]:[^\S\n]*
         (?P<footdef_body>[^\n]*(?:\n[^\S\n]+[^\n]+)*)
     )
     |
@@ -165,7 +165,7 @@ _RE = re.compile(
     #   [id]: href "optional title"
     #
     (?P<linkdef>
-        ^[^\S\n]{0,3}\[(?P<linkdef_id>[^\]]+)\]:[^\S\n]+
+        ^[^\S\n]*\[(?P<linkdef_id>[^\]]+)\]:[^\S\n]*
         (?P<linkdef_href>\S+)[^\n]*$
     )
     |
