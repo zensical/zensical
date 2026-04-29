@@ -358,8 +358,8 @@ def references(markdown: bytes, shift: int = 0) -> Iterator[Reference]:
             id, body = span("footdef_id"), span("footdef_body")
             yield FootnoteDefinition(start, end, id, body)
 
-            # Recurse into footnote body to extract nested references, adjusting
-            # the shift to account for the position of the body
+            # Recurse into footnote body to extract nested references, shifting
+            # the content to account for the position of the Markdown body
             yield from references(
                 markdown[body.start : body.end], shift + body.start
             )
