@@ -74,6 +74,18 @@ pub enum Issue {
         span: Span,
         id: String,
     },
+    /// Shadowed link definition.
+    ShadowedDefinition {
+        path: PathBuf,
+        span: Span,
+        id: String,
+    },
+    /// Shadowed footnote definition.
+    ShadowedFootnote {
+        path: PathBuf,
+        span: Span,
+        id: String,
+    },
     /// Invalid link.
     InvalidLink {
         path: PathBuf,
@@ -112,6 +124,8 @@ impl Issue {
             | Issue::UnresolvedFootnote { path, .. }
             | Issue::UnusedDefinition { path, .. }
             | Issue::UnusedFootnote { path, .. }
+            | Issue::ShadowedDefinition { path, .. }
+            | Issue::ShadowedFootnote { path, .. }
             | Issue::InvalidLink { path, .. }
             | Issue::InvalidLinkAnchor { path, .. } => path,
         }
@@ -124,6 +138,8 @@ impl Issue {
             | Issue::UnresolvedFootnote { span, .. }
             | Issue::UnusedDefinition { span, .. }
             | Issue::UnusedFootnote { span, .. }
+            | Issue::ShadowedDefinition { span, .. }
+            | Issue::ShadowedFootnote { span, .. }
             | Issue::InvalidLink { span, .. }
             | Issue::InvalidLinkAnchor { span, .. } => span,
         }
@@ -193,11 +209,23 @@ impl Issues {
                 match reference {
                     Reference::LinkDefinition(link) => {
                         let id = &markdown[link.id.start..link.id.end];
-                        link_defs.insert(to_id(id), link);
+                        if let Some(prev) = link_defs.insert(to_id(id), link) {
+                            issues.push(Issue::ShadowedDefinition {
+                                path: path.clone().into(),
+                                span: (prev.id.start..prev.id.end).into(),
+                                id: id.to_string(),
+                            });
+                        }
                     }
-                    Reference::FootnoteDefinition(footnote) => {
-                        let id = &markdown[footnote.id.start..footnote.id.end];
-                        note_defs.insert(to_id(id), footnote);
+                    Reference::FootnoteDefinition(note) => {
+                        let id = &markdown[note.id.start..note.id.end];
+                        if let Some(prev) = note_defs.insert(to_id(id), note) {
+                            issues.push(Issue::ShadowedFootnote {
+                                path: path.clone().into(),
+                                span: (prev.id.start..prev.id.end).into(),
+                                id: id.to_string(),
+                            });
+                        }
                     }
                     _ => {}
                 }
@@ -363,6 +391,18 @@ impl Issues {
                     }
                     ReportKind::Warning
                 }
+                Issue::ShadowedDefinition { .. } => {
+                    if !validation.shadowed_definitions {
+                        continue;
+                    }
+                    ReportKind::Warning
+                }
+                Issue::ShadowedFootnote { .. } => {
+                    if !validation.shadowed_footnotes {
+                        continue;
+                    }
+                    ReportKind::Warning
+                }
                 Issue::InvalidLink { .. } => {
                     if !validation.invalid_links {
                         continue;
@@ -390,6 +430,12 @@ impl Issues {
                 }
                 Issue::UnusedFootnote { .. } => {
                     ("unused footnote definition", Color::Yellow)
+                }
+                Issue::ShadowedDefinition { .. } => {
+                    ("shadowed link definition", Color::Yellow)
+                }
+                Issue::ShadowedFootnote { .. } => {
+                    ("shadowed footnote definition", Color::Yellow)
                 }
                 Issue::InvalidLink { .. } => {
                     ("page does not exist", Color::Yellow)

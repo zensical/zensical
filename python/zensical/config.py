@@ -404,6 +404,8 @@ def _apply_defaults(config: dict, path: str) -> dict:
         "unresolved_footnotes": True,
         "unused_definitions": True,
         "unused_footnotes": True,
+        "shadowed_definitions": True,
+        "shadowed_footnotes": True,
         "invalid_links": True,
         "invalid_link_anchors": True,
     }

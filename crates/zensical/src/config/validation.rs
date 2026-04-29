@@ -45,6 +45,10 @@ pub struct Validation {
     pub unused_definitions: bool,
     /// Warn about unused footnotes.
     pub unused_footnotes: bool,
+    /// Warn about shadowed definitions.
+    pub shadowed_definitions: bool,
+    /// Warn about shadowed footnotes.
+    pub shadowed_footnotes: bool,
     /// Invalid links.
     pub invalid_links: bool,
     /// Invalid link anchors.
@@ -64,6 +68,8 @@ impl Default for Validation {
             unresolved_footnotes: true,
             unused_definitions: true,
             unused_footnotes: true,
+            shadowed_definitions: true,
+            shadowed_footnotes: true,
             invalid_links: true,
             invalid_link_anchors: true,
         }
