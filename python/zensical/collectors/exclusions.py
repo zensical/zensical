@@ -37,6 +37,11 @@ if TYPE_CHECKING:
 
 _RE = re.compile(
     rb"""
+    # Escaped characters
+    (?P<escaped>
+        \\`                         # Backslash followed by any character
+    )
+    |
     # Fenced code blocks
     (?P<fenced>
         ^(?P<indent>[^\S\n]*)       # Capture leading indentation
