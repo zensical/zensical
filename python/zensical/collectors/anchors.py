@@ -51,7 +51,7 @@ _RE = re.compile(
         <a\s[^>]*name=["'](?P<name_value>[^"']+)["'][^>]*>
     )
     """,
-    re.VERBOSE | re.IGNORECASE,
+    re.VERBOSE | re.MULTILINE,
 )
 """
 Match anchor declarations in rendered HTML.
