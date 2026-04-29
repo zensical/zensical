@@ -27,7 +27,6 @@
 
 use ahash::{HashMap, HashSet};
 use ariadne::{Color, Config, IndexType, Label, Report, ReportKind, Source};
-use std::io;
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 use std::slice::Iter;
