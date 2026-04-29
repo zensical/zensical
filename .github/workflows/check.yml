@@ -72,6 +72,9 @@ jobs:
       - name: Run ty
         run: uv run ty check .
 
+      - name: Run pytest
+        run: uv run pytest python/tests/
+
   format:
     name: Format
     runs-on: ubuntu-latest
