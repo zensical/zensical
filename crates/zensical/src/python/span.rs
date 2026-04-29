@@ -52,3 +52,14 @@ impl From<Span> for Range<usize> {
         span.start..span.end
     }
 }
+
+impl From<Range<usize>> for Span {
+    /// Creates a span from a range.
+    #[inline]
+    fn from(range: Range<usize>) -> Self {
+        Span {
+            start: range.start,
+            end: range.end,
+        }
+    }
+}
