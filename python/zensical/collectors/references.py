@@ -138,6 +138,16 @@ _RE = re.compile(
         \\[\[\]!*`]
     )
     |
+    # Task list checkbox:
+    #
+    #   - [ ] text
+    #   - [x] text
+    #   - [X] text
+    #
+    (?P<task>
+        ^[^\S\n]*[-*+][^\S\n]+\[[xX ]\]
+    )
+    |
     # Footnote definition:
     #
     #   [^id]: body
@@ -246,6 +256,7 @@ References are extracted via the compiled regex. The regex uses alternation
 with carefully ordered branches - specificity matters:
 
 - **Escaped characters** - `[` `]` `!` `*` (skipped, not treated as references)
+- **Task list checkbox** - `- [ ]` `- [x]` `- [X]`
 - **Footnote definition** - `[^id]: body` (block-level, can span lines)
 - **Link definition** - `[id]: href` (block-level, with optional title)
 - **Footnote reference** - `[^id]` (inline)

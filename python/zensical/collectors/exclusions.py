@@ -62,10 +62,10 @@ _RE = re.compile(
     # HTML blocks
     (?P<html>
         ^<(?P<tag>\w+)              # Opening block-level tag
-        (?:[^\S\n][^>]*)?>          # Optional attributes
+        (?P<attrs>[^\S\n][^>]*)?    # Optional attributes (captured)
+        >[ \t]*\n                   # Close of tag, end of line
         .*?                         # Block content
-        (?:^</(?P=tag)>[^\n]*)?     # Optional closing tag
-        (?=\n\n|\Z)                 # Ends at blank line or end of file
+        ^</(?P=tag)>[ \t]*$         # Closing tag
     )
     |
     # Inline code blocks
@@ -74,19 +74,15 @@ _RE = re.compile(
         .+?                         # Block content
         (?P=ticks)                  # Closing backticks (matching)
     )
-    |
-    # Task list checkboxes
-    (?P<task>
-        ^[^\S\n]*[-*+][^\S\n]+\[[xX ]\]
-    )
     """,
     re.VERBOSE | re.MULTILINE | re.DOTALL,
 )
 """
 Match regions that should be excluded from reference scanning.
 
-This includes fenced code blocks, inline code blocks, and task list checkboxes,
-which may contain link-like patterns that should not be treated as references.
+This includes fenced code blocks, inline code blocks, HTML comments, and HTML
+blocks without `markdown` attribute, as they may contain link-like patterns that
+should not be treated as references.
 """
 
 # ----------------------------------------------------------------------------
@@ -94,7 +90,25 @@ which may contain link-like patterns that should not be treated as references.
 # ----------------------------------------------------------------------------
 
 
-def exclusions(markdown: bytes) -> Iterator[Span]:
+def exclusions(content: bytes, index: int = 0) -> Iterator[Span]:
     """Scan Markdown and yield exclusions."""
-    for match in _RE.finditer(markdown):
-        yield Span(match.start(), match.end())
+    for match in _RE.finditer(content):
+        if match.lastgroup != "html":
+            yield Span(index + match.start(), index + match.end())
+            continue
+
+        # In case this is a non-Markdown HTML block, we exclude the entire
+        # block, as it may contain link-like patterns that must be ignored
+        attrs = match.group("attrs") or b""
+        if b"markdown" not in attrs:
+            yield Span(index + match.start(), index + match.end())
+            continue
+
+        # Exclude opening tag line
+        end = content.index(b"\n", match.start()) + 1
+        yield Span(index + match.start(), index + end)
+
+        # Exclude closing tag line (cut from block), and recurse
+        start = end
+        end = content.rindex(b"\n", 0, match.end())
+        yield from exclusions(content[start:end], index + start)
