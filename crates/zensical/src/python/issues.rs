@@ -361,6 +361,7 @@ impl Issues {
 
     /// Prints the issue to stderr.
     #[allow(clippy::match_same_arms)]
+    #[allow(clippy::too_many_lines)]
     pub fn print(&self, validation: &Validation, strict: bool) -> Result {
         let mut count = 0;
         for issue in &self.inner {
