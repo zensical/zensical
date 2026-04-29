@@ -40,6 +40,7 @@ pub mod mdx;
 pub mod plugins;
 mod project;
 pub mod theme;
+pub mod validation;
 
 pub use error::Result;
 pub use project::Project;

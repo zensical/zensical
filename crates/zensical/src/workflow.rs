@@ -167,9 +167,10 @@ pub fn validate(
     anchors: Stream<Id, Anchors>,
 ) {
     let combined = refs.join(&anchors).select([wait_for_markdown(config)]);
+    let validation = config.project.validation.clone();
     combined
         .map(Issues::new)
-        .inspect(move |issues: &Issues| issues.print(strict));
+        .inspect(move |issues: &Issues| issues.print(&validation, strict));
 }
 
 /// Create a stream to process static assets.

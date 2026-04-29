@@ -33,6 +33,8 @@ use std::slice::Iter;
 use zrx::id::Id;
 use zrx::scheduler::{Key, Value};
 
+use crate::config::validation::Validation;
+
 use super::collector::reference::Reference;
 use super::collector::{Anchors, References};
 use super::span::Span;
@@ -331,17 +333,48 @@ impl Issues {
 
     /// Prints the issue to stderr.
     #[allow(clippy::match_same_arms)]
-    pub fn print(&self, strict: bool) -> Result {
+    pub fn print(&self, validation: &Validation, strict: bool) -> Result {
+        let mut count = 0;
         for issue in &self.inner {
             // Determine the path and kind of report
             let path = issue.path().to_string_lossy();
             let kind = match issue {
-                Issue::UnresolvedReference { .. } => ReportKind::Warning,
-                Issue::UnresolvedFootnote { .. } => ReportKind::Warning,
-                Issue::UnusedDefinition { .. } => ReportKind::Warning,
-                Issue::UnusedFootnote { .. } => ReportKind::Warning,
-                Issue::InvalidLink { .. } => ReportKind::Warning,
-                Issue::InvalidLinkAnchor { .. } => ReportKind::Warning,
+                Issue::UnresolvedReference { .. } => {
+                    if !validation.unresolved_references {
+                        continue;
+                    }
+                    ReportKind::Warning
+                }
+                Issue::UnresolvedFootnote { .. } => {
+                    if !validation.unresolved_footnotes {
+                        continue;
+                    }
+                    ReportKind::Warning
+                }
+                Issue::UnusedDefinition { .. } => {
+                    if !validation.unused_definitions {
+                        continue;
+                    }
+                    ReportKind::Warning
+                }
+                Issue::UnusedFootnote { .. } => {
+                    if !validation.unused_footnotes {
+                        continue;
+                    }
+                    ReportKind::Warning
+                }
+                Issue::InvalidLink { .. } => {
+                    if !validation.invalid_links {
+                        continue;
+                    }
+                    ReportKind::Warning
+                }
+                Issue::InvalidLinkAnchor { .. } => {
+                    if !validation.invalid_link_anchors {
+                        continue;
+                    }
+                    ReportKind::Warning
+                }
             };
 
             // Determine the label message and color
@@ -390,12 +423,13 @@ impl Issues {
                 .with_config(Config::default().with_index_type(IndexType::Byte))
                 .finish()
                 .eprint((path.as_ref(), Source::from(source)))?;
+            count += 1;
         }
 
         // Print summary, if any issues were found
-        if !self.is_empty() {
-            let s = if self.len() == 1 { "" } else { "s" };
-            eprintln!("{} issue{s} found", self.len());
+        if count > 0 {
+            let s = if count == 1 { "" } else { "s" };
+            eprintln!("{count} issue{s} found");
             if strict {
                 return Err(Error::Strict);
             }

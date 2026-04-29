@@ -398,6 +398,45 @@ def _apply_defaults(config: dict, path: str) -> dict:
         config.setdefault("extra_javascript", [])
     )
 
+    # Initialize defaults for validation
+    validation = {
+        "unresolved_references": True,
+        "unresolved_footnotes": True,
+        "unused_definitions": True,
+        "unused_footnotes": True,
+        "invalid_links": True,
+        "invalid_link_anchors": True,
+    }
+
+    # Map MkDocs validation configuration to ours - note that we only support
+    # validation of links right now, as navigation will change significantly
+    if "validation" in config:
+        if isinstance(config["validation"], bool):
+            config["validation"] = dict.fromkeys(
+                validation, config["validation"]
+            )
+
+        # Read nested links validation settings, if present
+        input = config["validation"]
+        if "links" in input:
+            input = input["links"]
+
+        # We only support a subset of MkDocs' validation settings, so we ignore
+        # the ones we don't support. We also map info to warn for simplicity.
+        if "not_found" in input:
+            validation["invalid_links"] = input["not_found"] != "ignore"
+        if "anchors" in input:
+            validation["invalid_link_anchors"] = input["anchors"] != "ignore"
+
+        # Our own keys override the ones we map from MkDocs, so we apply them
+        # after mapping the MkDocs keys
+        for key in validation:
+            if key in input:
+                validation[key] = bool(input[key])
+
+    # Set validation
+    config["validation"] = validation
+
     # MkDocs will also set fenced_code, which is incompatible with SuperFences,
     # the extension that Material for MkDocs generally recommends. Note that we
     # decided to set defaults that make it easy to get started with sensible
