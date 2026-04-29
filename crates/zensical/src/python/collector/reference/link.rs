@@ -98,8 +98,6 @@ pub struct LinkDefinition {
     pub start: usize,
     /// End offset.
     pub end: usize,
-    /// Link kind.
-    pub kind: LinkKind,
     /// Span of the link id.
     pub id: Span,
     /// Span of the link destination.
