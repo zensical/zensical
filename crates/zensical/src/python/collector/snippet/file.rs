@@ -23,11 +23,27 @@
 
 // ----------------------------------------------------------------------------
 
-//! Collector implementations.
+//! Snippet file.
 
-pub mod anchor;
-pub mod reference;
-pub mod snippet;
+use pyo3::prelude::*;
 
-pub use anchor::Anchors;
-pub use reference::References;
+use crate::python::Span;
+
+use super::range::SnippetRange;
+
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
+
+/// Snippet file.
+#[derive(Clone, Debug, PartialEq, Eq, FromPyObject)]
+pub struct SnippetFile {
+    /// Start offset.
+    pub start: usize,
+    /// End offset.
+    pub end: usize,
+    /// Span of the named anchor, e.g. `object` from `file.md:object`.
+    pub anchor: Option<Span>,
+    /// Ranges. Empty list means include the whole file.
+    pub ranges: Vec<SnippetRange>,
+}

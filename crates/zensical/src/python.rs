@@ -26,7 +26,9 @@
 //! Python bindings.
 
 pub mod collector;
+mod issues;
 mod span;
 
-pub use collector::References;
+pub use collector::{Anchors, References};
+pub use issues::Issues;
 pub use span::Span;

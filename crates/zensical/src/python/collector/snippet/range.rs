@@ -23,11 +23,19 @@
 
 // ----------------------------------------------------------------------------
 
-//! Collector implementations.
+//! Snippet range.
 
-pub mod anchor;
-pub mod reference;
-pub mod snippet;
+use pyo3::prelude::*;
 
-pub use anchor::Anchors;
-pub use reference::References;
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
+
+/// Snippet range.
+#[derive(Clone, Debug, PartialEq, Eq, FromPyObject)]
+pub struct SnippetRange {
+    /// Start line, if any.
+    pub start: Option<usize>,
+    /// End line, if any.
+    pub end: Option<usize>,
+}

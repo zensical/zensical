@@ -47,6 +47,7 @@ zensical-watch.workspace = true
 
 ahash.workspace = true
 anyhow.workspace = true
+ariadne.workspace = true
 crossbeam.workspace = true
 fluent-uri.workspace = true
 minijinja = { workspace = true, features = [
