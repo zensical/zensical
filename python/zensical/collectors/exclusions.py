@@ -90,25 +90,25 @@ should not be treated as references.
 # ----------------------------------------------------------------------------
 
 
-def exclusions(content: bytes, index: int = 0) -> Iterator[Span]:
+def exclusions(content: bytes, shift: int = 0) -> Iterator[Span]:
     """Scan Markdown and yield exclusions."""
     for match in _RE.finditer(content):
         if match.lastgroup != "html":
-            yield Span(index + match.start(), index + match.end())
+            yield Span(shift + match.start(), shift + match.end())
             continue
 
         # In case this is a non-Markdown HTML block, we exclude the entire
         # block, as it may contain link-like patterns that must be ignored
         attrs = match.group("attrs") or b""
         if b"markdown" not in attrs:
-            yield Span(index + match.start(), index + match.end())
+            yield Span(shift + match.start(), shift + match.end())
             continue
 
         # Exclude opening tag line
         end = content.index(b"\n", match.start()) + 1
-        yield Span(index + match.start(), index + end)
+        yield Span(shift + match.start(), shift + end)
 
         # Exclude closing tag line (cut from block), and recurse
         start = end
         end = content.rindex(b"\n", 0, match.end())
-        yield from exclusions(content[start:end], index + start)
+        yield from exclusions(content[start:end], shift + start)

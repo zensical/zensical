@@ -295,7 +295,7 @@ In collapsed and shortcut forms, the reference id defaults to the visible text.
 # ----------------------------------------------------------------------------
 
 
-def references(markdown: bytes) -> Iterator[Reference]:
+def references(markdown: bytes, shift: int = 0) -> Iterator[Reference]:
     """Scan Markdown and yield all references.
 
     Performs a single left-to-right pass over the given Markdown by using an
@@ -310,8 +310,8 @@ def references(markdown: bytes) -> Iterator[Reference]:
 
         # Extract the start and end positions of the full match, and build a
         # partial function to extract spans from named capture groups
-        start, end = match.start(), match.end()
-        span = partial(_span, match)
+        start, end = shift + match.start(), shift + match.end()
+        span = partial(_span, shift, match)
 
         # Advance past exclusions that end before this match
         while current and current.end <= start:
@@ -334,13 +334,13 @@ def references(markdown: bytes) -> Iterator[Reference]:
         # Image reference
         elif kind == "imageref":
             text = span("imageref_alt")
-            id = _span_for_id(match, "imageref_id") or text
+            id = _span_for_id(shift, match, "imageref_id") or text
             yield LinkReference(start, end, "image", text, id)
 
         # Link reference
         elif kind == "linkref":
             text = span("linkref_text")
-            id = _span_for_id(match, "linkref_id") or text
+            id = _span_for_id(shift, match, "linkref_id") or text
             yield LinkReference(start, end, "link", text, id)
 
         # Link definition
@@ -358,6 +358,12 @@ def references(markdown: bytes) -> Iterator[Reference]:
             id, body = span("footdef_id"), span("footdef_body")
             yield FootnoteDefinition(start, end, id, body)
 
+            # Recurse into footnote body to extract nested references, adjusting
+            # the shift to account for the position of the body
+            yield from references(
+                markdown[body.start : body.end], shift + body.start
+            )
+
         # Wikilink
         elif kind == "wikilink":
             text = span("wikilink_text")
@@ -372,15 +378,16 @@ def references(markdown: bytes) -> Iterator[Reference]:
 # ----------------------------------------------------------------------------
 
 
-def _span(match: Match[bytes], name: str) -> Span:
+def _span(shift: int, match: Match[bytes], name: str) -> Span:
     """Build a span for a named capture group within a match."""
-    return Span(match.start(name), match.end(name))
+    start, end = match.start(name), match.end(name)
+    return Span(shift + start, shift + end)
 
 
-def _span_for_id(match: Match[bytes], name: str) -> Span | None:
+def _span_for_id(shift: int, match: Match[bytes], name: str) -> Span | None:
     """Build an id span for a named capture group within a match."""
     if match.group(name):
-        return Span(match.start(name), match.end(name))
+        return _span(shift, match, name)
 
     # Return nothing
     return None
