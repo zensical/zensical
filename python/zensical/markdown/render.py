@@ -28,13 +28,14 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 
 import yaml
+from markdown import Markdown
 from yaml import SafeLoader
 
 from zensical.compat.autorefs import set_autorefs_page
 from zensical.config import get_config
+from zensical.extensions.context import ContextExtension, Page
 from zensical.extensions.links import LinksExtension
 from zensical.extensions.search import SearchExtension
-from zensical.markdown.extensions import MarkdownExt
 
 if TYPE_CHECKING:
     from zensical.extensions.search import SearchProcessor
@@ -66,12 +67,43 @@ def render(content: str, path: str, url: str) -> dict:
     in order to support the specific syntax of Python Markdown. We're working
     on moving the entire rendering chain to Rust.
     """
-    config = get_config()
+    # First, extract metadata - the Python Markdown parser brings a metadata
+    # extension, but the implementation is broken, as it does not support full
+    # YAML syntax, e.g. lists. Thus, we just parse the metadata with YAML.
+    meta: dict = {}
+    if match := FRONT_MATTER_RE.match(content):
+        try:
+            meta = yaml.load(match.group(1), SafeLoader)
+            if isinstance(meta, dict):
+                content = content[match.end() :].lstrip("\n")
+            else:
+                meta = {}
+        except Exception:  # noqa: BLE001
+            pass
 
-    set_autorefs_page(url, path)
+    # Create page context and set it for autorefs
+    page = Page(url=url, path=path, meta=meta)
+    set_autorefs_page(page)
+
+    # Update configuration to include context extension
+    # It's important we mutate the global configuration here,
+    # to allow mkdocstrings to forward the extension
+    # to its inner Markdown instances
+    config = get_config()
+    for extension in config["markdown_extensions"]:
+        if isinstance(extension, ContextExtension):
+            extension._kwargs["page"] = page
+            break
+    else:
+        config["markdown_extensions"].append(
+            ContextExtension(
+                page=page,
+                config=config,
+            )
+        )
 
     # Initialize Markdown parser
-    md = MarkdownExt(
+    md = Markdown(
         extensions=config["markdown_extensions"],
         extension_configs=config["mdx_configs"],
     )
@@ -87,28 +119,16 @@ def render(content: str, path: str, url: str) -> dict:
     search_extension = SearchExtension()
     search_extension.extendMarkdown(md)
 
-    # First, extract metadata - the Python Markdown parser brings a metadata
-    # extension, but the implementation is broken, as it does not support full
-    # YAML syntax, e.g. lists. Thus, we just parse the metadata with YAML.
-    meta: dict = {}
-    if match := FRONT_MATTER_RE.match(content):
-        try:
-            meta = yaml.load(match.group(1), SafeLoader)
-            if isinstance(meta, dict):
-                content = content[match.end() :].lstrip("\n")
-            else:
-                meta = {}
-        except Exception:  # noqa: BLE001
-            pass
-
-    # Convert Markdown and sanitize metadata before sending back to Rust
+    # Convert content to HTML
     content = md.convert(content)
-    meta = {k: _sanitize(v) for k, v in meta.items()}
 
     # Obtain search index data, unless page is excluded
     search_processor: SearchProcessor = md.postprocessors["search"]  # ty:ignore[invalid-assignment]
     if meta.get("search", {}).get("exclude", False):
         search_processor.data = []
+
+    # Sanitize metadata before passing it to Rust.
+    meta = {k: _sanitize(v) for k, v in meta.items()}
 
     # Return Markdown with metadata
     return {

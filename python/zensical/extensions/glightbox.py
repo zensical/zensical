@@ -28,11 +28,12 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 from xml.etree.ElementTree import Element, ParseError, fromstring, tostring
 
-from zensical.markdown.extensions import ExtensionExt, MarkdownExt
-from zensical.markdown.processors import PostprocessorExt, TreeprocessorExt
+from markdown import Extension, Markdown
+from markdown.postprocessors import Postprocessor
+from markdown.treeprocessors import Treeprocessor
 
 if TYPE_CHECKING:
-    from zensical.markdown.extensions import MarkdownExt
+    from markdown import Markdown
 
 # -----------------------------------------------------------------------------
 # Constants
@@ -62,14 +63,14 @@ class GlightboxConfig:
 # -----------------------------------------------------------------------------
 
 
-class GlightboxTreeprocessor(TreeprocessorExt):
+class GlightboxTreeprocessor(Treeprocessor):
     """Wraps image elements in anchor tags to integrate with GLightbox."""
 
     SKIP_CLASSES: frozenset[str] = frozenset(
         {"emojione", "twemoji", "gemoji", "off-glb"}
     )
 
-    def __init__(self, md: MarkdownExt, config: GlightboxConfig):
+    def __init__(self, md: Markdown, config: GlightboxConfig):
         super().__init__(md)
         self.config = config
 
@@ -190,7 +191,7 @@ class GlightboxTreeprocessor(TreeprocessorExt):
         )
 
 
-class GlightboxPostprocessor(PostprocessorExt):
+class GlightboxPostprocessor(Postprocessor):
     """Wraps stashed images in anchors, delegating to the treeprocessor.
 
     This postprocessor uses a regular expression to find image tags in stashed
@@ -199,8 +200,8 @@ class GlightboxPostprocessor(PostprocessorExt):
     parse and modify the HTML with an actual parser.
     """
 
-    def __init__(self, md: MarkdownExt, processor: GlightboxTreeprocessor):
-        super().__init__(md)
+    def __init__(self, md: Markdown, processor: GlightboxTreeprocessor):
+        self.md: Markdown = md
         self._processor = processor
         self._processed: set[int] = set()
 
@@ -244,7 +245,7 @@ class GlightboxPostprocessor(PostprocessorExt):
 # -----------------------------------------------------------------------------
 
 
-class GlightboxExtension(ExtensionExt):
+class GlightboxExtension(Extension):
     """Markdown extension that wraps images in GLightbox anchor tags.
 
     This extension provides both a treeprocessor to wrap images in the normal
@@ -281,7 +282,7 @@ class GlightboxExtension(ExtensionExt):
         }
         super().__init__(**kwargs)
 
-    def extendMarkdown(self, md: MarkdownExt) -> None:
+    def extendMarkdown(self, md: Markdown) -> None:
         """Register Markdown extension."""
         md.registerExtension(self)
         config = GlightboxConfig(**self.getConfigs())

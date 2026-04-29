@@ -183,6 +183,8 @@ def _apply_defaults(config: dict, path: str) -> dict:
     We must set all properties, as well as nested properties to `None`, or PyO3
     will refuse to convert them, as the key must definitely exist.
     """
+    project_root = config["root_dir"] = os.path.dirname(path)
+
     if "site_name" not in config:
         raise ConfigurationError("Missing required setting: site_name")
 
@@ -197,7 +199,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
         raise ConfigurationError("docs_dir must not contain '..'")
 
     # Validate that docs directory exists
-    docs_dir_path = os.path.join(os.path.dirname(path), config["docs_dir"])
+    docs_dir_path = os.path.join(project_root, config["docs_dir"])
     if not os.path.isdir(docs_dir_path):
         raise ConfigurationError(
             f"Docs directory does not exist: {docs_dir_path}"

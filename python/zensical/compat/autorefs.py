@@ -30,6 +30,8 @@ if TYPE_CHECKING:
         AutorefsExtension,
     )
 
+    from zensical.extensions.context import Page
+
 
 # ----------------------------------------------------------------------------
 # Global variables
@@ -40,19 +42,11 @@ AUTOREFS: AutorefsPlugin | None = None
 # ----------------------------------------------------------------------------
 # Classes
 # ----------------------------------------------------------------------------
-class AutorefsPage:
-    """Mock MkDocs pages."""
-
-    def __init__(self, url: str, path: str):
-        self.url = url
-        self.path = path
-
-
 class AutorefsPlugin:
     """Mock the autorefs plugin (data store)."""
 
     def __init__(self) -> None:
-        self.current_page: AutorefsPage | None = None
+        self.current_page: Page | None = None
         self.scan_toc: bool = True
         self.record_backlinks: bool = False
 
@@ -63,7 +57,7 @@ class AutorefsPlugin:
 
     def register_anchor(
         self,
-        page: AutorefsPage,
+        page: Page,
         identifier: str,
         anchor: str | None = None,
         *,
@@ -106,10 +100,10 @@ def get_autorefs_extension() -> AutorefsExtension | None:
     return AutorefsExtension(get_autorefs_plugin())
 
 
-def set_autorefs_page(url: str, path: str) -> None:
+def set_autorefs_page(page: Page) -> None:
     """Set the current page for autorefs."""
     plugin = get_autorefs_plugin()
-    plugin.current_page = AutorefsPage(url=url, path=path)
+    plugin.current_page = page
 
 
 def get_autorefs_data() -> dict[str, Any]:

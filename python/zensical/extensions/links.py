@@ -28,15 +28,15 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
+from markdown import Extension
+from markdown.postprocessors import Postprocessor
+from markdown.treeprocessors import Treeprocessor
 from markdown.util import AMP_SUBSTITUTE
-
-from zensical.markdown.extensions import ExtensionExt
-from zensical.markdown.processors import PostprocessorExt, TreeprocessorExt
 
 if TYPE_CHECKING:
     from xml.etree.ElementTree import Element
 
-    from zensical.markdown.extensions import MarkdownExt
+    from markdown import Markdown
 
 # -----------------------------------------------------------------------------
 # Constants
@@ -53,10 +53,10 @@ _RE = re.compile(
 # -----------------------------------------------------------------------------
 
 
-class LinksTreeprocessor(TreeprocessorExt):
+class LinksTreeprocessor(Treeprocessor):
     """Rewrites relative links."""
 
-    def __init__(self, md: MarkdownExt, path: str, use_directory_urls: bool):
+    def __init__(self, md: Markdown, path: str, use_directory_urls: bool):
         super().__init__(md)
         self.path = path
         self.use_directory_urls = use_directory_urls
@@ -77,7 +77,7 @@ class LinksTreeprocessor(TreeprocessorExt):
                 el.set(key, url)
 
 
-class LinksPostprocessor(PostprocessorExt):
+class LinksPostprocessor(Postprocessor):
     """Rewrites relative links in stashed raw HTML blocks.
 
     This postprocessor complements the :class:`LinksTreeprocessor` by applying
@@ -86,8 +86,8 @@ class LinksPostprocessor(PostprocessorExt):
     inside raw HTML are handled consistently as well.
     """
 
-    def __init__(self, md: MarkdownExt, path: str, use_directory_urls: bool):
-        super().__init__(md)
+    def __init__(self, md: Markdown, path: str, use_directory_urls: bool):
+        self.md: Markdown = md
         self._path = path
         self._use_directory_urls = use_directory_urls
         self._processed: set[int] = set()
@@ -123,7 +123,7 @@ class LinksPostprocessor(PostprocessorExt):
 # -----------------------------------------------------------------------------
 
 
-class LinksExtension(ExtensionExt):
+class LinksExtension(Extension):
     """Markdown extension to rewrite relative links to other files.
 
     Registers both a treeprocessor for links in the normal Markdown flow and
@@ -137,7 +137,7 @@ class LinksExtension(ExtensionExt):
         self.path = path
         self.use_directory_urls = use_directory_urls
 
-    def extendMarkdown(self, md: MarkdownExt) -> None:
+    def extendMarkdown(self, md: Markdown) -> None:
         """Register Markdown extension."""
         md.registerExtension(self)
 
