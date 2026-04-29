@@ -433,6 +433,8 @@ impl Issues {
             if strict {
                 return Err(Error::Strict);
             }
+        } else {
+            eprintln!("No issues found");
         }
         Ok(())
     }
