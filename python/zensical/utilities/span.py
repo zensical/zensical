@@ -45,3 +45,7 @@ class Span:
 
     end: int
     """End offset of the span."""
+
+    def contains(self, index: int) -> bool:
+        """Return whether this span fully covers the start of another."""
+        return self.start <= index < self.end
