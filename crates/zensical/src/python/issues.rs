@@ -296,9 +296,14 @@ impl Issues {
             let base = Path::new(&base);
             for (span, href) in mappings {
                 if let Some((path, anchor)) = href.split_once('#') {
-                    if !Path::new(path)
-                        .extension()
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+                    // Skip text fragments
+                    if anchor.starts_with(":~:") {
+                        continue;
+                    }
+                    if !path.is_empty()
+                        && !Path::new(path)
+                            .extension()
+                            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
                     {
                         continue;
                     }
