@@ -296,14 +296,16 @@ impl Issues {
             let base = Path::new(&base);
             for (span, href) in mappings {
                 if let Some((path, anchor)) = href.split_once('#') {
-                    // Skip text fragments
-                    if anchor.starts_with(":~:") {
-                        continue;
-                    }
-                    if !path.is_empty()
-                        && !Path::new(path)
-                            .extension()
-                            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+                    let (anchor, len) = anchor
+                        .split_once(":~:")
+                        .map_or((anchor, 0), |(left, right)| {
+                            (left, right.len() + 3)
+                        });
+                    if anchor.is_empty()
+                        || !path.is_empty()
+                            && !Path::new(path).extension().is_some_and(|ext| {
+                                ext.eq_ignore_ascii_case("md")
+                            })
                     {
                         continue;
                     }
@@ -318,7 +320,8 @@ impl Issues {
                             issues.push(Issue::InvalidLinkAnchor {
                                 path: base.into(),
                                 span: Span::from(
-                                    (span.start + path.len() + 1)..span.end,
+                                    (span.start + path.len() + 1)
+                                        ..span.end - len,
                                 ),
                                 href: href.clone(),
                                 anchor: anchor.to_string(),
