@@ -23,7 +23,7 @@
 
 # -----------------------------------------------------------------------------
 
-FROM python:3.14-alpine3.23 AS base
+FROM python:3.14-alpine3.24 AS base
 
 FROM base AS build
 
