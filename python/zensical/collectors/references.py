@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from functools import partial
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
+from zensical.collectors.exclusions import exclusions
 from zensical.utilities.span import Span
 
 if TYPE_CHECKING:
@@ -67,7 +68,7 @@ class LinkReference(Span):
     """Span of the visible link text (or image alt text)."""
 
     id: Span
-    """Span of the normalized reference id."""
+    """Span of the link id."""
 
 
 @dataclass
@@ -75,7 +76,7 @@ class LinkDefinition(Span):
     """A link or image definition, e.g. `[id]: href`."""
 
     id: Span
-    """Span of the normalized reference id."""
+    """Span of the link id."""
 
     href: Span
     """Span of the link destination."""
@@ -89,7 +90,7 @@ class FootnoteReference(Span):
     """A footnote reference, e.g. `[^id]`."""
 
     id: Span
-    """Span of the normalized referenced id."""
+    """Span of the footnote id."""
 
 
 @dataclass
@@ -97,10 +98,10 @@ class FootnoteDefinition(Span):
     """A footnote definition, e.g. `[^id]: body`."""
 
     id: Span
-    """Span of the normalized referenced id."""
+    """Span of the footnote id."""
 
     body: Span
-    """Span of the definition body, including multiline text."""
+    """Span of the footnote body, including multiline text."""
 
 
 # ----------------------------------------------------------------------------
@@ -128,7 +129,25 @@ additional metadata for the relevant subcomponents.
 # ----------------------------------------------------------------------------
 
 _RE = re.compile(
-    r"""
+    rb"""
+    # Escaped characters:
+    #
+    #   \[ \] \! \*
+    #
+    (?P<escape>
+        \\[\[\]!*`]
+    )
+    |
+    # Task list checkbox:
+    #
+    #   - [ ] text
+    #   - [x] text
+    #   - [X] text
+    #
+    (?P<task>
+        ^[^\S\n]*[-*+][^\S\n]+\[[xX ]\]
+    )
+    |
     # Footnote definition:
     #
     #   [^id]: body
@@ -136,7 +155,7 @@ _RE = re.compile(
     #       body on next line
     #
     (?P<footdef>
-        ^[^\S\n]{0,3}\[\^(?P<footdef_id>[^\]]+)\]:[^\S\n]*
+        ^[^\S\n]*\[\^(?P<footdef_id>[^\]]+)\]:[^\S\n]*
         (?P<footdef_body>[^\n]*(?:\n[^\S\n]+[^\n]+)*)
     )
     |
@@ -146,7 +165,7 @@ _RE = re.compile(
     #   [id]: href "optional title"
     #
     (?P<linkdef>
-        ^[^\S\n]{0,3}\[(?P<linkdef_id>[^\]]+)\]:[^\S\n]+
+        ^[^\S\n]*\[(?P<linkdef_id>[^\]]+)\]:[^\S\n]*
         (?P<linkdef_href>\S+)[^\n]*$
     )
     |
@@ -179,12 +198,13 @@ _RE = re.compile(
     # Image reference:
     #
     #   ![alt][id]
+    #   ![alt]\n[id]   (label on next line)
     #   ![alt][]       (collapsed)
     #   ![alt]         (shortcut)
     #
     (?P<imageref>
         !\[(?P<imageref_alt>[^\]]*)\]
-        (?:\[(?P<imageref_id>[^\]]*)\])?
+        (?:[^\S\n]*\n?[^\S\n]*\[(?![\^])(?P<imageref_id>[^\]]*)\])?
     )
     |
     # Inline link:
@@ -205,15 +225,24 @@ _RE = re.compile(
         <(?P<autolink_href>https?://[^>]+)>
     )
     |
+    # Abbreviation definitions:
+    #
+    #   *[HTML]: Hyper Text Markup Language
+    #
+    (?P<abbr>
+        ^\*\[(?P<abbr_text>[^\]]+)\]:[^\n]*$
+    )
+    |
     # Link reference:
     #
     #   [text][id]
+    #   [text]\n[id]   (label on next line)
     #   [text][]       (collapsed)
     #   [text]         (shortcut)
     #
     (?P<linkref>
         \[(?P<linkref_text>[^\]]+)\]
-        (?:\[(?P<linkref_id>[^\]]*)\])?
+        (?:[^\S\n]*\n?[^\S\n]*\[(?![\^])(?P<linkref_id>[^\]]*)\])?
     )
     """,
     re.VERBOSE | re.MULTILINE,
@@ -223,21 +252,25 @@ Match link-like constructs in Markdown.
 
 **Extraction and matching order**
 
-References are extracted via the compiled regex in this module (`_RE`). The
-regex uses alternation with carefully ordered branches - specificity matters:
+References are extracted via the compiled regex. The regex uses alternation
+with carefully ordered branches - specificity matters:
 
-1. **Footnote definition** - `[^id]: body` (block-level, can span lines)
-2. **Link definition** - `[id]: href` (block-level, with optional title)
-3. **Footnote reference** - `[^id]` (inline)
-4. **Wikilink** - `[[target]]` (inline, standalone syntax)
-5. **Inline image** - `![alt](href)` (inline)
-6. **Image reference** - `![alt][id]`, `![alt][]`, `![alt]` (inline)
-7. **Inline link** - `[text](href)` (inline)
-8. **Autolink** - `<https://...>` (inline, angle-bracket syntax)
-9. **Link reference** - `[text][id]`, `[text][]`, `[text]` (inline)
+- **Escaped characters** - `[` `]` `!` `*` (skipped, not treated as references)
+- **Task list checkbox** - `- [ ]` `- [x]` `- [X]`
+- **Footnote definition** - `[^id]: body` (block-level, can span lines)
+- **Link definition** - `[id]: href` (block-level, with optional title)
+- **Footnote reference** - `[^id]` (inline)
+- **Wikilink** - `[[target]]` (inline, standalone syntax)
+- **Inline image** - `![alt](href)` (inline)
+- **Image reference** - `![alt][id]`, `![alt][]`, `![alt]` (inline)
+- **Inline link** - `[text](href)` (inline)
+- **Autolink** - `<https://...>` (inline, angle-bracket syntax)
+- **Abbreviations** - `*[HTML]: Hyper Text Markup Language`
+- **Link reference** - `[text][id]`, `[text][]`, `[text]` (inline)
 
 **Why order matters**
 
+- Escaped characters are skipped and not treated as references.
 - Block-level definitions (footnote, link) are checked before inline patterns
   to avoid overlaps with similar bracket syntax.
 - Images must be checked before links: `![alt](href)` starts with `!`, but
@@ -262,7 +295,7 @@ In collapsed and shortcut forms, the reference id defaults to the visible text.
 # ----------------------------------------------------------------------------
 
 
-def references(markdown: str) -> Iterator[Reference]:
+def references(markdown: bytes, shift: int = 0) -> Iterator[Reference]:
     """Scan Markdown and yield all references.
 
     Performs a single left-to-right pass over the given Markdown by using an
@@ -270,89 +303,91 @@ def references(markdown: str) -> Iterator[Reference]:
     state is carried between matches. Results can be collected into a list
     or processed lazily.
     """
+    exclude = iter(exclusions(markdown))
+    current = next(exclude, None)
     for match in _RE.finditer(markdown):
         kind = match.lastgroup
 
-        # Extract the start and end positions of the full match, as well as the
-        # matched text, and build a partial function to extract spans
-        start, end = match.start(), match.end()
-        value, range = markdown[start:end], slice(start, end)
-        span = partial(_span, markdown, match)
+        # Extract the start and end positions of the full match, and build a
+        # partial function to extract spans from named capture groups
+        start, end = shift + match.start(), shift + match.end()
+        span = partial(_span, shift, match)
+
+        # Advance past exclusions that end before this match
+        while current and current.end <= start:
+            current = next(exclude, None)
+
+        # If the current exclusion covers the match, skip it
+        if current and current.contains(start):
+            continue
 
         # Inline link
         if kind == "link":
             text, href = span("link_text"), span("link_href")
-            yield Link(value, range, "link", text, href)
+            yield Link(start, end, "link", text, href)
 
         # Inline image
         elif kind == "image":
             text, href = span("image_alt"), span("image_href")
-            yield Link(value, range, "image", text, href)
+            yield Link(start, end, "image", text, href)
 
         # Image reference
         elif kind == "imageref":
             text = span("imageref_alt")
-            id = _id_span(markdown, match, "imageref_id") or text
-            yield LinkReference(value, range, "image", text, id)
+            id = _span_for_id(shift, match, "imageref_id") or text
+            yield LinkReference(start, end, "image", text, id)
 
         # Link reference
         elif kind == "linkref":
             text = span("linkref_text")
-            id = _id_span(markdown, match, "linkref_id") or text
-            yield LinkReference(value, range, "link", text, id)
+            id = _span_for_id(shift, match, "linkref_id") or text
+            yield LinkReference(start, end, "link", text, id)
 
         # Link definition
         elif kind == "linkdef":
             id, href = span("linkdef_id"), span("linkdef_href")
-            yield LinkDefinition(value, range, id, href)
+            yield LinkDefinition(start, end, id, href)
 
         # Footnote reference
         elif kind == "footref":
             id = span("footref_id")
-            yield FootnoteReference(value, range, id)
+            yield FootnoteReference(start, end, id)
 
         # Footnote definition
         elif kind == "footdef":
             id, body = span("footdef_id"), span("footdef_body")
-            yield FootnoteDefinition(value, range, id, body)
+            yield FootnoteDefinition(start, end, id, body)
+
+            # Recurse into footnote body to extract nested references, shifting
+            # the content to account for the position of the Markdown body
+            yield from references(
+                markdown[body.start : body.end], shift + body.start
+            )
 
         # Wikilink
         elif kind == "wikilink":
             text = span("wikilink_text")
-            yield Link(value, range, "wikilink", text, text)
+            yield Link(start, end, "wikilink", text, text)
 
         # Autolink
         elif kind == "autolink":
             href = span("autolink_href")
-            yield Link(value, range, "autolink", href, href)
+            yield Link(start, end, "autolink", href, href)
 
 
 # ----------------------------------------------------------------------------
 
 
-def _span(markdown: str, match: Match[str], name: str) -> Span:
+def _span(shift: int, match: Match[bytes], name: str) -> Span:
     """Build a span for a named capture group within a match."""
     start, end = match.start(name), match.end(name)
-    return Span(markdown[start:end], slice(start, end))
+    return Span(shift + start, shift + end)
 
 
-def _id_span(markdown: str, match: Match[str], name: str) -> Span | None:
-    """Build a reference id span for a named capture group within a match."""
-    if not match.group(name):
-        return None
+def _span_for_id(shift: int, match: Match[bytes], name: str) -> Span | None:
+    """Build an id span for a named capture group within a match."""
+    if match.group(name):
+        return _span(shift, match, name)
 
-    # Extract the start and end positions of the matched id text, and normalize
-    # it for lookup against link and footnote definitions
-    start, end = match.start(name), match.end(name)
-    return Span(_normalize(markdown[start:end]), slice(start, end))
-
-
-def _normalize(markdown: str) -> str:
-    """Normalize a reference id for lookup, collapsing internal whitespace.
-
-    Markdown allows reference labels with flexible whitespace. This function
-    normalizes them by collapsing runs of whitespace (spaces, tabs, newlines)
-    to a single space and lowercasing the result, matching how Markdown parsers
-    treat reference lookup.
-    """
-    return " ".join(markdown.split()).lower()
+    # Return nothing
+    return None

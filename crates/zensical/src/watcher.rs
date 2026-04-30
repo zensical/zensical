@@ -239,7 +239,6 @@ impl Watcher {
         });
 
         // Watch docs and template directories
-        agent.watch(config.get_docs_dir())?;
         agent.watch(&config.path)?;
         for theme_dir in &config.theme_dirs {
             agent.watch(theme_dir)?;
@@ -261,6 +260,7 @@ impl Watcher {
         agent.watch(&site_dir)?;
 
         // Return file watcher
+        agent.watch(config.get_docs_dir())?;
         Ok(Self { agent })
     }
 

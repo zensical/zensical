@@ -36,6 +36,7 @@ use super::extra::ExtraScript;
 use super::mdx::MdxConfigs;
 use super::plugins::Plugins;
 use super::theme::Theme;
+use super::validation::Validation;
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -91,6 +92,8 @@ pub struct Project {
     pub plugins: Plugins,
     /// Navigation structure.
     pub nav: Vec<NavigationItem>,
+    /// Validation settings.
+    pub validation: Validation,
     /// Template hash.
     pub template_hash: u64,
     /// Plugins hash.

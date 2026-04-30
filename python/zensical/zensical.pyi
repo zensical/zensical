@@ -25,7 +25,7 @@
 # Functions
 # ----------------------------------------------------------------------------
 
-def build(config_file: str, clean: bool) -> None:
+def build(config_file: str, options: dict) -> None:
     """Builds the project."""
 
 def serve(config_file: str, options: dict) -> None:

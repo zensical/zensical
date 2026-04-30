@@ -25,7 +25,6 @@
 
 //! Workflow definitions
 
-use percent_encoding::percent_decode_str;
 use pyo3::types::PyAnyMethods;
 use pyo3::Python;
 use regex::Regex;
@@ -40,6 +39,7 @@ use zrx::scheduler::Key;
 use zrx::stream::{Barrier, Stream, Workflow};
 
 use super::config::Config;
+use super::python::{Anchors, Issues, References};
 use super::structure::markdown::Markdown;
 use super::structure::nav::Navigation;
 use super::structure::page::Page;
@@ -75,6 +75,8 @@ static SNIPPET_RE: LazyLock<Regex> =
 pub struct Main {
     /// Configuration.
     config: Config,
+    /// Strict mode.
+    strict: bool,
 }
 
 // ----------------------------------------------------------------------------
@@ -86,32 +88,21 @@ impl Module for Main {
     fn setup(&self, ctx: &mut Context) -> module::Result {
         let files = ctx.add::<Source>();
 
-        // Set up workflow to process static assets, as well as Markdown files, and
-        // create a barrier to wait for the completion of all Markdown files
+        // Set up workflow to process static assets, as well as Markdown files,
+        // and create a barrier to wait for the completion of all Markdown files
         process_theme_assets(&self.config, &files);
         process_assets(&self.config, &files);
         let markdown = process_markdown(&self.config, &files);
 
-        // Return condition waiting for all Markdown files
-        let docs_dir = self.config.project.docs_dir.clone();
-        let matcher = Matcher::from_str(&format!("zrs::::{docs_dir}:**/*.md:"))
-            .expect("invariant");
-        let barrier = Barrier::new(move |id: &Key<Id>| {
-            matcher.is_match(&id[0]).expect("invariant")
-        });
-
         // Generate pages, and use the barrier to ensure that all pages have been
         // processed, in order to create the navigation and search index
         let page = generate_page(&self.config, &markdown);
-        let pages = page.select([(
-            Key::from_iter([id!(
-                provider = "file",
-                context = ".",
-                location = "."
-            )
-            .unwrap()]),
-            barrier,
-        )]);
+        let pages = page.select([wait_for_markdown(&self.config)]);
+
+        // Collect all anchors and references from pages, to validate links
+        let references = collect_references(&files);
+        let anchors = collect_anchors(&page);
+        validate(&self.config, self.strict, references, anchors);
 
         // Generate navigation and search index
         let nav = generate_nav(&self.config, &pages);
@@ -130,6 +121,57 @@ impl Module for Main {
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
+
+// Return condition waiting for all Markdown files
+pub fn wait_for_markdown(config: &Config) -> (Key<Id>, Barrier<Id>) {
+    let docs_dir = config.project.docs_dir.clone();
+    let matcher = Matcher::from_str(&format!("zrs::::{docs_dir}:**/*.md:"))
+        .expect("invariant");
+
+    // Create barrier that waits for all Markdown files to be processed
+    let barrier = Barrier::new(move |id: &Key<Id>| {
+        matcher.is_match(&id[0]).expect("invariant")
+    });
+
+    // Create key for barrier
+    let id =
+        Key::from_iter([
+            id!(provider = "file", context = ".", location = ".").unwrap()
+        ]);
+
+    // Return both
+    (id, barrier)
+}
+
+/// Create a stream to collect references from all Markdown files.
+pub fn collect_references(
+    files: &Stream<Id, Source>,
+) -> Stream<Id, References> {
+    let matcher =
+        Arc::new(Matcher::from_str("zrs:::::**/*.md:").expect("invariant"));
+
+    // Create pipeline to collect references
+    files
+        .filter(move |id: &Id| matcher.is_match(id).expect("invariant"))
+        .map(|Source { path }| fs::read_to_string(&*path)?.parse())
+}
+
+/// Create a stream to collect anchors from pages.
+pub fn collect_anchors(pages: &Stream<Id, Page>) -> Stream<Id, Anchors> {
+    pages.map(move |page: Page| page.content.parse())
+}
+
+/// Create a stream to validate references against anchors.
+pub fn validate(
+    config: &Config, strict: bool, refs: Stream<Id, References>,
+    anchors: Stream<Id, Anchors>,
+) {
+    let combined = refs.join(&anchors).select([wait_for_markdown(config)]);
+    let validation = config.project.validation.clone();
+    combined
+        .map(Issues::new)
+        .inspect(move |issues: &Issues| issues.print(&validation, strict));
+}
 
 /// Create a stream to process static assets.
 pub fn process_assets(config: &Config, files: &Stream<Id, Source>) {
@@ -435,18 +477,15 @@ pub fn render_pages(
             .and_then(|data| {
                 let path = Path::new(&page.path);
                 fs::create_dir_all(path.parent().expect("invariant"))?;
-                fs::write(path, &*data).map_err(Into::into).inspect(|()| {
-                    let url = percent_decode_str(&page.url);
-                    println!("+ /{}", url.decode_utf8_lossy());
-                })
+                fs::write(path, &*data).map_err(Into::into)
             })
         })
 }
 
 /// Creates a workflow for the given config.
-pub fn create_workflow(config: &Config) -> Workflow<Id> {
+pub fn create_workflow(config: &Config, strict: bool) -> Workflow<Id> {
     let mut context = Context::default();
-    Main { config: config.clone() }
+    Main { config: config.clone(), strict }
         .setup(&mut context)
         .expect("invariant");
     context.into()

@@ -45,6 +45,7 @@ zensical-watch = { version = "0.0.5", path = "crates/zensical-watch" }
 
 ahash = "0.8"
 anyhow = "1.0.102"
+ariadne = "0.6.0"
 base64 = "0.22"
 crossbeam = "0.8"
 file-id = "0.2"
@@ -70,7 +71,7 @@ tracing-chrome = "0.7"
 tracing-subscriber = "0.3.23"
 walkdir = "2.5"
 webbrowser = "1.2.1"
-zrx = "0.0.23"
+zrx = "0.0.24"
 
 [workspace.dependencies.pyo3]
 version = "0.28.3"
