@@ -27,6 +27,7 @@
 
 use ahash::{HashMap, HashSet};
 use ariadne::{Color, Config, IndexType, Label, Report, ReportKind, Source};
+use percent_encoding::percent_decode_str;
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 use std::slice::Iter;
@@ -309,7 +310,7 @@ impl Issues {
                     {
                         continue;
                     }
-                    let link = resolve_relative(base, path)
+                    let link = resolve_relative(base, &decode_href(path))
                         .to_string_lossy()
                         .into_owned();
 
@@ -341,7 +342,7 @@ impl Issues {
                     {
                         continue;
                     }
-                    let link = resolve_relative(base, &href)
+                    let link = resolve_relative(base, &decode_href(&href))
                         .to_string_lossy()
                         .into_owned();
 
@@ -564,4 +565,9 @@ where
     }
     let base_dir = base.as_ref().parent().unwrap_or(Path::new(""));
     normalize(base_dir.join(href))
+}
+
+/// Decodes a percent-encoded URL.
+fn decode_href(href: &str) -> String {
+    percent_decode_str(href).decode_utf8_lossy().into_owned()
 }
