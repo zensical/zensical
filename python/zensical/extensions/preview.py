@@ -143,7 +143,7 @@ class PreviewExtension(ExtensionExt):
         }
         super().__init__(*args, **kwargs)
 
-    def extendMarkdown(self, md: MarkdownExt) -> None:  # noqa: N802
+    def extendMarkdown(self, md: MarkdownExt) -> None:
         """Register Markdown extension."""
         md.registerExtension(self)
 
@@ -188,6 +188,6 @@ def resolve(processor_path: str, url_path: str) -> str:
     return posixpath.join(*base_segments)
 
 
-def makeExtension(**kwargs: Any) -> PreviewExtension:  # noqa: N802
+def makeExtension(**kwargs: Any) -> PreviewExtension:
     """Register Markdown extension."""
     return PreviewExtension(**kwargs)

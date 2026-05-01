@@ -284,6 +284,6 @@ class GlightboxExtension(ExtensionExt):
 # -----------------------------------------------------------------------------
 
 
-def makeExtension(**kwargs: Any) -> GlightboxExtension:  # noqa: N802
+def makeExtension(**kwargs: Any) -> GlightboxExtension:
     """Register Markdown extension."""
     return GlightboxExtension(**kwargs)

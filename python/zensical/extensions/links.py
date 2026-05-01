@@ -137,7 +137,7 @@ class LinksExtension(ExtensionExt):
         self.path = path
         self.use_directory_urls = use_directory_urls
 
-    def extendMarkdown(self, md: MarkdownExt) -> None:  # noqa: N802
+    def extendMarkdown(self, md: MarkdownExt) -> None:
         """Register Markdown extension."""
         md.registerExtension(self)
 
