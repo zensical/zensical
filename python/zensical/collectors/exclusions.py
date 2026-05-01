@@ -68,6 +68,50 @@ _RE = re.compile(
         ^</(?P=tag)>[ \t]*$         # Closing tag
     )
     |
+    # Block math:
+    #
+    #   $$
+    #   ...
+    #   $$
+    #
+    (?P<math_block>
+        ^[^\S\n]*\$\$[^\S\n]*\n     # Opening $$ on its own line
+        .*?                         # Math content
+        ^[^\S\n]*\$\$[^\S\n]*$      # Closing $$ on its own line
+    )
+    |
+    # Block math (alternate):
+    #
+    #   \[
+    #   ...
+    #   \]
+    #
+    (?P<math_block_alt>
+        ^[^\S\n]*\\\[[^\S\n]*\n     # Opening \[ on its own line
+        .*?                         # Math content
+        ^[^\S\n]*\\\][^\S\n]*$      # Closing \] on its own line
+    )
+    |
+    # Inline math:
+    #
+    #   $f(x)$
+    #
+    (?P<math_inline>
+        (?<!\$)\$(?![\s$])          # Opening $, not preceded/followed by $
+        (?-s:.*?)                   # Math content (same line only)
+        (?<![\s$])\$(?!\$)          # Closing $, not preceded by space or $
+    )
+    |
+    # Inline math (alternate):
+    #
+    #   \(f(x)\)
+    #
+    (?P<math_inline_alt>
+        \\\(                        # Opening \(
+        (?-s:.*?)                   # Math content (same line only)
+        \\\)                        # Closing \)
+    )
+    |
     # Inline code blocks
     (?P<inline>
         (?P<ticks>`+)               # Opening backticks

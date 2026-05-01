@@ -27,6 +27,7 @@
 
 use ahash::{HashMap, HashSet};
 use ariadne::{Color, Config, IndexType, Label, Report, ReportKind, Source};
+use percent_encoding::percent_decode_str;
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 use std::slice::Iter;
@@ -296,18 +297,20 @@ impl Issues {
             let base = Path::new(&base);
             for (span, href) in mappings {
                 if let Some((path, anchor)) = href.split_once('#') {
-                    // Skip text fragments
-                    if anchor.starts_with(":~:") {
-                        continue;
-                    }
-                    if !path.is_empty()
-                        && !Path::new(path)
-                            .extension()
-                            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+                    let (anchor, len) = anchor
+                        .split_once(":~:")
+                        .map_or((anchor, 0), |(left, right)| {
+                            (left, right.len() + 3)
+                        });
+                    if anchor.is_empty()
+                        || !path.is_empty()
+                            && !Path::new(path).extension().is_some_and(|ext| {
+                                ext.eq_ignore_ascii_case("md")
+                            })
                     {
                         continue;
                     }
-                    let link = resolve_relative(base, path)
+                    let link = resolve_relative(base, &decode_href(path))
                         .to_string_lossy()
                         .into_owned();
 
@@ -318,7 +321,8 @@ impl Issues {
                             issues.push(Issue::InvalidLinkAnchor {
                                 path: base.into(),
                                 span: Span::from(
-                                    (span.start + path.len() + 1)..span.end,
+                                    (span.start + path.len() + 1)
+                                        ..span.end - len,
                                 ),
                                 href: href.clone(),
                                 anchor: anchor.to_string(),
@@ -338,7 +342,7 @@ impl Issues {
                     {
                         continue;
                     }
-                    let link = resolve_relative(base, &href)
+                    let link = resolve_relative(base, &decode_href(&href))
                         .to_string_lossy()
                         .into_owned();
 
@@ -561,4 +565,9 @@ where
     }
     let base_dir = base.as_ref().parent().unwrap_or(Path::new(""));
     normalize(base_dir.join(href))
+}
+
+/// Decodes a percent-encoded URL.
+fn decode_href(href: &str) -> String {
+    percent_decode_str(href).decode_utf8_lossy().into_owned()
 }
