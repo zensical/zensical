@@ -163,9 +163,13 @@ class GlightboxTreeprocessor(TreeprocessorExt):
         # Return element
         return el
 
-    def _resolve_gallery(self, img: Element) -> str:
+    def _resolve_gallery(self, img: Element) -> str | None:
         """Determine gallery group for an image."""
         src = img.get("data-src") or img.get("src") or ""
+
+        # Explicit gallery grouping takes precedence over auto-themed grouping
+        if gallery := img.get("data-gallery"):
+            return gallery
 
         # If auto-themed grouping is enabled, group images by light/dark mode
         # hints in the URL (e.g. from GitHub's light/dark mode image syntax)
@@ -175,8 +179,8 @@ class GlightboxTreeprocessor(TreeprocessorExt):
             if "#only-dark" in src or "#gh-dark-mode-only" in src:
                 return "dark"
 
-        # Explicit gallery grouping takes precedence over auto-themed grouping
-        return img.get("data-gallery") or ""
+        # No gallery grouping
+        return None
 
     def _find_parent(self, root: Element, target: Element) -> Element | None:
         """Return the direct parent of target within the element tree."""
