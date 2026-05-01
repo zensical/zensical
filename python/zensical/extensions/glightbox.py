@@ -209,7 +209,7 @@ class GlightboxPostprocessor(PostprocessorExt):
         """Wrap images in stashed HTML blocks."""
         for i, raw in enumerate(self.md.htmlStash.rawHtmlBlocks):
             if i not in self._processed:
-                self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(
+                self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(  # ty:ignore[no-matching-overload]
                     self._maybe_process, raw
                 )
                 self._processed.add(i)
