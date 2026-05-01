@@ -24,7 +24,8 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any, cast
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 from xml.etree.ElementTree import Element, ParseError, fromstring, tostring
 
 from zensical.markdown.extensions import ExtensionExt, MarkdownExt
@@ -45,6 +46,22 @@ _RE = re.compile(r"<img\s[^>]*?>", re.IGNORECASE)
 # -----------------------------------------------------------------------------
 
 
+@dataclass
+class GlightboxConfig:
+    """Configuration for the Glightbox Markdown extension."""
+
+    width: str = "auto"
+    height: str = "auto"
+    skip_classes: list[str] = field(default_factory=list)
+    auto: bool = True
+    auto_themed: bool = False
+    auto_caption: bool = False
+    caption_position: str = "bottom"
+
+
+# -----------------------------------------------------------------------------
+
+
 class GlightboxTreeprocessor(TreeprocessorExt):
     """Wraps image elements in anchor tags to integrate with GLightbox."""
 
@@ -52,15 +69,13 @@ class GlightboxTreeprocessor(TreeprocessorExt):
         {"emojione", "twemoji", "gemoji", "off-glb"}
     )
 
-    def __init__(self, md: MarkdownExt, config: dict[str, object]):
+    def __init__(self, md: MarkdownExt, config: GlightboxConfig):
         super().__init__(md)
         self.config = config
 
     def run(self, root: Element) -> None:
         """Walk the element tree and wrap images with anchors."""
-        skip_classes = self.SKIP_CLASSES | frozenset(
-            cast("list[str]", self.config.get("skip_classes") or [])
-        )
+        skip_classes = self.SKIP_CLASSES | frozenset(self.config.skip_classes)
 
         # Iterate over all images in the tree and wrap them with anchors
         for img in list(root.iter("img")):
@@ -74,7 +89,7 @@ class GlightboxTreeprocessor(TreeprocessorExt):
             return True
 
         # If manual mode is enabled, only wrap images explicitly marked
-        return not self.config.get("auto") and "on-glb" not in classes
+        return not self.config.auto and "on-glb" not in classes
 
     def _wrap_with_anchor(self, img: Element, root: Element) -> None:
         """Wrap an image with an anchor."""
@@ -106,16 +121,14 @@ class GlightboxTreeprocessor(TreeprocessorExt):
         el.set("data-type", "image")
 
         # Only set width/height if explicitly configured
-        if width := self.config.get("width"):
-            el.set("data-width", str(width))
-        if height := self.config.get("height"):
-            el.set("data-height", str(height))
+        if self.config.width != "auto":
+            el.set("data-width", self.config.width)
+        if self.config.height != "auto":
+            el.set("data-height", self.config.height)
 
-        # Set image title
-        auto_caption = bool(self.config.get("auto_caption", False))
-        title = img.get("data-title") or (
-            img.get("alt") if auto_caption else None
-        )
+        # Set image title, or auto-caption from alt if enabled
+        alt = img.get("alt") if self.config.auto_caption else None
+        title = img.get("data-title", alt)
         if title:
             el.set("data-title", title)
 
@@ -124,11 +137,11 @@ class GlightboxTreeprocessor(TreeprocessorExt):
             el.set("data-description", description)
 
         # Set image description position
-        if caption_position := (
-            img.get("data-caption-position")
-            or self.config.get("caption_position")
-        ):
-            el.set("data-desc-position", str(caption_position))
+        caption_position = img.get(
+            "data-caption-position", self.config.caption_position
+        )
+        if caption_position and caption_position != "bottom":
+            el.set("data-desc-position", caption_position)
 
         # Set gallery grouping
         if gallery := self._resolve_gallery(img):
@@ -156,7 +169,7 @@ class GlightboxTreeprocessor(TreeprocessorExt):
 
         # If auto-themed grouping is enabled, group images by light/dark mode
         # hints in the URL (e.g. from GitHub's light/dark mode image syntax)
-        if self.config.get("auto_themed"):
+        if self.config.auto_themed:
             if "#only-light" in src or "#gh-light-mode-only" in src:
                 return "light"
             if "#only-dark" in src or "#gh-dark-mode-only" in src:
@@ -182,14 +195,14 @@ class GlightboxPostprocessor(PostprocessorExt):
     parse and modify the HTML with an actual parser.
     """
 
-    def __init__(self, md: MarkdownExt, config: dict[str, object]):
+    def __init__(self, md: MarkdownExt, processor: GlightboxTreeprocessor):
         super().__init__(md)
-        self._processor = GlightboxTreeprocessor(md, config)
+        self._processor = processor
         self._processed: set[int] = set()
 
         # Source classes to skip from postprocessor
         self._skip_classes = GlightboxTreeprocessor.SKIP_CLASSES | frozenset(
-            cast("list[str]", config.get("skip_classes") or [])
+            processor.config.skip_classes
         )
 
     def run(self, text: str) -> str:
@@ -258,22 +271,23 @@ class GlightboxExtension(ExtensionExt):
                 "Use img alt attribute as the caption when no title is set.",
             ],
             "caption_position": [
-                None,
+                "bottom",
                 "Default caption position: bottom, top, left, or right.",
             ],
         }
         super().__init__(**kwargs)
 
-    def extendMarkdown(self, md: MarkdownExt) -> None:  # noqa: N802
+    def extendMarkdown(self, md: MarkdownExt) -> None:
         """Register Markdown extension."""
         md.registerExtension(self)
+        config = GlightboxConfig(**self.getConfigs())
 
         # Register treeprocessor - run after `attr_list` (priority 8)
-        treeprocessor = GlightboxTreeprocessor(md, self.getConfigs())
+        treeprocessor = GlightboxTreeprocessor(md, config)
         md.treeprocessors.register(treeprocessor, "glightbox", 7)
 
         # Register postprocessor - run before `raw_html` (priority 30)
-        postprocessor = GlightboxPostprocessor(md, self.getConfigs())
+        postprocessor = GlightboxPostprocessor(md, treeprocessor)
         md.postprocessors.register(postprocessor, "glightbox", 31)
 
 
@@ -282,6 +296,6 @@ class GlightboxExtension(ExtensionExt):
 # -----------------------------------------------------------------------------
 
 
-def makeExtension(**kwargs: Any) -> GlightboxExtension:  # noqa: N802
+def makeExtension(**kwargs: Any) -> GlightboxExtension:
     """Register Markdown extension."""
     return GlightboxExtension(**kwargs)

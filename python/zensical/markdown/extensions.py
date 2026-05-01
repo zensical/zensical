@@ -47,7 +47,6 @@ class ExtensionExt(Extension):
     `MarkdownExt` instance, which includes the page and configuration.
     """
 
-    def extendMarkdown(self, md: MarkdownExt) -> None:  # noqa: N802  # ty:ignore[invalid-method-override]
+    def extendMarkdown(self, md: MarkdownExt) -> None:  # ty:ignore[invalid-method-override]
         """Register Markdown extension."""
         super().extendMarkdown(md)
-

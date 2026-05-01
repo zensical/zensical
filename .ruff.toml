@@ -56,6 +56,7 @@ ignore = [
     "ERA001",  # Commented out code
     "FBT001",  # Boolean positional parameter in function signature
     "FBT003",  # Boolean positional value in function call
+    "N802",  # Function name should be lowercase
     "G004",  # Logging statement uses f-string
     "PLR0911",  # Too many return statements
     "PLR0912",  # Too many branches
@@ -100,4 +101,3 @@ convention = "google"
 [format]
 docstring-code-format = true
 docstring-code-line-length = 80
-

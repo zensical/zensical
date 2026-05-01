@@ -78,13 +78,13 @@ class SearchExtension(ExtensionExt):
         self.config = {"keep": [set(), "Set of HTML tags to keep in output"]}
         super().__init__(**kwargs)
 
-    def extendMarkdown(self, md: MarkdownExt) -> None:  # noqa: N802
+    def extendMarkdown(self, md: MarkdownExt) -> None:
         """Register the PostProcessor with Markdown."""
         processor = SearchProcessor(md)
         md.postprocessors.register(processor, "search", 0)
 
 
-def makeExtension(**kwargs: Any) -> SearchExtension:  # noqa: N802
+def makeExtension(**kwargs: Any) -> SearchExtension:
     """Factory function for creating the extension."""
     return SearchExtension(**kwargs)
 

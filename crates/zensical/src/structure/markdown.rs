@@ -26,7 +26,7 @@
 //! Markdown rendering.
 
 use anyhow::Result;
-use pyo3::types::PyAnyMethods;
+use pyo3::types::{PyAnyMethods, PyTracebackMethods};
 use pyo3::{FromPyObject, Python};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -85,12 +85,21 @@ impl Markdown {
             module
                 .call_method1("render", (content, id.location(), url))?
                 .extract::<Markdown>()
+        })
+        .map_err(|err| {
+            Python::attach(|py| {
+                let traceback = err
+                    .traceback(py)
+                    .and_then(|tb| tb.format().ok())
+                    .unwrap_or_default();
+                anyhow::anyhow!("Python error: {err}\n{traceback}")
+            })
         });
 
         // Explicitly drop the lock guard here, so we're sure to hold it just
         // until after Python finished executing the rendering logic
         drop(guard);
-        res.map_err(Into::into).map(|markdown| Markdown {
+        res.map(|markdown| Markdown {
             title: extract_title(&id, &markdown),
             meta: markdown.meta,
             content: markdown.content,
