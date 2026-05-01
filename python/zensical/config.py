@@ -581,13 +581,13 @@ def _apply_defaults(config: dict, path: str) -> dict:
         plugin = config["plugins"]["glightbox"]["config"]
         config["markdown_extensions"].append(
             glightbox.makeExtension(  # ty:ignore[invalid-argument-type]
-                width=plugin.get("width"),
-                height=plugin.get("height"),
-                skip_classes=plugin.get("skip_classes"),
+                width=plugin.get("width", "auto"),
+                height=plugin.get("height", "auto"),
+                skip_classes=plugin.get("skip_classes", []),
                 auto=not plugin.get("manual", False),
-                auto_themed=plugin.get("auto_themed"),
-                auto_caption=plugin.get("auto_caption"),
-                caption_position=plugin.get("caption_position"),
+                auto_themed=plugin.get("auto_themed", False),
+                auto_caption=plugin.get("auto_caption", False),
+                caption_position=plugin.get("caption_position", "bottom"),
             )
         )
 
