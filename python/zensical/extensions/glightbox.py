@@ -124,10 +124,12 @@ class GlightboxTreeprocessor(TreeprocessorExt):
             el.set("data-description", description)
 
         # Set image description position
-        if caption_position := (
-            img.get("data-caption-position")
-            or self.config.get("caption_position")
-        ):
+        if (
+            caption_position := (
+                img.get("data-caption-position")
+                or self.config.get("caption_position")
+            )
+        ) and caption_position != "bottom":
             el.set("data-desc-position", str(caption_position))
 
         # Set gallery grouping
@@ -258,7 +260,7 @@ class GlightboxExtension(ExtensionExt):
                 "Use img alt attribute as the caption when no title is set.",
             ],
             "caption_position": [
-                None,
+                "bottom",
                 "Default caption position: bottom, top, left, or right.",
             ],
         }
