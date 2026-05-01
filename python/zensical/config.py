@@ -418,10 +418,10 @@ def _apply_defaults(config: dict, path: str) -> dict:
                 validation, config["validation"]
             )
 
-        # Read nested links validation settings, if present
+        # Hoist links configuration to the top level, if present
         input = config["validation"]
         if "links" in input:
-            input = input["links"]
+            input.update(input.pop("links"))
 
         # We only support a subset of MkDocs' validation settings, so we ignore
         # the ones we don't support. We also map info to warn for simplicity.
