@@ -137,7 +137,14 @@ where
     pub fn poll(
         &mut self, receiver: Option<&Receiver<String>>,
     ) -> Result<bool> {
-        self.events.poll(Some(Duration::from_secs(10)))?;
+        if let Err(err) = self.events.poll(Some(Duration::from_secs(10))) {
+            if !matches!(
+                err,
+                Error::Io(ref io) if io.kind() == ErrorKind::Interrupted
+            ) {
+                return Err(err);
+            }
+        }
 
         // Check if we need to clean up timed out connections
         let now = Instant::now();
