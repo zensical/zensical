@@ -171,7 +171,7 @@ impl Issues {
             // Associate anchors with their location for lookup
             contents.insert(path.clone(), references.markdown().to_string());
             anchor_map.insert(
-                path.clone(),
+                to_slash(&path),
                 anchors.into_iter().cloned().collect::<HashSet<_>>(),
             );
 
@@ -198,7 +198,7 @@ impl Issues {
                     }
                 }
             }
-            link_map.insert(id.location().into_owned(), mappings);
+            link_map.insert(to_slash(id.location().as_ref()), mappings);
 
             // Initialize link and footnote definitions
             let mut link_defs = HashMap::default();
@@ -294,7 +294,8 @@ impl Issues {
 
         // Check links across pages for issues
         for (base, mappings) in link_map {
-            let base = Path::new(&base);
+            let base_str = to_slash(&base);
+            let base = Path::new(&base_str);
             for (span, href) in mappings {
                 if let Some((path, anchor)) = href.split_once('#') {
                     let (anchor, len) = anchor
@@ -310,9 +311,10 @@ impl Issues {
                     {
                         continue;
                     }
-                    let link = resolve_relative(base, &decode_href(path))
-                        .to_string_lossy()
-                        .into_owned();
+                    let link = to_slash(
+                        &resolve_relative(base, &decode_href(path))
+                            .to_string_lossy(),
+                    );
 
                     // Check if the link exists, and if it does, whether the
                     // anchor exists on the target page
@@ -342,9 +344,10 @@ impl Issues {
                     {
                         continue;
                     }
-                    let link = resolve_relative(base, &decode_href(&href))
-                        .to_string_lossy()
-                        .into_owned();
+                    let link = to_slash(
+                        &resolve_relative(base, &decode_href(&href))
+                            .to_string_lossy(),
+                    );
 
                     if !anchor_map.contains_key(&link) {
                         issues.push(Issue::InvalidLink {
@@ -570,4 +573,10 @@ where
 /// Decodes a percent-encoded URL.
 fn decode_href(href: &str) -> String {
     percent_decode_str(href).decode_utf8_lossy().into_owned()
+}
+
+/// Converts a path string to use forward slashes for consistent cross-platform
+/// map key comparisons, since markdown hrefs always use forward slashes.
+fn to_slash(path: &str) -> String {
+    path.replace('\\', "/")
 }
