@@ -44,12 +44,12 @@ _RE = re.compile(
     |
     # Fenced code blocks
     (?P<fenced>
-        ^(?P<indent>[^\S\n]*)       # Capture leading indentation
+        ^(?P<indent>[ \t]*)         # Capture leading indentation
         (?P<fence>`{3,}|~{3,})      # Capture fence character and length
-        [^\n]*\n                    # Optional info string
+        [^\r\n]*\r?\n               # Optional info string
         .*?                         # Block content
         ^[ \t]*(?P=fence)[`~]*      # Closing fence: same type, at least as long
-        [^\n]*(\n|$)                # Optional trailing content
+        [^\r\n]*(\r?\n|$)           # Optional trailing content
     )
     |
     # HTML comments (block and inline)
@@ -62,9 +62,9 @@ _RE = re.compile(
     # HTML blocks
     (?P<html>
         ^<(?P<tag>\w+)              # Opening block-level tag
-        (?P<attrs>[^\S\n][^>]*)?    # Optional attributes (captured)
-        >[ \t]*\n                   # Close of tag, end of line
-        .*?                         # Block content
+        (?P<attrs>[ \t][^>]*)?      # Optional attributes (captured)
+        >[ \t]*\r?\n                # Close of tag, end of line
+        (?:(?!^<(?P=tag)[\s>]).)*?  # Block content, stop before same tag
         ^</(?P=tag)>[ \t]*$         # Closing tag
     )
     |
@@ -75,9 +75,9 @@ _RE = re.compile(
     #   $$
     #
     (?P<math_block>
-        ^[^\S\n]*\$\$[^\S\n]*\n     # Opening $$ on its own line
+        ^[ \t]*\$\$[ \t]*\r?\n      # Opening $$ on its own line
         .*?                         # Math content
-        ^[^\S\n]*\$\$[^\S\n]*$      # Closing $$ on its own line
+        ^[ \t]*\$\$[ \t]*$          # Closing $$ on its own line
     )
     |
     # Block math (alternate):
@@ -87,9 +87,9 @@ _RE = re.compile(
     #   \]
     #
     (?P<math_block_alt>
-        ^[^\S\n]*\\\[[^\S\n]*\n     # Opening \[ on its own line
+        ^[ \t]*\\\[[ \t]*\r?\n      # Opening \[ on its own line
         .*?                         # Math content
-        ^[^\S\n]*\\\][^\S\n]*$      # Closing \] on its own line
+        ^[ \t]*\\\][ \t]*$          # Closing \] on its own line
     )
     |
     # Inline math:
