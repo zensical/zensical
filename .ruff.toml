@@ -24,6 +24,7 @@
 target-version = "py310"
 line-length = 80
 fix = true
+output-format = "concise"
 
 [lint]
 select = ["ALL"]
