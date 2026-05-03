@@ -118,6 +118,19 @@ fn wait_for_touch(path: &Path) -> io::Result<bool> {
     Ok(true)
 }
 
+/// Clears the contents of a directory without removing the directory itself.
+fn clear_dir(dir: &Path) -> io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            std::fs::remove_dir_all(&path)?;
+        } else {
+            std::fs::remove_file(&path)?;
+        }
+    }
+    Ok(())
+}
+
 /// Run the build process.
 fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     #[cfg(feature = "tracing")]
@@ -152,11 +165,10 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     // Always clean site directory before building for now - we're working on
     // true differential builds, which will also include cleaning up old files
     // that are not needed anymore but for now, we just remove everything, like
-    // MkDocs does it.
+    // MkDocs does it, but not the directory itself, see https://t.ly/Lrjdx
     let site_dir = config.get_site_dir();
     if site_dir.exists() {
-        std::fs::remove_dir_all(&site_dir)
-            .expect("site directory could not be removed");
+        clear_dir(&site_dir).expect("site directory could not be cleaned");
     }
 
     // Determine if strict mode is enabled
