@@ -48,8 +48,8 @@ _RE = re.compile(
         (?P<fence>`{3,}|~{3,})      # Capture fence character and length
         [^\n]*\n                    # Optional info string
         .*?                         # Block content
-        ^(?P=indent)(?P=fence)      # Closing fence must match indent + fence
-        [^\n]*$                     # Optional trailing content
+        ^[ \t]*(?P=fence)[`~]*      # Closing fence: same type, at least as long
+        [^\n]*(\n|$)                # Optional trailing content
     )
     |
     # HTML comments (block and inline)
