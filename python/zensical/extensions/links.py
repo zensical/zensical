@@ -56,6 +56,9 @@ _RE = re.compile(
 class LinksTreeprocessor(Treeprocessor):
     """Rewrites relative links."""
 
+    # We don't use a dataclass for config here because
+    # mkdocstrings reuses the current signature to forward
+    # the processor to its inner Markdown instances.
     def __init__(self, md: Markdown, path: str, use_directory_urls: bool):
         super().__init__(md)
         self.path = path
@@ -86,6 +89,9 @@ class LinksPostprocessor(Postprocessor):
     inside raw HTML are handled consistently as well.
     """
 
+    # We don't use a dataclass for config here because
+    # mkdocstrings reuses the current signature to forward
+    # the processor to its inner Markdown instances.
     def __init__(self, md: Markdown, path: str, use_directory_urls: bool):
         self.md: Markdown = md
         self._path = path

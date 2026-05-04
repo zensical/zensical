@@ -53,6 +53,9 @@ class Page:
         self.meta: dict = meta if meta is not None else {}
 
 
+# This processor doesn't follow the usual pattern
+# of receiving its configuration as a dataclass,
+# because it only exists to store the rendering context.
 class ContextPreprocessor(Preprocessor):
     """Preprocessor to store rendering context."""
 

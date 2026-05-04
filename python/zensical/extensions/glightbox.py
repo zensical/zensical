@@ -200,6 +200,8 @@ class GlightboxPostprocessor(Postprocessor):
     parse and modify the HTML with an actual parser.
     """
 
+    # We don't use a dataclass for config here and instead pass
+    # the treeprocessor because we reuse some of its logic.
     def __init__(self, md: Markdown, processor: GlightboxTreeprocessor):
         self.md: Markdown = md
         self._processor = processor
@@ -254,38 +256,14 @@ class GlightboxExtension(Extension):
     are processed by Markdown.
     """
 
-    def __init__(self, **kwargs: object):
+    def __init__(self, **kwargs: Any) -> None:
         """Initialize the extension."""
-        self.config: dict[str, list[object]] = {
-            "width": ["auto", "Width of the lightbox overlay."],
-            "height": ["auto", "Height of the lightbox overlay."],
-            "skip_classes": [
-                [],
-                "List of image CSS classes to exclude from lightbox wrapping.",
-            ],
-            "auto": [
-                True,
-                "Only wrap images that explicitly carry the on-glb CSS class.",
-            ],
-            "auto_themed": [
-                False,
-                "Group light/dark mode images into separate galleries.",
-            ],
-            "auto_caption": [
-                False,
-                "Use img alt attribute as the caption when no title is set.",
-            ],
-            "caption_position": [
-                "bottom",
-                "Default caption position: bottom, top, left, or right.",
-            ],
-        }
-        super().__init__(**kwargs)
+        self._kwargs = kwargs
 
     def extendMarkdown(self, md: Markdown) -> None:
         """Register Markdown extension."""
         md.registerExtension(self)
-        config = GlightboxConfig(**self.getConfigs())
+        config = GlightboxConfig(**self._kwargs)
 
         # Register treeprocessor - run after `attr_list` (priority 8)
         treeprocessor = GlightboxTreeprocessor(md, config)

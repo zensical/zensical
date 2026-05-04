@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import posixpath
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -43,6 +44,18 @@ if TYPE_CHECKING:
 # -----------------------------------------------------------------------------
 
 
+@dataclass
+class PreviewConfig:
+    """Configuration for the Preview Markdown extension."""
+
+    configurations: list[dict[str, Any]] = field(default_factory=list)
+    sources: dict[str, Any] = field(default_factory=dict)
+    targets: dict[str, Any] = field(default_factory=dict)
+
+
+# -----------------------------------------------------------------------------
+
+
 class PreviewProcessor(Treeprocessor):
     """A Markdown treeprocessor to enable instant previews on links.
 
@@ -50,7 +63,7 @@ class PreviewProcessor(Treeprocessor):
     registered programmatically before rendering a page.
     """
 
-    def __init__(self, md: Markdown, config: dict):
+    def __init__(self, md: Markdown, config: PreviewConfig):
         """Initialize the treeprocessor."""
         self.md: Markdown = md
         self.config = config
@@ -73,11 +86,11 @@ class PreviewProcessor(Treeprocessor):
             raise TypeError("Links processor not registered")
 
         # Normalize configurations
-        configurations = self.config["configurations"]
+        configurations = self.config.configurations
         configurations.append(
             {
-                "sources": self.config.get("sources"),
-                "targets": self.config.get("targets"),
+                "sources": self.config.sources,
+                "targets": self.config.targets,
             }
         )
 
@@ -137,14 +150,9 @@ class PreviewExtension(Extension):
     add previews to links in a programmatic way.
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         """Initialize the extension."""
-        self.config = {
-            "configurations": [[], "Filter configurations"],
-            "sources": [{}, "Link sources"],
-            "targets": [{}, "Link targets"],
-        }
-        super().__init__(*args, **kwargs)
+        self._kwargs = kwargs
 
     def extendMarkdown(self, md: Markdown) -> None:
         """Register Markdown extension."""
@@ -154,7 +162,7 @@ class PreviewExtension(Extension):
         # `relpath` treeprocessor, the latter of which is guaranteed to run
         # after our treeprocessor, so we can check the original Markdown URIs
         # before they are resolved to URLs.
-        processor = PreviewProcessor(md, self.getConfigs())
+        processor = PreviewProcessor(md, PreviewConfig(**self._kwargs))
         md.treeprocessors.register(processor, "preview", 0)
 
 

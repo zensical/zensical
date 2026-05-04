@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from html import escape
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Any
@@ -39,11 +40,22 @@ if TYPE_CHECKING:
 # -----------------------------------------------------------------------------
 
 
+@dataclass
+class SearchConfig:
+    """Configuration for the Search Markdown extension."""
+
+    keep: set[str] = field(default_factory=set)
+
+
+# -----------------------------------------------------------------------------
+
+
 class SearchProcessor(Postprocessor):
     """Post processor to extract searchable content from the rendered HTML."""
 
-    def __init__(self, md: Markdown) -> None:
+    def __init__(self, md: Markdown, config: SearchConfig) -> None:
         super().__init__(md)
+        self.config = config
         self.data: list[dict[str, Any]] = []
 
     def run(self, text: str) -> str:
@@ -81,12 +93,12 @@ class SearchExtension(Extension):
     """Markdown extension for search indexing."""
 
     def __init__(self, **kwargs: Any) -> None:
-        self.config = {"keep": [set(), "Set of HTML tags to keep in output"]}
-        super().__init__(**kwargs)
+        self._kwargs = kwargs
 
     def extendMarkdown(self, md: Markdown) -> None:
         """Register the PostProcessor with Markdown."""
-        processor = SearchProcessor(md)
+        config = SearchConfig(**self._kwargs)
+        processor = SearchProcessor(md, config)
         md.postprocessors.register(processor, "search", 0)
 
 
