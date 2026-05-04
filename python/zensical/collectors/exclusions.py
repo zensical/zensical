@@ -42,14 +42,14 @@ _RE = re.compile(
         \\`                         # Backslash followed by any character
     )
     |
-    # Fenced code blocks
-    (?P<fenced>
-        ^(?P<indent>[^\S\n]*)       # Capture leading indentation
+    # Code blocks
+    (?P<code>
+        ^(?P<indent>[ \t]*)         # Capture leading indentation
         (?P<fence>`{3,}|~{3,})      # Capture fence character and length
-        [^\n]*\n                    # Optional info string
+        [^\r\n]*\r?\n               # Optional info string
         .*?                         # Block content
-        ^(?P=indent)(?P=fence)      # Closing fence must match indent + fence
-        [^\n]*$                     # Optional trailing content
+        ^[ \t]*(?P=fence)[`~]*      # Closing fence: same type, at least as long
+        [^\r\n]*(\r?\n|$)           # Optional trailing content
     )
     |
     # HTML comments (block and inline)
@@ -59,13 +59,20 @@ _RE = re.compile(
         -->                         # Closing delimiter
     )
     |
-    # HTML blocks
+    # HTML blocks (single-line)
+    (?P<html_inline>
+        ^<(?P<tag_inline>\w+)               # Opening block-level tag
+        (?P<attrs_inline>[ \t][^>]*)?       # Optional attributes
+        ></(?P=tag_inline)>[ \t]*(\r?\n|$)  # Immediate closing tag
+    )
+    |
+    # HTML blocks (multi-line)
     (?P<html>
         ^<(?P<tag>\w+)              # Opening block-level tag
-        (?P<attrs>[^\S\n][^>]*)?    # Optional attributes (captured)
-        >[ \t]*\n                   # Close of tag, end of line
+        (?P<attrs>[ \t][^>]*)?      # Optional attributes (captured)
+        >[ \t]*\r?\n                # Close of tag, end of line
         .*?                         # Block content
-        ^</(?P=tag)>[ \t]*$         # Closing tag
+        ^</(?P=tag)>[ \t]*\r?$      # Closing tag
     )
     |
     # Block math:
@@ -75,9 +82,9 @@ _RE = re.compile(
     #   $$
     #
     (?P<math_block>
-        ^[^\S\n]*\$\$[^\S\n]*\n     # Opening $$ on its own line
+        ^[ \t]*\$\$[ \t]*\r?\n      # Opening $$ on its own line
         .*?                         # Math content
-        ^[^\S\n]*\$\$[^\S\n]*$      # Closing $$ on its own line
+        ^[ \t]*\$\$[ \t]*\r?$       # Closing $$ on its own line
     )
     |
     # Block math (alternate):
@@ -87,9 +94,9 @@ _RE = re.compile(
     #   \]
     #
     (?P<math_block_alt>
-        ^[^\S\n]*\\\[[^\S\n]*\n     # Opening \[ on its own line
+        ^[ \t]*\\\[[ \t]*\r?\n      # Opening \[ on its own line
         .*?                         # Math content
-        ^[^\S\n]*\\\][^\S\n]*$      # Closing \] on its own line
+        ^[ \t]*\\\][ \t]*\r?$       # Closing \] on its own line
     )
     |
     # Inline math:
@@ -113,7 +120,7 @@ _RE = re.compile(
     )
     |
     # Inline code blocks
-    (?P<inline>
+    (?P<code_inline>
         (?P<ticks>`+)               # Opening backticks
         .+?                         # Block content
         (?P=ticks)                  # Closing backticks (matching)
