@@ -66,6 +66,8 @@ ignore = [
     "RUF003",  # Ambiguous emdash/endash
     "SIM108",  # Consider ternary operator
     "SLF001", # Private member accessed
+    "TD002",  # Missing author in TODO
+    "TD003",  # Missing issue link in TODO
     "TRY003",  # Avoid specifying long messages outside the exception class
 ]
 
@@ -87,7 +89,8 @@ ignore = [
     "T201",  # Print statements
 ]
 "python/tests/**.py" = [
-    "D",  # Docstrings
+    "D",  # Docstrings rules
+    "PLR2004", # Magic value used in comparison
     "S101",  # Use of assert detected
 ]
 

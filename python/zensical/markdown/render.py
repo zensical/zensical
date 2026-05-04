@@ -127,7 +127,7 @@ def render(content: str, path: str, url: str) -> dict:
     if meta.get("search", {}).get("exclude", False):
         search_processor.data = []
 
-    # Sanitize metadata before passing it to Rust.
+    # Sanitize metadata before passing it to Rust
     meta = {k: _sanitize(v) for k, v in meta.items()}
 
     # Return Markdown with metadata
