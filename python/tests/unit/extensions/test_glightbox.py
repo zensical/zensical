@@ -26,10 +26,10 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from markdown import Markdown
 
 from zensical.extensions.emoji import to_svg, twemoji
 from zensical.extensions.glightbox import GlightboxExtension
-from zensical.markdown.extensions import MarkdownExt
 
 MINIMAL_EXTENSIONS = {"attr_list": {}}
 
@@ -76,10 +76,10 @@ _ACTIVE_EXTENSIONS = dict(MINIMAL_EXTENSIONS)
 def _make_md(
     extensions: dict[str, Any] | None = None,
     **kwargs: object,
-) -> MarkdownExt:
-    """Return a MarkdownExt instance with GlightboxExtension registered."""
+) -> Markdown:
+    """Return a Markdown instance with GlightboxExtension registered."""
     extensions = dict(extensions or MINIMAL_EXTENSIONS)
-    md = MarkdownExt(
+    md = Markdown(
         extensions=list(extensions.keys()), extension_configs=extensions
     )
     GlightboxExtension(**kwargs).extendMarkdown(md)
