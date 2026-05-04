@@ -593,12 +593,11 @@ def _apply_defaults(config: dict, path: str) -> dict:
             )
         )
 
-    # List all source files for mkdocstrings
-    config["source_files"] = _list_sources(config, path)
-
-    # List all snippet files referenced in pymdownx.snippets configuration,
-    # so we can watch them and trigger a rebuild when they change
-    config["snippet_files"] = _list_snippet_files(config, path)
+    # List files along with their hashes, so we can rebuild when they change
+    config["watched_files"] = sorted(
+        _list_sources(config, path)  # mkdocstrings
+        | _list_snippet_files(config, path)  # pymdownx.snippets
+    )
 
     # Hash all templates, so we rebuild if something changes
     config["template_hash"] = _hash(_list_templates(config))
@@ -666,7 +665,7 @@ def _list_py_modules(path: Path) -> Iterator[Path]:
                 yield Path(root, relfile)
 
 
-def _list_sources(config: dict, config_file: str) -> list[tuple[str, int]]:
+def _list_sources(config: dict, config_file: str) -> set[tuple[str, int]]:
     """List all absolute links to source files for mkdocstrings."""
     python_paths = (
         config["plugins"]
@@ -676,37 +675,37 @@ def _list_sources(config: dict, config_file: str) -> list[tuple[str, int]]:
         .get("python", {})
         .get("paths", ())
     )
-    files_with_hash = []
+    files_with_hash = set()
     root = Path(config_file).parent.resolve()
     for python_path in python_paths:
         path = root.joinpath(python_path).resolve()
         if path.is_dir() and path.is_relative_to(root) and path != root:
             for py_module in _list_py_modules(path):
-                files_with_hash.append(  # noqa: PERF401
+                files_with_hash.add(  # noqa: PERF401
                     (str(py_module), int(os.path.getmtime(py_module)))
                 )
-    return sorted(files_with_hash)
+    return files_with_hash
 
 
 def _list_snippet_files(
     config: dict, config_file: str
-) -> list[tuple[str, int]]:
+) -> set[tuple[str, int]]:
     """List files referenced in pymdownx.snippets auto_append configuration."""
     snippets_config = config["mdx_configs"].get("pymdownx.snippets", {})
     auto_append = snippets_config.get("auto_append", [])
     base_paths = snippets_config.get("base_path", ["."])
 
     root = Path(config_file).parent.resolve()
-    files_with_mtime = []
+    files_with_mtime = set()
     for file_name in auto_append:
         for base_path in base_paths:
             candidate = root.joinpath(base_path, file_name).resolve()
             if candidate.is_file():
                 mtime = int(os.path.getmtime(candidate))
-                files_with_mtime.append((str(candidate), mtime))
+                files_with_mtime.add((str(candidate), mtime))
                 break
 
-    return sorted(files_with_mtime)
+    return files_with_mtime
 
 
 def _list_templates(config: dict) -> list[tuple[str, int]]:

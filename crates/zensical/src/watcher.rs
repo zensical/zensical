@@ -95,15 +95,9 @@ impl Watcher {
             .iter()
             .map(|path| canonical_or_clone(path))
             .collect::<Vec<_>>();
-        let source_files = config
+        let watched_files = config
             .project
-            .source_files
-            .iter()
-            .map(|(path, _)| canonical_or_clone(path))
-            .collect::<BTreeSet<_>>();
-        let snippet_files = config
-            .project
-            .snippet_files
+            .watched_files
             .iter()
             .map(|(path, _)| canonical_or_clone(path))
             .collect::<BTreeSet<_>>();
@@ -157,15 +151,7 @@ impl Watcher {
 
                     // Check if one of the source files managed by mkdocstrings
                     // changed, and restart the build
-                    if source_files.contains(&event_path)
-                        && !seen.insert(event_path.clone())
-                    {
-                        return Err(Error::Disconnected);
-                    }
-
-                    // Check if one of the source files managed by the Snippets
-                    // Markdown extension changed, and restart the build
-                    if snippet_files.contains(&event_path)
+                    if watched_files.contains(&event_path)
                         && !seen.insert(event_path.clone())
                     {
                         return Err(Error::Disconnected);
@@ -244,13 +230,8 @@ impl Watcher {
             agent.watch(theme_dir)?;
         }
 
-        // Watch source files managed by mkdocstrings
-        for (path, _) in &config.project.source_files {
-            agent.watch(path)?;
-        }
-
-        // Watch source files managed by Snippets Markdown extension
-        for (path, _) in &config.project.snippet_files {
+        // Watch files used by extensions
+        for (path, _) in &config.project.watched_files {
             agent.watch(path)?;
         }
 
