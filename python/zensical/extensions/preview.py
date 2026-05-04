@@ -27,29 +27,32 @@ import posixpath
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
+from markdown import Extension
+from markdown.treeprocessors import Treeprocessor
+
 from zensical.extensions.links import LinksTreeprocessor
 from zensical.extensions.utilities.filter import Filter
-from zensical.markdown.extensions import ExtensionExt, MarkdownExt
-from zensical.markdown.processors import TreeprocessorExt
 
 if TYPE_CHECKING:
     from xml.etree.ElementTree import Element
+
+    from markdown import Markdown
 
 # -----------------------------------------------------------------------------
 # Classes
 # -----------------------------------------------------------------------------
 
 
-class PreviewProcessor(TreeprocessorExt):
+class PreviewProcessor(Treeprocessor):
     """A Markdown treeprocessor to enable instant previews on links.
 
     Note that this treeprocessor is dependent on the `links` treeprocessor
     registered programmatically before rendering a page.
     """
 
-    def __init__(self, md: MarkdownExt, config: dict):
+    def __init__(self, md: Markdown, config: dict):
         """Initialize the treeprocessor."""
-        super().__init__(md)
+        self.md: Markdown = md
         self.config = config
 
     def run(self, root: Element) -> None:
@@ -125,7 +128,7 @@ class PreviewProcessor(TreeprocessorExt):
 # -----------------------------------------------------------------------------
 
 
-class PreviewExtension(ExtensionExt):
+class PreviewExtension(Extension):
     """Markdown extension to enable instant previews on links.
 
     This extensions allows to automatically add the `data-preview` attribute to
@@ -143,7 +146,7 @@ class PreviewExtension(ExtensionExt):
         }
         super().__init__(*args, **kwargs)
 
-    def extendMarkdown(self, md: MarkdownExt) -> None:
+    def extendMarkdown(self, md: Markdown) -> None:
         """Register Markdown extension."""
         md.registerExtension(self)
 

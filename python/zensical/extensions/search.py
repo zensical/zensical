@@ -21,22 +21,28 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
+from __future__ import annotations
+
 from html import escape
 from html.parser import HTMLParser
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from zensical.markdown.extensions import ExtensionExt, MarkdownExt
-from zensical.markdown.processors import PostprocessorExt
+from markdown import Extension
+from markdown.postprocessors import Postprocessor
+
+if TYPE_CHECKING:
+    from markdown import Markdown
+
 
 # -----------------------------------------------------------------------------
 # Classes
 # -----------------------------------------------------------------------------
 
 
-class SearchProcessor(PostprocessorExt):
+class SearchProcessor(Postprocessor):
     """Post processor to extract searchable content from the rendered HTML."""
 
-    def __init__(self, md: MarkdownExt) -> None:
+    def __init__(self, md: Markdown) -> None:
         super().__init__(md)
         self.data: list[dict[str, Any]] = []
 
@@ -71,14 +77,14 @@ class SearchProcessor(PostprocessorExt):
         return text
 
 
-class SearchExtension(ExtensionExt):
+class SearchExtension(Extension):
     """Markdown extension for search indexing."""
 
     def __init__(self, **kwargs: Any) -> None:
         self.config = {"keep": [set(), "Set of HTML tags to keep in output"]}
         super().__init__(**kwargs)
 
-    def extendMarkdown(self, md: MarkdownExt) -> None:
+    def extendMarkdown(self, md: Markdown) -> None:
         """Register the PostProcessor with Markdown."""
         processor = SearchProcessor(md)
         md.postprocessors.register(processor, "search", 0)
