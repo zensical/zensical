@@ -318,7 +318,7 @@ def references(markdown: bytes, shift: int = 0) -> Iterator[Reference]:
             current = next(exclude, None)
 
         # If the current exclusion covers the match, skip it
-        if current and current.contains(start):
+        if current and (current.contains(start) or current.contains(end)):
             continue
 
         # Inline link

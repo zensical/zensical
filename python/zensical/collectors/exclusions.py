@@ -43,6 +43,11 @@ _RE = re.compile(
     )
     |
     # Code blocks
+    #
+    #   ```python
+    #   ...
+    #   ```
+    #
     (?P<code>
         ^(?P<indent>[ \t]*)         # Capture leading indentation
         (?P<fence>`{3,}|~{3,})      # Capture fence character and length
@@ -53,6 +58,9 @@ _RE = re.compile(
     )
     |
     # HTML comments (block and inline)
+    #
+    #   <!-- Comment content -->
+    #
     (?P<comment>
         <!--                        # Opening delimiter
         .*?                         # Comment content
@@ -60,6 +68,9 @@ _RE = re.compile(
     )
     |
     # HTML blocks (single-line)
+    #
+    #   <div>...</div>
+    #
     (?P<html_inline>
         ^<(?P<tag_inline>\w+)               # Opening block-level tag
         (?P<attrs_inline>[ \t][^>]*)?       # Optional attributes
@@ -67,6 +78,11 @@ _RE = re.compile(
     )
     |
     # HTML blocks (multi-line)
+    #
+    #   <div>
+    #   ...
+    #   </div>
+    #
     (?P<html>
         ^<(?P<tag>\w+)              # Opening block-level tag
         (?P<attrs>[ \t][^>]*)?      # Optional attributes (captured)
@@ -120,10 +136,41 @@ _RE = re.compile(
     )
     |
     # Inline code blocks
+    #
+    #   `code`
+    #
     (?P<code_inline>
         (?P<ticks>`+)               # Opening backticks
         .+?                         # Block content
         (?P=ticks)                  # Closing backticks (matching)
+    )
+    |
+    # Jinja2 block tags:
+    #
+    #   {% if ... %}
+    #   {% for ... %}
+    #   {% endif %}
+    #
+    (?P<jinja_block>
+        \{%-?[ \t]*.*?[ \t]*-?%\}
+    )
+    |
+    # Jinja2 variable expressions:
+    #
+    #   {{ variable }}
+    #   {{ obj[key] }}
+    #   {{ func(arg) }}
+    #
+    (?P<jinja_expr>
+        \{\{-?[ \t]*.*?[ \t]*-?\}\}
+    )
+    |
+    # Jinja2 comments:
+    #
+    #   {# ... #}
+    #
+    (?P<jinja_comment>
+        \{#-?.*?-?#\}
     )
     """,
     re.VERBOSE | re.MULTILINE | re.DOTALL,
