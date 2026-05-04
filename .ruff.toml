@@ -86,6 +86,10 @@ ignore = [
     "S607",  # Subprocess with partial executable path
     "T201",  # Print statements
 ]
+"python/tests/**.py" = [
+    "D",  # Docstrings
+    "S101",  # Use of assert detected
+]
 
 [lint.flake8-quotes]
 docstring-quotes = "double"
