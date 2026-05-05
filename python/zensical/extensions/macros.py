@@ -374,7 +374,9 @@ class MacrosExtension(Extension):
         md.preprocessors.register(
             MacrosPreprocessor(md, config=config),
             MacrosPreprocessor.name,
-            priority=20,
+            # Before pymdownx.superfences'
+            # `fenced_code_block` (25) and `fenced_raw_block` (31.05)
+            priority=35,
         )
 
 

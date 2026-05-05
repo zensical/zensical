@@ -296,7 +296,7 @@ def test_load_module_rejects_non_package_like_module_names(
     ("md", "expected"),
     [
         ({"macros": {"render_by_default": False}}, "<p>Value: {{ 1 + 1 }}</p>"),
-        ({"macros": {"render_by_default": True}}, "<p>Value: 2\n</p>"),
+        ({"macros": {"render_by_default": True}}, "<p>Value: 2</p>"),
     ],
     indirect=["md"],
 )
@@ -318,7 +318,7 @@ def test_preprocessor_respects_render_by_default(
     indirect=True,
 )
 def test_preprocessor_renders_when_opted_in_by_page_meta(md: Markdown) -> None:
-    assert md.convert("Value: {{ 1 + 1 }}") == "<p>Value: 2\n</p>"
+    assert md.convert("Value: {{ 1 + 1 }}") == "<p>Value: 2</p>"
 
 
 @pytest.mark.parametrize(
@@ -405,3 +405,35 @@ def test_preprocessor_renders_jinja_in_title_meta(md: Markdown) -> None:
 def test_preprocessor_strict_undefined_raises(md: Markdown) -> None:
     with pytest.raises(UndefinedError):
         md.convert("{{ missing_variable }}")
+
+
+@pytest.mark.parametrize(
+    "md",
+    [
+        {
+            "macros": {
+                "render_by_default": True,
+                "module_name": "main",
+            },
+            "project_config": {
+                "markdown_extensions": {"pymdownx.superfences": {}}
+            },
+        }
+    ],
+    indirect=True,
+)
+def test_macro_fenced_code_block_processed_by_superfences(
+    md: Markdown,
+    tmp_path: Path,
+) -> None:
+    """A macro that outputs a fenced code block is processed by superfences."""
+    (tmp_path / "main.py").write_text(
+        "def define_env(env):\n"
+        "    @env.macro\n"
+        "    def code_snippet(lang, code):\n"
+        "        return f'```{lang}\\n{code}\\n```\\n'\n",
+        encoding="utf-8",
+    )
+    result = md.convert("{{ code_snippet('python', 'x = 1 + 1') }}")
+    assert "<code>python" not in result
+    assert "x = 1 + 1" not in result  # we expect spans
