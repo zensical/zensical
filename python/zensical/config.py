@@ -43,8 +43,9 @@ from yaml.constructor import ConstructorError
 
 from zensical.compat.autorefs import get_autorefs_extension
 from zensical.compat.mkdocstrings import get_mkdocstrings_extension
-from zensical.extensions import glightbox, macros
 from zensical.extensions.emoji import to_svg, twemoji
+from zensical.extensions.glightbox import GlightboxExtension
+from zensical.extensions.macros import MacrosExtension
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -593,23 +594,22 @@ def _apply_defaults(config: dict, path: str) -> dict:
     # Map glightbox plugin configuration to the extension configuration
     if "glightbox" in config["plugins"]:
         plugin = config["plugins"]["glightbox"]["config"]
-        config["markdown_extensions"].append(
-            glightbox.makeExtension(  # ty:ignore[invalid-argument-type]
-                width=plugin.get("width", "auto"),
-                height=plugin.get("height", "auto"),
-                skip_classes=plugin.get("skip_classes", []),
-                auto=not plugin.get("manual", False),
-                auto_themed=plugin.get("auto_themed", False),
-                auto_caption=plugin.get("auto_caption", False),
-                caption_position=plugin.get("caption_position", "bottom"),
-            )
-        )
+        config["markdown_extensions"].append(GlightboxExtension.name)
+        config["mdx_configs"][GlightboxExtension.name] = {
+            "width": plugin.get("width", "auto"),
+            "height": plugin.get("height", "auto"),
+            "skip_classes": plugin.get("skip_classes", []),
+            "auto": not plugin.get("manual", False),
+            "auto_themed": plugin.get("auto_themed", False),
+            "auto_caption": plugin.get("auto_caption", False),
+            "caption_position": plugin.get("caption_position", "bottom"),
+        }
 
     # Map macros plugin configuration to the extension configuration
     if "macros" in config["plugins"]:
         plugin = config["plugins"]["macros"]["config"]
-        config["markdown_extensions"].append(macros.MacrosExtension.name)
-        config["mdx_configs"][macros.MacrosExtension.name] = plugin
+        config["markdown_extensions"].append(MacrosExtension.name)
+        config["mdx_configs"][MacrosExtension.name] = plugin
 
     # List files along with their hashes, so we can rebuild when they change
     config["watched_files"] = sorted(
@@ -729,7 +729,7 @@ def _list_snippet_files(config: dict, config_file: str) -> set[tuple[str, int]]:
 def _list_macros_files(config: dict, config_file: str) -> set[tuple[str, int]]:
     """List files referenced in macros plugin/extension."""
     root = Path(config_file).parent.resolve()
-    macros_config = config["mdx_configs"].get(macros.MacrosExtension.name, {})
+    macros_config = config["mdx_configs"].get(MacrosExtension.name, {})
     macros_files = []
     files_with_mtime = set()
 
