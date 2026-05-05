@@ -97,11 +97,8 @@ class ContextExtension(Extension):
         # We must register the extension to ensure markdown-exec
         # is able to forward it to its inner Markdown instances
         md.registerExtension(self)
-        md.preprocessors.register(
-            ContextPreprocessor(md=md, **self._kwargs),
-            ContextPreprocessor.name,
-            0,
-        )
+        preprocessor = ContextPreprocessor(md=md, **self._kwargs)
+        md.preprocessors.register(preprocessor, preprocessor.name, 0)
 
 
 def makeExtension(**kwargs: Any) -> ContextExtension:

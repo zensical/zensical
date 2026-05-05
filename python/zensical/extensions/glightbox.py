@@ -66,6 +66,8 @@ class GlightboxConfig:
 class GlightboxTreeprocessor(Treeprocessor):
     """Wraps image elements in anchor tags to integrate with GLightbox."""
 
+    name = "glightbox"
+
     SKIP_CLASSES: frozenset[str] = frozenset(
         {"emojione", "twemoji", "gemoji", "off-glb"}
     )
@@ -200,6 +202,8 @@ class GlightboxPostprocessor(Postprocessor):
     parse and modify the HTML with an actual parser.
     """
 
+    name = "glightbox"
+
     # We don't use a dataclass for config here and instead pass
     # the treeprocessor because we reuse some of its logic.
     def __init__(self, md: Markdown, processor: GlightboxTreeprocessor):
@@ -256,6 +260,8 @@ class GlightboxExtension(Extension):
     are processed by Markdown.
     """
 
+    name = "zensical.extensions.glightbox"
+
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the extension."""
         self._kwargs = kwargs
@@ -267,11 +273,11 @@ class GlightboxExtension(Extension):
 
         # Register treeprocessor - run after `attr_list` (priority 8)
         treeprocessor = GlightboxTreeprocessor(md, config)
-        md.treeprocessors.register(treeprocessor, "glightbox", 7)
+        md.treeprocessors.register(treeprocessor, treeprocessor.name, 7)
 
         # Register postprocessor - run before `raw_html` (priority 30)
         postprocessor = GlightboxPostprocessor(md, treeprocessor)
-        md.postprocessors.register(postprocessor, "glightbox", 31)
+        md.postprocessors.register(postprocessor, postprocessor.name, 31)
 
 
 # -----------------------------------------------------------------------------

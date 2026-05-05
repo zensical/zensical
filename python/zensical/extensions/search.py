@@ -53,6 +53,8 @@ class SearchConfig:
 class SearchProcessor(Postprocessor):
     """Post processor to extract searchable content from the rendered HTML."""
 
+    name = "search"
+
     def __init__(self, md: Markdown, config: SearchConfig) -> None:
         super().__init__(md)
         self.config = config
@@ -92,6 +94,8 @@ class SearchProcessor(Postprocessor):
 class SearchExtension(Extension):
     """Markdown extension for search indexing."""
 
+    name = "zensical.extensions.search"
+
     def __init__(self, **kwargs: Any) -> None:
         self._kwargs = kwargs
 
@@ -99,7 +103,7 @@ class SearchExtension(Extension):
         """Register the PostProcessor with Markdown."""
         config = SearchConfig(**self._kwargs)
         processor = SearchProcessor(md, config)
-        md.postprocessors.register(processor, "search", 0)
+        md.postprocessors.register(processor, processor.name, 0)
 
 
 def makeExtension(**kwargs: Any) -> SearchExtension:
