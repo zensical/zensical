@@ -23,91 +23,27 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
-from markdown import Markdown
 
-from zensical.extensions.emoji import to_svg, twemoji
-from zensical.extensions.glightbox import GlightboxExtension
+if TYPE_CHECKING:
+    from markdown import Markdown
 
-MINIMAL_EXTENSIONS = {"attr_list": {}}
-
-RECOMMENDED_EXTENSIONS = {
-    "abbr": {},
-    "admonition": {},
-    "attr_list": {},
-    "def_list": {},
-    "footnotes": {},
-    "md_in_html": {},
-    "toc": {"permalink": True},
-    "pymdownx.arithmatex": {"generic": True},
-    "pymdownx.betterem": {},
-    "pymdownx.caret": {},
-    "pymdownx.details": {},
-    "pymdownx.emoji": {
-        "emoji_generator": to_svg,
-        "emoji_index": twemoji,
-    },
-    "pymdownx.highlight": {
-        "anchor_linenums": True,
-        "line_spans": "__span",
-        "pygments_lang_class": True,
-    },
-    "pymdownx.inlinehilite": {},
-    "pymdownx.keys": {},
-    "pymdownx.magiclink": {},
-    "pymdownx.mark": {},
-    "pymdownx.smartsymbols": {},
-    "pymdownx.superfences": {
-        "custom_fences": [{"name": "mermaid", "class": "mermaid"}]
-    },
-    "pymdownx.tabbed": {
-        "alternate_style": True,
-        "combine_header_slug": True,
-    },
-    "pymdownx.tasklist": {"custom_checkbox": True},
-    "pymdownx.tilde": {},
-}
-
-_ACTIVE_EXTENSIONS = dict(MINIMAL_EXTENSIONS)
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
-def _make_md(
-    extensions: dict[str, Any] | None = None,
-    **kwargs: object,
-) -> Markdown:
-    """Return a Markdown instance with GlightboxExtension registered."""
-    extensions = dict(extensions or MINIMAL_EXTENSIONS)
-    md = Markdown(
-        extensions=list(extensions.keys()), extension_configs=extensions
-    )
-    GlightboxExtension(**kwargs).extendMarkdown(md)
-    return md
-
-
-def _convert(source: str, **kwargs: object) -> str:
-    return _make_md(extensions=_ACTIVE_EXTENSIONS, **kwargs).convert(source)
-
-
-@pytest.fixture(name="minimal_markdown")
-def _fixture_minimal_markdown() -> dict[str, Any]:
-    return dict(MINIMAL_EXTENSIONS)
-
-
-@pytest.fixture(name="recommended_markdown")
-def _fixture_recommended_markdown() -> dict[str, Any]:
-    return dict(RECOMMENDED_EXTENSIONS)
-
-
-@pytest.fixture(
-    params=["minimal_markdown", "recommended_markdown"],
-    ids=["minimal_markdown", "recommended_markdown"],
-    autouse=True,
-)
-def _active_markdown(request: pytest.FixtureRequest) -> None:
-    global _ACTIVE_EXTENSIONS  # noqa: PLW0603
-    _ACTIVE_EXTENSIONS = dict(request.getfixturevalue(request.param))
+def _glightbox(**kwargs: object) -> dict[str, Any]:
+    """Return md-fixture params with GlightboxExtension configured."""
+    return {
+        "config": {
+            "markdown_extensions": {
+                "zensical.extensions.glightbox": dict(kwargs),
+            }
+        }
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -115,29 +51,46 @@ def _active_markdown(request: pytest.FixtureRequest) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_image_is_wrapped_in_glightbox_anchor() -> None:
-    result = _convert("![alt](image.png)")
-    assert '<a class="glightbox"' in result
-    assert 'href="image.png"' in result
-    assert 'data-type="image"' in result
-    assert "<img" in result
+class TestBasicWrapping:
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(), id="default")],
+        indirect=["md"],
+    )
+    def test_image_wrapped_in_anchor(self, md: Markdown) -> None:
+        result = md.convert("![alt](image.png)")
+        assert '<a class="glightbox"' in result
+        assert 'href="image.png"' in result
+        assert 'data-type="image"' in result
+        assert "<img" in result
 
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(), id="default")],
+        indirect=["md"],
+    )
+    def test_anchor_contains_img(self, md: Markdown) -> None:
+        result = md.convert("![alt](image.png)")
+        assert result.index('<a class="glightbox"') < result.index("<img")
 
-def test_anchor_wraps_img_not_standalone() -> None:
-    result = _convert("![alt](image.png)")
-    # The <a> must contain the <img>
-    assert result.index('<a class="glightbox"') < result.index("<img")
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(), id="default")],
+        indirect=["md"],
+    )
+    def test_src_used_as_href(self, md: Markdown) -> None:
+        result = md.convert("![](photo.jpg)")
+        assert 'href="photo.jpg"' in result
 
-
-def test_image_src_used_as_href() -> None:
-    result = _convert("![](photo.jpg)")
-    assert 'href="photo.jpg"' in result
-
-
-def test_image_with_title_attribute() -> None:
-    result = _convert('![alt](image.png "My Title")')
-    assert "<img" in result
-    assert 'href="image.png"' in result
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(), id="default")],
+        indirect=["md"],
+    )
+    def test_with_title_attribute(self, md: Markdown) -> None:
+        result = md.convert('![alt](image.png "My Title")')
+        assert "<img" in result
+        assert 'href="image.png"' in result
 
 
 # ---------------------------------------------------------------------------
@@ -145,23 +98,44 @@ def test_image_with_title_attribute() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("cls", ["emojione", "twemoji", "gemoji", "off-glb"])
-def test_builtin_skip_classes_prevent_wrapping(cls: str) -> None:
-    result = _convert(f'<img src="img.png" class="{cls}" />')
-    assert '<a class="glightbox"' not in result
-
-
-def test_custom_skip_class_prevents_wrapping() -> None:
-    result = _convert(
-        '<img src="img.png" class="no-lightbox" />',
-        skip_classes=["no-lightbox"],
+class TestSkipClasses:
+    @pytest.mark.parametrize(
+        ("md", "cls"),
+        [
+            pytest.param(_glightbox(), "emojione", id="emojione"),
+            pytest.param(_glightbox(), "twemoji", id="twemoji"),
+            pytest.param(_glightbox(), "gemoji", id="gemoji"),
+            pytest.param(_glightbox(), "off-glb", id="off_glb"),
+        ],
+        indirect=["md"],
     )
-    assert '<a class="glightbox"' not in result
+    def test_builtin_skip_class_prevents_wrapping(
+        self, md: Markdown, cls: str
+    ) -> None:
+        result = md.convert(f'<img src="image.png" class="{cls}" />')
+        assert '<a class="glightbox"' not in result
 
+    @pytest.mark.parametrize(
+        "md",
+        [
+            pytest.param(
+                _glightbox(skip_classes=["no-lightbox"]), id="custom_skip"
+            )
+        ],
+        indirect=["md"],
+    )
+    def test_custom_skip_class_prevents_wrapping(self, md: Markdown) -> None:
+        result = md.convert('<img src="image.png" class="no-lightbox" />')
+        assert '<a class="glightbox"' not in result
 
-def test_non_skip_class_is_wrapped() -> None:
-    result = _convert('<img src="img.png" class="hero" />')
-    assert '<a class="glightbox"' in result
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(), id="default")],
+        indirect=["md"],
+    )
+    def test_non_skip_class_is_wrapped(self, md: Markdown) -> None:
+        result = md.convert('<img src="image.png" class="hero" />')
+        assert '<a class="glightbox"' in result
 
 
 # ---------------------------------------------------------------------------
@@ -169,40 +143,61 @@ def test_non_skip_class_is_wrapped() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_manual_mode_skips_plain_images() -> None:
-    result = _convert("![alt](image.png)", auto=False)
-    assert '<a class="glightbox"' not in result
-
-
-def test_manual_mode_wraps_on_glb_images() -> None:
-    result = _convert('<img src="image.png" class="on-glb" />', auto=False)
-    assert '<a class="glightbox"' in result
-
-
-# ---------------------------------------------------------------------------
-# auto_caption
-# ---------------------------------------------------------------------------
-
-
-def test_auto_caption_uses_alt_as_title() -> None:
-    result = _convert("![My Caption](image.png)", auto_caption=True)
-    assert 'data-title="My Caption"' in result
-
-
-def test_auto_caption_disabled_by_default() -> None:
-    result = _convert("![My Caption](image.png)")
-    assert "data-title" not in result
-
-
-def test_explicit_data_title_takes_precedence_over_auto_caption() -> None:
-    # data-title on img (via raw HTML) should survive auto_caption=True
-    result = _convert(
-        '<img src="image.png" alt="alt" data-title="Override" />',
-        auto_caption=True,
+class TestManualMode:
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(auto=False), id="auto_off")],
+        indirect=["md"],
     )
-    assert 'data-title="Override"' in result
-    # alt should not overwrite the explicit title
-    assert result.count("data-title=") == 1
+    def test_skips_plain_images(self, md: Markdown) -> None:
+        result = md.convert("![alt](image.png)")
+        assert '<a class="glightbox"' not in result
+
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(auto=False), id="auto_off")],
+        indirect=["md"],
+    )
+    def test_wraps_on_glb_images(self, md: Markdown) -> None:
+        result = md.convert('<img src="image.png" class="on-glb" />')
+        assert '<a class="glightbox"' in result
+
+
+# ---------------------------------------------------------------------------
+# Auto caption
+# ---------------------------------------------------------------------------
+
+
+class TestAutoCaption:
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(auto_caption=True), id="auto_caption_on")],
+        indirect=["md"],
+    )
+    def test_uses_alt_as_title(self, md: Markdown) -> None:
+        result = md.convert("![My Caption](image.png)")
+        assert 'data-title="My Caption"' in result
+
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(), id="default")],
+        indirect=["md"],
+    )
+    def test_disabled_by_default(self, md: Markdown) -> None:
+        result = md.convert("![My Caption](image.png)")
+        assert "data-title" not in result
+
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(auto_caption=True), id="auto_caption_on")],
+        indirect=["md"],
+    )
+    def test_explicit_data_title_takes_precedence(self, md: Markdown) -> None:
+        result = md.convert(
+            '<img src="image.png" alt="alt" data-title="Override" />',
+        )
+        assert 'data-title="Override"' in result
+        assert result.count("data-title=") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -210,15 +205,26 @@ def test_explicit_data_title_takes_precedence_over_auto_caption() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_default_caption_position_via_raw_html() -> None:
-    # caption_position on the image element itself is forwarded to the anchor
-    result = _convert('<img src="image.png" data-caption-position="top" />')
-    assert 'data-desc-position="top"' in result
+class TestCaptionPosition:
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(), id="default")],
+        indirect=["md"],
+    )
+    def test_caption_position_forwarded_from_img(self, md: Markdown) -> None:
+        result = md.convert(
+            '<img src="image.png" data-caption-position="top" />'
+        )
+        assert 'data-desc-position="top"' in result
 
-
-def test_no_caption_position_by_default() -> None:
-    result = _convert("![alt](image.png)")
-    assert "data-desc-position" not in result
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(), id="default")],
+        indirect=["md"],
+    )
+    def test_no_position_by_default(self, md: Markdown) -> None:
+        result = md.convert("![alt](image.png)")
+        assert "data-desc-position" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -226,40 +232,83 @@ def test_no_caption_position_by_default() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_width_and_height_are_forwarded() -> None:
-    result = _convert("![alt](image.png)", width="800px", height="600px")
-    assert 'data-width="800px"' in result
-    assert 'data-height="600px"' in result
+class TestWidthHeight:
+    @pytest.mark.parametrize(
+        "md",
+        [
+            pytest.param(
+                _glightbox(width="800px", height="600px"),
+                id="explicit_dimensions",
+            )
+        ],
+        indirect=["md"],
+    )
+    def test_width_and_height_forwarded(self, md: Markdown) -> None:
+        result = md.convert("![alt](image.png)")
+        assert 'data-width="800px"' in result
+        assert 'data-height="600px"' in result
 
-
-def test_default_auto_width_height_are_omitted() -> None:
-    result = _convert("![alt](image.png)")
-    assert "data-width" not in result
-    assert "data-height" not in result
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(), id="default")],
+        indirect=["md"],
+    )
+    def test_auto_dimensions_omitted(self, md: Markdown) -> None:
+        result = md.convert("![alt](image.png)")
+        assert "data-width" not in result
+        assert "data-height" not in result
 
 
 # ---------------------------------------------------------------------------
-# auto_themed gallery grouping
+# Auto-themed gallery grouping
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("src", "expected_gallery"),
-    [
-        ("image.png#only-light", "light"),
-        ("image.png#gh-light-mode-only", "light"),
-        ("image.png#only-dark", "dark"),
-        ("image.png#gh-dark-mode-only", "dark"),
-    ],
-)
-def test_auto_themed_gallery_grouping(src: str, expected_gallery: str) -> None:
-    result = _convert(f"![alt]({src})", auto_themed=True)
-    assert f'data-gallery="{expected_gallery}"' in result
+class TestAutoThemedGalleryGrouping:
+    @pytest.mark.parametrize(
+        ("md", "src", "expected_gallery"),
+        [
+            pytest.param(
+                _glightbox(auto_themed=True),
+                "image.png#only-light",
+                "light",
+                id="only_light",
+            ),
+            pytest.param(
+                _glightbox(auto_themed=True),
+                "image.png#gh-light-mode-only",
+                "light",
+                id="gh_light_mode_only",
+            ),
+            pytest.param(
+                _glightbox(auto_themed=True),
+                "image.png#only-dark",
+                "dark",
+                id="only_dark",
+            ),
+            pytest.param(
+                _glightbox(auto_themed=True),
+                "image.png#gh-dark-mode-only",
+                "dark",
+                id="gh_dark_mode_only",
+            ),
+        ],
+        indirect=["md"],
+    )
+    def test_gallery_grouping(
+        self, md: Markdown, src: str, expected_gallery: str
+    ) -> None:
+        result = md.convert(f"![alt]({src})")
+        assert f'data-gallery="{expected_gallery}"' in result
 
-
-def test_auto_themed_disabled_no_gallery() -> None:
-    result = _convert("![alt](image.png#only-light)")
-    assert "data-gallery" not in result
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(), id="default")],
+        indirect=["md"],
+    )
+    def test_no_gallery_when_disabled(self, md: Markdown) -> None:
+        result = md.convert("![alt](image.png#only-light)")
+        assert "data-gallery" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -267,12 +316,16 @@ def test_auto_themed_disabled_no_gallery() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_parsed_image_inside_anchor_is_not_double_wrapped() -> None:
-    # When Markdown parses an image link ([![]()]()), the treeprocessor sees
-    # the parent as an <a> and skips wrapping
-    result = _convert("[![alt](image.png)](https://example.com)")
-    assert 'class="glightbox"' not in result
-    assert 'href="https://example.com"' in result
+class TestImageInsideAnchor:
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(), id="default")],
+        indirect=["md"],
+    )
+    def test_not_double_wrapped(self, md: Markdown) -> None:
+        result = md.convert("[![alt](image.png)](https://example.com)")
+        assert 'class="glightbox"' not in result
+        assert 'href="https://example.com"' in result
 
 
 # ---------------------------------------------------------------------------
@@ -280,14 +333,22 @@ def test_parsed_image_inside_anchor_is_not_double_wrapped() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_raw_html_image_is_wrapped() -> None:
-    # Raw HTML images bypass the treeprocessor and are handled by the
-    # postprocessor; markdown=1 block forces raw-HTML stashing
-    result = _convert('<img src="raw.png" />')
-    assert '<a class="glightbox"' in result
-    assert 'href="raw.png"' in result
+class TestPostprocessor:
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(), id="default")],
+        indirect=["md"],
+    )
+    def test_raw_html_image_wrapped(self, md: Markdown) -> None:
+        result = md.convert('<img src="raw.png" />')
+        assert '<a class="glightbox"' in result
+        assert 'href="raw.png"' in result
 
-
-def test_raw_html_skip_class_not_wrapped() -> None:
-    result = _convert('<img src="raw.png" class="off-glb" />')
-    assert 'class="glightbox"' not in result
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(), id="default")],
+        indirect=["md"],
+    )
+    def test_raw_html_skip_class_not_wrapped(self, md: Markdown) -> None:
+        result = md.convert('<img src="raw.png" class="off-glb" />')
+        assert 'class="glightbox"' not in result

@@ -49,6 +49,7 @@ from zensical.extensions.emoji import to_svg, twemoji
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+
 # ----------------------------------------------------------------------------
 # Globals
 # ----------------------------------------------------------------------------
@@ -63,6 +64,50 @@ references to functions or other Python objects, for which we don't have any
 representation in Rust. Thus, we just keep the configuration on the Python
 side, and use it directly when needed. It's a hack but will do for now.
 """
+
+
+# ----------------------------------------------------------------------------
+# Constants
+# ----------------------------------------------------------------------------
+
+
+DEFAULT_MARKDOWN_EXTENSIONS = {
+    "abbr": {},
+    "admonition": {},
+    "attr_list": {},
+    "def_list": {},
+    "footnotes": {},
+    "md_in_html": {},
+    "toc": {"permalink": True},
+    "pymdownx.arithmatex": {"generic": True},
+    "pymdownx.betterem": {},
+    "pymdownx.caret": {},
+    "pymdownx.details": {},
+    "pymdownx.emoji": {
+        "emoji_generator": to_svg,
+        "emoji_index": twemoji,
+    },
+    "pymdownx.highlight": {
+        "anchor_linenums": True,
+        "line_spans": "__span",
+        "pygments_lang_class": True,
+    },
+    "pymdownx.inlinehilite": {},
+    "pymdownx.keys": {},
+    "pymdownx.magiclink": {},
+    "pymdownx.mark": {},
+    "pymdownx.smartsymbols": {},
+    "pymdownx.superfences": {
+        "custom_fences": [{"name": "mermaid", "class": "mermaid"}]
+    },
+    "pymdownx.tabbed": {
+        "alternate_style": True,
+        "combine_header_slug": True,
+    },
+    "pymdownx.tasklist": {"custom_checkbox": True},
+    "pymdownx.tilde": {},
+}
+
 
 # ----------------------------------------------------------------------------
 # Classes
@@ -451,45 +496,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     # decided to set defaults that make it easy to get started with sensible
     # Markdown support, but users can override this as needed.
     markdown_extensions, mdx_configs = _convert_markdown_extensions(
-        config.get(
-            "markdown_extensions",
-            {
-                "abbr": {},
-                "admonition": {},
-                "attr_list": {},
-                "def_list": {},
-                "footnotes": {},
-                "md_in_html": {},
-                "toc": {"permalink": True},
-                "pymdownx.arithmatex": {"generic": True},
-                "pymdownx.betterem": {},
-                "pymdownx.caret": {},
-                "pymdownx.details": {},
-                "pymdownx.emoji": {
-                    "emoji_generator": to_svg,
-                    "emoji_index": twemoji,
-                },
-                "pymdownx.highlight": {
-                    "anchor_linenums": True,
-                    "line_spans": "__span",
-                    "pygments_lang_class": True,
-                },
-                "pymdownx.inlinehilite": {},
-                "pymdownx.keys": {},
-                "pymdownx.magiclink": {},
-                "pymdownx.mark": {},
-                "pymdownx.smartsymbols": {},
-                "pymdownx.superfences": {
-                    "custom_fences": [{"name": "mermaid", "class": "mermaid"}]
-                },
-                "pymdownx.tabbed": {
-                    "alternate_style": True,
-                    "combine_header_slug": True,
-                },
-                "pymdownx.tasklist": {"custom_checkbox": True},
-                "pymdownx.tilde": {},
-            },
-        )
+        config.get("markdown_extensions", DEFAULT_MARKDOWN_EXTENSIONS)
     )
     config["markdown_extensions"] = markdown_extensions
     config["mdx_configs"] = mdx_configs
@@ -1052,6 +1059,8 @@ def _convert_plugins(value: Any, config: dict) -> dict:
 
 
 # ----------------------------------------------------------------------------
+
+
 def _yaml_load(source: IO) -> dict[str, Any]:
     """Load configuration file, resolve environment variables and parent files.
 
