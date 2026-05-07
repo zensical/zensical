@@ -212,6 +212,11 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(config, "use_directory_urls", True, bool)
     set_default(config, "dev_addr", "localhost:8000", str)
     set_default(config, "copyright", None, str)
+    set_default(config, "watch", [], list)
+
+    # Validate watch setting
+    if not all(isinstance(path, str) for path in config["watch"]):
+        raise ConfigurationError("'watch' entries must be strings.")
 
     # Set defaults for versioning with mike
     set_default(config, "remote_branch", "gh-pages", str)
@@ -604,6 +609,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
         _list_sources(config, path)  # mkdocstrings
         | _list_snippet_files(config, path)  # pymdownx.snippets
         | _list_macros_files(config, path)  # macros
+        | _list_watch_files(config, path)  # watch
     )
 
     # Hash all templates, so we rebuild if something changes
@@ -757,6 +763,24 @@ def _list_macros_files(config: dict, config_file: str) -> set[tuple[str, int]]:
                     mtime = int(os.path.getmtime(file_path))
                     files_with_mtime.add((file_path, mtime))
 
+    return files_with_mtime
+
+
+def _list_watch_files(config: dict, config_file: str) -> set[tuple[str, int]]:
+    """List files for user-defined watch paths."""
+    root = Path(config_file).parent.resolve()
+    files_with_mtime: set[tuple[str, int]] = set()
+    for watch_path in config.get("watch", []):
+        path = root.joinpath(watch_path).resolve()
+        if path.is_file():
+            mtime = int(os.path.getmtime(path))
+            files_with_mtime.add((str(path), mtime))
+        elif path.is_dir():
+            for dirpath, _, files in os.walk(path):
+                for file in files:
+                    file_path = os.path.join(dirpath, file)
+                    mtime = int(os.path.getmtime(file_path))
+                    files_with_mtime.add((file_path, mtime))
     return files_with_mtime
 
 
