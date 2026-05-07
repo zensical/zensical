@@ -24,16 +24,18 @@
 from __future__ import annotations
 
 import importlib.util
-import inspect
 import platform
+import re
 import subprocess
 import traceback
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from functools import cache
+from functools import cache, wraps
+from inspect import signature
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias
+from textwrap import indent
+from typing import TYPE_CHECKING, Any, Literal, NoReturn, TypeAlias
 from urllib.parse import urlparse
 
 import jinja2
@@ -47,6 +49,7 @@ from zensical.extensions.context import ContextPreprocessor
 if TYPE_CHECKING:
     from jinja2 import Environment
     from markdown import Markdown
+    from pandas import DataFrame
 
 
 # -----------------------------------------------------------------------------
@@ -231,6 +234,8 @@ class MacrosPreprocessor(Preprocessor):
         filters: dict[str, Callable] = {
             "pretty": _pretty,
             "fix_url": _fix_url,
+            "add_indentation": _add_indentation,
+            "convert_to_md_table": _convert_to_md_table,
         }
 
         # Merge extra into variables
@@ -325,7 +330,17 @@ class MacrosPreprocessor(Preprocessor):
         }
         if page:
             env_globals["page"] = page
+
+        try:
+            import pandas  # noqa: F401,PLC0415
+            import tabulate  # noqa: F401,PLC0415
+        except ImportError:
+            env_globals.update(_get_fake_table_readers())
+        else:
+            env_globals.update(_get_table_readers(project_root))
+
         env.globals.update(env_globals)
+
         # This copies the environment filters and globals
         # into a new environment so this call must be last
         env.globals["macros_info"] = _macros_info_closure(env)  # ty:ignore[invalid-assignment]
@@ -390,9 +405,15 @@ def makeExtension(**kwargs: Any) -> MacrosExtension:
     return MacrosExtension(**kwargs)
 
 
+# -----------------------------------------------------------------------------
+
+
 def _now() -> datetime:
     """Return current datetime (`datetime.now()`)."""
     return datetime.now()  # noqa: DTZ005
+
+
+# -----------------------------------------------------------------------------
 
 
 def _macros_info_closure(env: Environment) -> Callable[[], str]:
@@ -407,11 +428,17 @@ def _macros_info_closure(env: Environment) -> Callable[[], str]:
     return macros_info
 
 
+# -----------------------------------------------------------------------------
+
+
 def _fix_url(url: str) -> str:
     parsed = urlparse(url)
     if (not parsed.scheme) and parsed.path:
         return "../" + url
     return url
+
+
+# -----------------------------------------------------------------------------
 
 
 def _list_items(obj: Any) -> Iterable[tuple[str | int, Any]]:
@@ -430,7 +457,7 @@ def _format_value(value: Any) -> str:
         else:
             return ""
         try:
-            param_names = ", ".join(inspect.signature(value).parameters)
+            param_names = ", ".join(signature(value).parameters)
         except ValueError:
             return doc
         else:
@@ -468,6 +495,9 @@ def _context_closure(
     return context
 
 
+# -----------------------------------------------------------------------------
+
+
 def _make_table(
     rows: list[tuple[str, str, str]],
     header: tuple[str, str, str],
@@ -498,6 +528,147 @@ def _pretty(var_list: list[Any]) -> str:
         return _make_table(rows, ("Variable", "Type", "Content"))
     except Exception as error:  # noqa: BLE001
         return f"#{type(error).__name__}: {error}\n{traceback.format_exc()}"
+
+
+# -----------------------------------------------------------------------------
+
+
+def _pandas_read_yaml(
+    func: Callable[..., DataFrame],
+) -> Callable[..., DataFrame]:
+    @wraps(func)
+    def inner(filepath: str | Path, **kwargs: Any) -> DataFrame:
+        with open(filepath, encoding="utf8") as file:
+            return func(yaml.safe_load(file), **kwargs)
+
+    return inner
+
+
+def _relative_pandas_reader(
+    root: Path, func: Callable[..., DataFrame]
+) -> Callable[..., DataFrame]:
+    @wraps(func)
+    def inner(filepath: str | Path, **kwargs: Any) -> DataFrame:
+        if not isinstance(filepath, (str, Path)):
+            raise TypeError(
+                f"Only str and Path are supported in pd_{func.__name__}"  # ty:ignore[unresolved-attribute]
+            )
+        filepath = Path(filepath)
+        if not filepath.is_absolute():
+            filepath = root.joinpath(filepath)
+        filepath = filepath.resolve()
+        return func(filepath, **kwargs)
+
+    return inner
+
+
+def _add_indentation(text: str, *, spaces: int = 0, tabs: int = 0) -> str:
+    """Indent text using spaces or tabs."""
+    if spaces and tabs:
+        raise ValueError(
+            "You can only specify either spaces or tabs, not both."
+        )
+    if spaces:
+        prefix = " " * spaces
+    elif tabs:
+        prefix = "\t" * tabs
+    else:
+        return text
+
+    return "\n".join(indent(line, prefix) for line in text.split("\n"))
+
+
+def _convert_to_md_table(df: DataFrame, **kwargs: Any) -> str:
+    """Convert a pandas dataframe to a Markdown table."""
+
+    def escape_pipes(text: str) -> str:
+        return re.sub(r"(?<!\\)\|", "\\|", text)
+
+    df.columns = [
+        escape_pipes(c) if isinstance(c, str) else c for c in df.columns
+    ]
+    df = df.map(lambda s: escape_pipes(s) if isinstance(s, str) else s)
+    kwargs.setdefault("index", False)
+    kwargs.setdefault("tablefmt", "pipe")
+    return df.to_markdown(**kwargs)
+
+
+def _param_names(func: Callable) -> list[str]:
+    return [
+        param.name
+        for param in signature(func).parameters.values()
+        if param.kind not in (param.VAR_POSITIONAL, param.VAR_KEYWORD)
+    ]
+
+
+def _filter_kwargs(
+    kwargs: dict[str, Any], param_names: Iterable[str]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    into, not_into = {}, {}
+    for k, v in kwargs.items():
+        if k in param_names:
+            into[k] = v
+        else:
+            not_into[k] = v
+    return into, not_into
+
+
+def _relative_reader(rpr: Callable[..., DataFrame]) -> Callable[..., str]:
+    reader_params = _param_names(rpr)
+
+    def inner(filepath: str | Path, **kwargs: Any) -> str:
+        read_args, write_args = _filter_kwargs(kwargs, reader_params)
+        df = rpr(filepath, **read_args)
+        return _convert_to_md_table(df, **write_args)
+
+    inner.__doc__ = (
+        "Read data using pandas and convert it to a Markdown table. "
+        "Keyword arguments are split and passed to the relevant pandas reader "
+        "as well as dataframes' `to_markdown()` method."
+    )
+    return inner
+
+
+@cache
+def _get_table_readers(project_root: Path) -> dict[str, Callable]:
+    import pandas  # noqa: PLC0415
+
+    pandas_readers = {
+        "csv": pandas.read_csv,
+        "fwf": pandas.read_fwf,
+        "yaml": _pandas_read_yaml(pandas.json_normalize),
+        "json": pandas.read_json,
+        "table": pandas.read_table,
+        "excel": pandas.read_excel,
+        "feather": pandas.read_feather,
+    }
+
+    readers = {}
+    for fmt, reader in pandas_readers.items():
+        rpr = _relative_pandas_reader(project_root, reader)
+        readers[f"pd_read_{fmt}"] = rpr
+        readers[f"read_{fmt}"] = _relative_reader(rpr)
+    return readers
+
+
+@cache
+def _get_fake_table_readers() -> dict[str, Callable]:
+    message = "table reading requires pandas and tabulate packages"
+
+    def raiser() -> Callable[..., NoReturn]:
+        def inner(*args: Any, **kwargs: Any) -> NoReturn:  # noqa: ARG001
+            raise RuntimeError(message)
+
+        return inner
+
+    readers = {}
+    for fmt in ("csv", "fwf", "yaml", "json", "table", "excel", "feather"):
+        readers[f"pd_read_{fmt}"] = raiser()
+        readers[f"read_{fmt}"] = raiser()
+    return readers
+
+
+# -----------------------------------------------------------------------------
 
 
 def _load_module(

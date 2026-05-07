@@ -71,8 +71,10 @@ zensical = "zensical.main:cli"
 [dependency-groups]
 dev = [
     "maturin>=1.10.2",
+    "pandas>=2.3.3",
     "pytest>=9.0.3",
     "ruff>=0.12.8",
+    "tabulate>=0.10.0",
     "ty>=0.0.32",
     "types-pyyaml>=6.0.12",
 ]
