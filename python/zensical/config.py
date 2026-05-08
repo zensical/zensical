@@ -595,15 +595,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     if "glightbox" in config["plugins"]:
         plugin = config["plugins"]["glightbox"]["config"]
         config["markdown_extensions"].append(GlightboxExtension.name)
-        config["mdx_configs"][GlightboxExtension.name] = {
-            "width": plugin.get("width", "auto"),
-            "height": plugin.get("height", "auto"),
-            "skip_classes": plugin.get("skip_classes", []),
-            "auto": not plugin.get("manual", False),
-            "auto_themed": plugin.get("auto_themed", False),
-            "auto_caption": plugin.get("auto_caption", False),
-            "caption_position": plugin.get("caption_position", "bottom"),
-        }
+        config["mdx_configs"][GlightboxExtension.name] = plugin
 
     # Map macros plugin configuration to the extension configuration
     if "macros" in config["plugins"]:

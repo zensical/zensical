@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from xml.etree.ElementTree import Element, ParseError, fromstring, tostring
 
 from markdown import Extension, Markdown
@@ -58,6 +58,20 @@ class GlightboxConfig:
     auto_themed: bool = False
     auto_caption: bool = False
     caption_position: str = "bottom"
+
+    # Unused, for compatibility with plugin's configuration
+    touchNavigation: bool = True  # noqa: N815
+    loop: bool = False
+    effect: Literal["zoom", "fade", "none"] = "zoom"
+    zoomable: bool = True
+    draggable: bool = True
+    background: str = "white"
+    shadow: bool = True
+    manual: bool | None = None
+
+    def __post_init__(self) -> None:
+        if self.manual is not None:
+            self.auto = not self.manual
 
 
 class ProcessorMixin:
