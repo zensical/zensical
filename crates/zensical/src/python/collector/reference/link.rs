@@ -46,6 +46,8 @@ pub enum LinkKind {
     Autolink,
     /// Wikilink.
     Wikilink,
+    /// HTML.
+    Html,
 }
 
 /// Link reference kind.
@@ -119,6 +121,7 @@ impl<'a, 'py> FromPyObject<'a, 'py> for LinkKind {
             "image" => Ok(Self::Image),
             "autolink" => Ok(Self::Autolink),
             "wikilink" => Ok(Self::Wikilink),
+            "html" => Ok(Self::Html),
             _ => Err(PyValueError::new_err("Invalid kind")),
         }
     }
