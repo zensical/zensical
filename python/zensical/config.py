@@ -565,6 +565,31 @@ def _apply_defaults(config: dict, path: str) -> dict:
     # Convert plugins configuration
     config["plugins"] = _convert_plugins(config.get("plugins", []), config)
 
+    # Map markdown-exec plugin configuration to superfences configuration
+    if "markdown-exec" in config["plugins"]:
+        markdown_exec_config = config["plugins"]["markdown-exec"]["config"]
+        enabled = markdown_exec_config.pop("enabled", True)
+        languages = markdown_exec_config.get("languages", None)
+        if enabled and (languages or languages is None):
+            trueish = ("auto", "required", True)
+            ansi = markdown_exec_config.get("ansi", False) in trueish
+            if ansi and not find_spec("pygments_ansi_color"):
+                raise ConfigurationError(
+                    "ANSI colors are required, but pygments-ansi-color is not "
+                    "installed. Please install pygments-ansi-color or turn off "
+                    "ANSI requirement in markdown-exec configuration."
+                )
+            if "pymdownx.superfences" not in config["markdown_extensions"]:
+                config["markdown_extensions"].append("pymdownx.superfences")
+            if "pymdownx.superfences" not in config["mdx_configs"]:
+                config["mdx_configs"]["pymdownx.superfences"] = {}
+            superfences = config["mdx_configs"]["pymdownx.superfences"]
+            if "custom_fences" not in superfences:
+                superfences["custom_fences"] = []
+            superfences["custom_fences"].extend(
+                _get_markdown_exec_superfences(languages)
+            )
+
     # Set up mkdocstrings, which touches plugins and Markdown extensions
     if "mkdocstrings" in config["plugins"]:
         mkdocstrings_config = config["plugins"]["mkdocstrings"]["config"]
@@ -659,6 +684,28 @@ def _hash(data: Any) -> int:
 def _ignore_directory(dirpath: str) -> bool:
     """Determine whether to ignore a folder based on its name."""
     return dirpath == "__pycache__" or dirpath.startswith(".venv")
+
+
+def _get_markdown_exec_superfences(
+    languages: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Get superfences configuration for markdown-exec."""
+    try:
+        import markdown_exec  # noqa: PLC0415  # ty:ignore[unresolved-import]
+    except ImportError as error:
+        raise ConfigurationError(
+            "markdown-exec plugin is enabled, but markdown-exec is not "
+            "installed. Please install markdown-exec or disable the plugin."
+        ) from error
+    return [
+        {
+            "name": language,
+            "class": language,
+            "validator": markdown_exec.validator,
+            "format": markdown_exec.formatter,
+        }
+        for language in languages or markdown_exec.formatters.keys()
+    ]
 
 
 def _list_py_modules(path: Path) -> Iterator[Path]:

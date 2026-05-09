@@ -119,6 +119,14 @@ def render(content: str, path: str, url: str) -> dict:
     search_extension = SearchExtension()
     search_extension.extendMarkdown(md)
 
+    # Inform markdown-exec that it runs through Zensical.
+    try:
+        import markdown_exec  # noqa: PLC0415
+    except ImportError:
+        pass
+    else:
+        markdown_exec._caller = "zensical"
+
     # Convert content to HTML
     content = md.convert(content)
 
