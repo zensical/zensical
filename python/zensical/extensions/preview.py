@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import posixpath
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -43,6 +44,18 @@ if TYPE_CHECKING:
 # -----------------------------------------------------------------------------
 
 
+@dataclass
+class PreviewConfig:
+    """Configuration for the Preview Markdown extension."""
+
+    configurations: list[dict[str, Any]] = field(default_factory=list)
+    sources: dict[str, Any] = field(default_factory=dict)
+    targets: dict[str, Any] = field(default_factory=dict)
+
+
+# -----------------------------------------------------------------------------
+
+
 class PreviewProcessor(Treeprocessor):
     """A Markdown treeprocessor to enable instant previews on links.
 
@@ -50,14 +63,16 @@ class PreviewProcessor(Treeprocessor):
     registered programmatically before rendering a page.
     """
 
-    def __init__(self, md: Markdown, config: dict):
+    name = "preview"
+
+    def __init__(self, md: Markdown, config: PreviewConfig):
         """Initialize the treeprocessor."""
         self.md: Markdown = md
         self.config = config
 
     def run(self, root: Element) -> None:
         """Run the treeprocessor."""
-        at = self.md.treeprocessors.get_index_for_name("zrelpath")
+        at = self.md.treeprocessors.get_index_for_name(LinksTreeprocessor.name)
 
         # Hack: Python Markdown has no notion of where it is, i.e., which file
         # is being processed. This seems to be a deliberate design decision, as
@@ -73,11 +88,11 @@ class PreviewProcessor(Treeprocessor):
             raise TypeError("Links processor not registered")
 
         # Normalize configurations
-        configurations = self.config["configurations"]
+        configurations = self.config.configurations
         configurations.append(
             {
-                "sources": self.config.get("sources"),
-                "targets": self.config.get("targets"),
+                "sources": self.config.sources,
+                "targets": self.config.targets,
             }
         )
 
@@ -137,14 +152,11 @@ class PreviewExtension(Extension):
     add previews to links in a programmatic way.
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    name = "zensical.extensions.preview"
+
+    def __init__(self, **kwargs: Any) -> None:
         """Initialize the extension."""
-        self.config = {
-            "configurations": [[], "Filter configurations"],
-            "sources": [{}, "Link sources"],
-            "targets": [{}, "Link targets"],
-        }
-        super().__init__(*args, **kwargs)
+        self._kwargs = kwargs
 
     def extendMarkdown(self, md: Markdown) -> None:
         """Register Markdown extension."""
@@ -154,8 +166,9 @@ class PreviewExtension(Extension):
         # `relpath` treeprocessor, the latter of which is guaranteed to run
         # after our treeprocessor, so we can check the original Markdown URIs
         # before they are resolved to URLs.
-        processor = PreviewProcessor(md, self.getConfigs())
-        md.treeprocessors.register(processor, "preview", 0)
+        config = PreviewConfig(**self._kwargs)
+        processor = PreviewProcessor(md, config)
+        md.treeprocessors.register(processor, processor.name, 0)
 
 
 # -----------------------------------------------------------------------------

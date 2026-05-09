@@ -53,6 +53,9 @@ class Page:
         self.meta: dict = meta if meta is not None else {}
 
 
+# This processor doesn't follow the usual pattern
+# of receiving its configuration as a dataclass,
+# because it only exists to store the rendering context.
 class ContextPreprocessor(Preprocessor):
     """Preprocessor to store rendering context."""
 
@@ -94,11 +97,8 @@ class ContextExtension(Extension):
         # We must register the extension to ensure markdown-exec
         # is able to forward it to its inner Markdown instances
         md.registerExtension(self)
-        md.preprocessors.register(
-            ContextPreprocessor(md=md, **self._kwargs),
-            ContextPreprocessor.name,
-            0,
-        )
+        preprocessor = ContextPreprocessor(md=md, **self._kwargs)
+        md.preprocessors.register(preprocessor, preprocessor.name, 0)
 
 
 def makeExtension(**kwargs: Any) -> ContextExtension:

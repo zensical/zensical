@@ -56,6 +56,11 @@ _RE = re.compile(
 class LinksTreeprocessor(Treeprocessor):
     """Rewrites relative links."""
 
+    name = "zrelpath"
+
+    # We don't use a dataclass for config here because
+    # mkdocstrings reuses the current signature to forward
+    # the processor to its inner Markdown instances.
     def __init__(self, md: Markdown, path: str, use_directory_urls: bool):
         super().__init__(md)
         self.path = path
@@ -86,6 +91,11 @@ class LinksPostprocessor(Postprocessor):
     inside raw HTML are handled consistently as well.
     """
 
+    name = "zrelpath"
+
+    # We don't use a dataclass for config here because
+    # mkdocstrings reuses the current signature to forward
+    # the processor to its inner Markdown instances.
     def __init__(self, md: Markdown, path: str, use_directory_urls: bool):
         self.md: Markdown = md
         self._path = path
@@ -132,6 +142,8 @@ class LinksExtension(Extension):
     the source document.
     """
 
+    name = "zensical.extensions.links"
+
     def __init__(self, path: str, use_directory_urls: bool) -> None:
         """Initialize the extension."""
         self.path = path
@@ -145,13 +157,13 @@ class LinksExtension(Extension):
         treeprocessor = LinksTreeprocessor(
             md, self.path, self.use_directory_urls
         )
-        md.treeprocessors.register(treeprocessor, "zrelpath", 0)
+        md.treeprocessors.register(treeprocessor, treeprocessor.name, 0)
 
         # Register postprocessor - run before `raw_html` (priority 30)
         postprocessor = LinksPostprocessor(
             md, self.path, self.use_directory_urls
         )
-        md.postprocessors.register(postprocessor, "zrelpath", 29)
+        md.postprocessors.register(postprocessor, postprocessor.name, 29)
 
 
 # -----------------------------------------------------------------------------

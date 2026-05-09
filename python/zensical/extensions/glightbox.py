@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 from xml.etree.ElementTree import Element, ParseError, fromstring, tostring
 
 from markdown import Extension, Markdown
@@ -59,60 +59,40 @@ class GlightboxConfig:
     auto_caption: bool = False
     caption_position: str = "bottom"
 
+    # Unused, for compatibility with plugin's configuration
+    touchNavigation: bool = True  # noqa: N815
+    loop: bool = False
+    effect: Literal["zoom", "fade", "none"] = "zoom"
+    zoomable: bool = True
+    draggable: bool = True
+    background: str = "white"
+    shadow: bool = True
+    manual: bool | None = None
 
-# -----------------------------------------------------------------------------
+    def __post_init__(self) -> None:
+        if self.manual is not None:
+            self.auto = not self.manual
 
 
-class GlightboxTreeprocessor(Treeprocessor):
-    """Wraps image elements in anchor tags to integrate with GLightbox."""
+class ProcessorMixin:
+    """Mixin holding common logic between tree and post processors."""
 
     SKIP_CLASSES: frozenset[str] = frozenset(
         {"emojione", "twemoji", "gemoji", "off-glb"}
     )
 
-    def __init__(self, md: Markdown, config: GlightboxConfig):
-        super().__init__(md)
-        self.config = config
+    md: Markdown
+    config: GlightboxConfig
+    _skip_classes: frozenset[str]
 
-    def run(self, root: Element) -> None:
-        """Walk the element tree and wrap images with anchors."""
-        skip_classes = self.SKIP_CLASSES | frozenset(self.config.skip_classes)
-
-        # Iterate over all images in the tree and wrap them with anchors
-        for img in list(root.iter("img")):
-            if not self._should_skip(img, skip_classes):
-                self._wrap_with_anchor(img, root)
-
-    def _should_skip(self, img: Element, skip_classes: frozenset[str]) -> bool:
+    def _should_skip(self, img: Element) -> bool:
         """Determine if this image should be excluded from wrapping."""
         classes = set(img.get("class", "").split())
-        if classes & skip_classes:
+        if classes & self._skip_classes:
             return True
 
         # If manual mode is enabled, only wrap images explicitly marked
         return not self.config.auto and "on-glb" not in classes
-
-    def _wrap_with_anchor(self, img: Element, root: Element) -> None:
-        """Wrap an image with an anchor."""
-        parent = self._find_parent(root, img)
-        if parent is None or parent.tag == "a":
-            return
-
-        # Create anchor element with appropriate attributes based on the image
-        # and config settings, then wrap the image with the anchor
-        anchor = self._build_anchor(img)
-        anchor.append(img)
-
-        # If there's text adjacent to the image element, we need to clear it
-        # from the image and move it to the anchor, see https://t.ly/dLA-l
-        anchor.tail = img.tail
-        img.tail = None
-
-        # Remove image from current position and append to anchor, then insert
-        # anchor back into the original position in the tree
-        index = list(parent).index(img)
-        parent.remove(img)
-        parent.insert(index, anchor)
 
     def _build_anchor(self, img: Element) -> Element:
         """Construct the anchor from image attributes."""
@@ -183,6 +163,51 @@ class GlightboxTreeprocessor(Treeprocessor):
         # No gallery grouping
         return None
 
+
+# -----------------------------------------------------------------------------
+
+
+class GlightboxTreeprocessor(Treeprocessor, ProcessorMixin):
+    """Wraps image elements in anchor tags to integrate with GLightbox."""
+
+    name = "glightbox"
+
+    def __init__(self, md: Markdown, config: GlightboxConfig):
+        super().__init__(md)
+        self.config = config
+        self._skip_classes = self.SKIP_CLASSES | frozenset(
+            self.config.skip_classes
+        )
+
+    def run(self, root: Element) -> None:
+        """Walk the element tree and wrap images with anchors."""
+        # Iterate over all images in the tree and wrap them with anchors
+        for img in list(root.iter("img")):
+            if not self._should_skip(img):
+                self._wrap_with_anchor(img, root)
+
+    def _wrap_with_anchor(self, img: Element, root: Element) -> None:
+        """Wrap an image with an anchor."""
+        parent = self._find_parent(root, img)
+        if parent is None or parent.tag == "a":
+            return
+
+        # Create anchor element with appropriate attributes based on the image
+        # and config settings, then wrap the image with the anchor
+        anchor = self._build_anchor(img)
+        anchor.append(img)
+
+        # If there's text adjacent to the image element, we need to clear it
+        # from the image and move it to the anchor, see https://t.ly/dLA-l
+        anchor.tail = img.tail
+        img.tail = None
+
+        # Remove image from current position and append to anchor, then insert
+        # anchor back into the original position in the tree
+        index = list(parent).index(img)
+        parent.remove(img)
+        parent.insert(index, anchor)
+
     def _find_parent(self, root: Element, target: Element) -> Element | None:
         """Return the direct parent of target within the element tree."""
         return next(
@@ -191,7 +216,7 @@ class GlightboxTreeprocessor(Treeprocessor):
         )
 
 
-class GlightboxPostprocessor(Postprocessor):
+class GlightboxPostprocessor(Postprocessor, ProcessorMixin):
     """Wraps stashed images in anchors, delegating to the treeprocessor.
 
     This postprocessor uses a regular expression to find image tags in stashed
@@ -200,15 +225,15 @@ class GlightboxPostprocessor(Postprocessor):
     parse and modify the HTML with an actual parser.
     """
 
-    def __init__(self, md: Markdown, processor: GlightboxTreeprocessor):
-        self.md: Markdown = md
-        self._processor = processor
-        self._processed: set[int] = set()
+    name = "glightbox"
 
-        # Source classes to skip from postprocessor
-        self._skip_classes = GlightboxTreeprocessor.SKIP_CLASSES | frozenset(
-            processor.config.skip_classes
+    def __init__(self, md: Markdown, config: GlightboxConfig):
+        super().__init__(md)
+        self.config = config
+        self._skip_classes = self.SKIP_CLASSES | frozenset(
+            self.config.skip_classes
         )
+        self._processed: set[int] = set()
 
     def run(self, text: str) -> str:
         """Wrap images in stashed HTML blocks."""
@@ -233,11 +258,11 @@ class GlightboxPostprocessor(Postprocessor):
             return raw
 
         # Skip if image should not be wrapped
-        if self._processor._should_skip(img, self._skip_classes):
+        if self._should_skip(img):
             return raw
 
         # Wrap image in anchor and return as string
-        anchor = self._processor._build_anchor(img)
+        anchor = self._build_anchor(img)
         anchor.append(img)
         return tostring(anchor, encoding="unicode", method="html")
 
@@ -254,46 +279,24 @@ class GlightboxExtension(Extension):
     are processed by Markdown.
     """
 
-    def __init__(self, **kwargs: object):
+    name = "zensical.extensions.glightbox"
+
+    def __init__(self, **kwargs: Any) -> None:
         """Initialize the extension."""
-        self.config: dict[str, list[object]] = {
-            "width": ["auto", "Width of the lightbox overlay."],
-            "height": ["auto", "Height of the lightbox overlay."],
-            "skip_classes": [
-                [],
-                "List of image CSS classes to exclude from lightbox wrapping.",
-            ],
-            "auto": [
-                True,
-                "Only wrap images that explicitly carry the on-glb CSS class.",
-            ],
-            "auto_themed": [
-                False,
-                "Group light/dark mode images into separate galleries.",
-            ],
-            "auto_caption": [
-                False,
-                "Use img alt attribute as the caption when no title is set.",
-            ],
-            "caption_position": [
-                "bottom",
-                "Default caption position: bottom, top, left, or right.",
-            ],
-        }
-        super().__init__(**kwargs)
+        self._kwargs = kwargs
 
     def extendMarkdown(self, md: Markdown) -> None:
         """Register Markdown extension."""
         md.registerExtension(self)
-        config = GlightboxConfig(**self.getConfigs())
+        config = GlightboxConfig(**self._kwargs)
 
         # Register treeprocessor - run after `attr_list` (priority 8)
         treeprocessor = GlightboxTreeprocessor(md, config)
-        md.treeprocessors.register(treeprocessor, "glightbox", 7)
+        md.treeprocessors.register(treeprocessor, treeprocessor.name, 7)
 
         # Register postprocessor - run before `raw_html` (priority 30)
-        postprocessor = GlightboxPostprocessor(md, treeprocessor)
-        md.postprocessors.register(postprocessor, "glightbox", 31)
+        postprocessor = GlightboxPostprocessor(md, config)
+        md.postprocessors.register(postprocessor, postprocessor.name, 31)
 
 
 # -----------------------------------------------------------------------------

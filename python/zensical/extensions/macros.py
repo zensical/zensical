@@ -204,7 +204,6 @@ class MacrosPreprocessor(Preprocessor):
     def __init__(
         self,
         md: Markdown,
-        *,
         config: MacrosConfig,
     ) -> None:
         self.md: Markdown = md
@@ -371,13 +370,10 @@ class MacrosExtension(Extension):
     def extendMarkdown(self, md: Markdown) -> None:
         md.registerExtension(self)
         config = MacrosConfig(**self._kwargs)
-        md.preprocessors.register(
-            MacrosPreprocessor(md, config=config),
-            MacrosPreprocessor.name,
-            # Before pymdownx.superfences'
-            # `fenced_code_block` (25) and `fenced_raw_block` (31.05)
-            priority=35,
-        )
+        preprocessor = MacrosPreprocessor(md, config)
+        # Before pymdownx.superfences'
+        # `fenced_code_block` (25) and `fenced_raw_block` (31.05)
+        md.preprocessors.register(preprocessor, preprocessor.name, 35)
 
 
 # -----------------------------------------------------------------------------
