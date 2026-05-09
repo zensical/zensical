@@ -88,7 +88,7 @@ class PreviewProcessor(Treeprocessor):
             raise TypeError("Links processor not registered")
 
         # Normalize configurations
-        configurations = self.config.configurations
+        configurations = list(self.config.configurations)
         configurations.append(
             {
                 "sources": self.config.sources,
