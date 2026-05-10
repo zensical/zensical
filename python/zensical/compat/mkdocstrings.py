@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from zensical.compat.autorefs import get_autorefs_plugin
+from zensical.extensions.autorefs import get_autorefs_store
 
 if TYPE_CHECKING:
     from mkdocstrings import (  # ty:ignore[unresolved-import]
@@ -35,14 +35,18 @@ if TYPE_CHECKING:
 
 
 # ----------------------------------------------------------------------------
-# Global variables
+# Globals
 # ----------------------------------------------------------------------------
+
+
 HANDLERS: Handlers | None = None
 
 
 # ----------------------------------------------------------------------------
 # Classes
 # ----------------------------------------------------------------------------
+
+
 class ToolConfig:
     """Mock mkdocstrings tooling configuration."""
 
@@ -53,6 +57,8 @@ class ToolConfig:
 # ----------------------------------------------------------------------------
 # Functions
 # ----------------------------------------------------------------------------
+
+
 def get_mkdocstrings_extension(
     config: dict[str, Any],
     path: str,
@@ -63,7 +69,7 @@ def get_mkdocstrings_extension(
         MkdocstringsExtension,
     )
 
-    autorefs = get_autorefs_plugin()
+    autorefs = get_autorefs_store()
 
     global HANDLERS  # noqa: PLW0603
     if HANDLERS is None:

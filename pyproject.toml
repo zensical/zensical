@@ -76,6 +76,7 @@ dev = [
     "ruff>=0.12.8",
     "tabulate>=0.10.0",
     "ty>=0.0.32",
+    "types-markdown>=3.10.2",
     "types-pyyaml>=6.0.12",
 ]
 
