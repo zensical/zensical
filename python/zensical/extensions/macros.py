@@ -209,7 +209,7 @@ class MacrosPreprocessor(Preprocessor):
         md: Markdown,
         config: MacrosConfig,
     ) -> None:
-        self.md: Markdown = md
+        super().__init__(md)
         self.config = config
 
     def run(self, lines: list[str]) -> list[str]:

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import re
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from markdown import Extension
@@ -38,15 +38,18 @@ if TYPE_CHECKING:
 
     from markdown import Markdown
 
+
 # -----------------------------------------------------------------------------
 # Constants
 # -----------------------------------------------------------------------------
+
 
 _RE = re.compile(
     r'(?:href|src)=(?P<quote>["\'])(?P<value>[^"\']+)(?P=quote)',
     re.IGNORECASE,
 )
 """Match `href` and `src` attribute values in stashed raw HTML blocks."""
+
 
 # -----------------------------------------------------------------------------
 # Classes
@@ -97,7 +100,7 @@ class LinksPostprocessor(Postprocessor):
     # mkdocstrings reuses the current signature to forward
     # the processor to its inner Markdown instances.
     def __init__(self, md: Markdown, path: str, use_directory_urls: bool):
-        self.md: Markdown = md
+        super().__init__(md)
         self._path = path
         self._use_directory_urls = use_directory_urls
         self._processed: set[int] = set()
@@ -106,7 +109,7 @@ class LinksPostprocessor(Postprocessor):
         """Rewrite `href` and `src` attributes of stashed HTML blocks."""
         for i, raw in enumerate(self.md.htmlStash.rawHtmlBlocks):
             if i not in self._processed:
-                self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(  # ty:ignore[no-matching-overload]
+                self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(
                     self._maybe_process, raw
                 )
                 self._processed.add(i)
@@ -169,6 +172,11 @@ class LinksExtension(Extension):
 # -----------------------------------------------------------------------------
 # Functions
 # -----------------------------------------------------------------------------
+
+
+def makeExtension(**kwargs: Any) -> LinksExtension:
+    """Register Markdown extension."""
+    return LinksExtension(**kwargs)
 
 
 def _get_name(value: str) -> str:

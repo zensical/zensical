@@ -741,6 +741,15 @@ wheels = [
 ]
 
 [[package]]
+name = "types-markdown"
+version = "3.10.2.20260508"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/24/62/4ca11db82799590117d9b6ef8fcd6515039cff80838304face5440f7d95c/types_markdown-3.10.2.20260508.tar.gz", hash = "sha256:64c405a30decd46cf78443bbcde8331f561f83752cc6d962ff3f5ccaabe26a8e", size = 19818, upload-time = "2026-05-08T04:49:45.095Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cf/9d/eae7125bcf063ff5f79aadad58f3d37675263941f84e025bf53de1735fe1/types_markdown-3.10.2.20260508-py3-none-any.whl", hash = "sha256:2ee5e462c7b821c27c3d8f75f4da873d3e3c87d24d7f2d741f8f4261e4024a99", size = 25811, upload-time = "2026-05-08T04:49:43.962Z" },
+]
+
+[[package]]
 name = "types-pyyaml"
 version = "6.0.12.20260408"
 source = { registry = "https://pypi.org/simple" }
@@ -790,6 +799,7 @@ dev = [
     { name = "ruff" },
     { name = "tabulate" },
     { name = "ty" },
+    { name = "types-markdown" },
     { name = "types-pyyaml" },
 ]
 
@@ -813,5 +823,6 @@ dev = [
     { name = "ruff", specifier = ">=0.12.8" },
     { name = "tabulate", specifier = ">=0.10.0" },
     { name = "ty", specifier = ">=0.0.32" },
+    { name = "types-markdown", specifier = ">=3.10.2" },
     { name = "types-pyyaml", specifier = ">=6.0.12" },
 ]

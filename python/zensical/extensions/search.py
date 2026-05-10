@@ -112,7 +112,7 @@ class SearchExtension(Extension):
 
 
 def makeExtension(**kwargs: Any) -> SearchExtension:
-    """Factory function for creating the extension."""
+    """Register Markdown extension."""
     return SearchExtension(**kwargs)
 
 
@@ -368,6 +368,7 @@ class Parser(HTMLParser):
 # -----------------------------------------------------------------------------
 # Data
 # -----------------------------------------------------------------------------
+
 
 # Tags to keep
 keep = {
