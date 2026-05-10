@@ -31,8 +31,8 @@ import yaml
 from markdown import Markdown
 from yaml import SafeLoader
 
-from zensical.compat.autorefs import set_autorefs_page
 from zensical.config import get_config
+from zensical.extensions.autorefs import set_autorefs_page
 from zensical.extensions.context import ContextExtension, Page
 from zensical.extensions.links import LinksExtension
 from zensical.extensions.search import SearchExtension
@@ -81,7 +81,8 @@ def render(content: str, path: str, url: str) -> dict:
         except Exception:  # noqa: BLE001
             pass
 
-    # Create page context and set it for autorefs
+    # Create page context and set it for autorefs.
+    # We can stop setting the page if/when we vendor mkdocstrings.
     page = Page(url=url, path=path, meta=meta)
     set_autorefs_page(page)
 

@@ -41,8 +41,8 @@ from tomli import load as toml_load
 from yaml import Loader, YAMLError
 from yaml.constructor import ConstructorError
 
-from zensical.compat.autorefs import get_autorefs_extension
 from zensical.compat.mkdocstrings import get_mkdocstrings_extension
+from zensical.extensions.autorefs import AutorefsExtension
 from zensical.extensions.emoji import to_svg, twemoji
 from zensical.extensions.glightbox import GlightboxExtension
 from zensical.extensions.macros import MacrosExtension
@@ -659,7 +659,8 @@ def _apply_defaults(config: dict, path: str) -> dict:
     config["plugins"] = _convert_plugins(config.get("plugins", []), config)
 
     # Map plugins configuration to Markdown extensions
-    _shim_mkdocstrings_autorefs(config, path)
+    _shim_autorefs(config)
+    _shim_mkdocstrings(config, path)
     _shim_glightbox(config)
     _shim_macros(config)
 
@@ -798,8 +799,21 @@ def _resolve_toc(config: dict[str, Any]) -> None:
 # ----------------------------------------------------------------------------
 
 
-def _shim_mkdocstrings_autorefs(config: dict[str, Any], path: str) -> None:
-    # Set up mkdocstrings, which touches plugins and Markdown extensions
+def _shim_autorefs(config: dict[str, Any]) -> None:
+    # Map autorefs plugin configuration to the extension configuration
+    if "autorefs" in config["plugins"]:
+        plugin = config["plugins"]["autorefs"]["config"]
+        if plugin.get("enabled", True):
+            config["markdown_extensions"].append(AutorefsExtension.name)
+    elif "mkdocstrings" in config["plugins"]:
+        # mkdocstrings enables autorefs itself
+        plugin = config["plugins"]["mkdocstrings"]["config"]
+        if plugin.get("enabled", True):
+            config["markdown_extensions"].append(AutorefsExtension.name)
+
+
+def _shim_mkdocstrings(config: dict[str, Any], path: str) -> None:
+    # Map mkdocstrings plugin configuration to the extension configuration
     if "mkdocstrings" in config["plugins"]:
         mkdocstrings_config = config["plugins"]["mkdocstrings"]["config"]
         if mkdocstrings_config.get("enabled", True):
@@ -809,21 +823,8 @@ def _shim_mkdocstrings_autorefs(config: dict[str, Any], path: str) -> None:
                     "installed. Please install mkdocstrings or disable the "
                     "plugin."
                 )
-            if autorefs := get_autorefs_extension():
-                config["markdown_extensions"].append(autorefs)
             mkdocstrings = get_mkdocstrings_extension(config, path)
             config["markdown_extensions"].append(mkdocstrings)
-
-    # Support autorefs in standalone mode
-    elif "autorefs" in config["plugins"]:
-        if autorefs := get_autorefs_extension():
-            config["markdown_extensions"].append(autorefs)
-        else:
-            raise ConfigurationError(
-                "autorefs plugin is enabled, but autorefs is not "
-                "installed. Please install autorefs or disable the "
-                "plugin."
-            )
 
 
 def _shim_glightbox(config: dict[str, Any]) -> None:
