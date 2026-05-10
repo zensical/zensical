@@ -664,15 +664,22 @@ def _apply_defaults(config: dict, path: str) -> dict:
     _shim_macros(config)
 
     # List files along with their hashes, so we can rebuild when they change
-    config["watched_files"] = sorted(
+    watched_files = (
         _list_sources(config, path)  # mkdocstrings
         | _list_snippet_files(config, path)  # pymdownx.snippets
         | _list_macros_files(config, path)  # macros
         | _list_watch_files(config, path)  # watch
     )
 
+    # We watch theme directories by default on the Rust side,
+    # so we need to  prevent duplicates from here, in case
+    # users add theme directories to the watch option
+    theme_files = _list_templates(config)
+    watched_files -= set(theme_files)
+    config["watched_files"] = sorted(watched_files)
+
     # Hash all templates, so we rebuild if something changes
-    config["template_hash"] = _hash(_list_templates(config))
+    config["template_hash"] = _hash(theme_files)
 
     # Hash the entire plugins configuration.
     # This is a special case for plugins because we currently only source
