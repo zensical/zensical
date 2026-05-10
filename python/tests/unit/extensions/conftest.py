@@ -27,6 +27,7 @@ import copy
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from bs4 import BeautifulSoup
 from markdown import Markdown
 
 from zensical.config import DEFAULT_MARKDOWN_EXTENSIONS, _apply_defaults
@@ -39,6 +40,11 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def soup(html: str) -> BeautifulSoup:
+    """Parse an HTML fragment into a tree for semantic assertions."""
+    return BeautifulSoup(html, "lxml")
 
 
 def _expand_keys(data: dict[str, Any]) -> dict[str, Any]:

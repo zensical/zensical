@@ -70,6 +70,8 @@ zensical = "zensical.main:cli"
 
 [dependency-groups]
 dev = [
+    "beautifulsoup4>=4.14.3",
+    "lxml>=6.1.0",
     "maturin>=1.10.2",
     "pandas>=2.3.3",
     "pytest>=9.0.3",
