@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from tests.unit.extensions.conftest import soup
 from zensical.extensions.autorefs import get_autorefs_store, reset
 
 if TYPE_CHECKING:
@@ -98,8 +99,10 @@ class TestInlineProcessor:
     )
     def test_implicit_reference(self, md: Markdown) -> None:
         """`[Foo][]` produces an `<autoref>` element with identifier="Foo"."""
-        result = md.convert("[Foo][]")
-        assert 'identifier="Foo"' in result
+        html = soup(md.convert("[Foo][]"))
+        autoref = html.find("autoref")
+        assert autoref is not None
+        assert autoref["identifier"] == "Foo"
 
     @pytest.mark.parametrize(
         "md",
@@ -108,9 +111,13 @@ class TestInlineProcessor:
     )
     def test_explicit_reference_with_formatted_text(self, md: Markdown) -> None:
         """`[**Foo**][Foo]` wraps the bold text inside the autoref element."""
-        result = md.convert("[**Foo**][Foo]")
-        assert 'identifier="Foo"' in result
-        assert "<strong>Foo</strong>" in result
+        html = soup(md.convert("[**Foo**][Foo]"))
+        autoref = html.find("autoref")
+        assert autoref is not None
+        assert autoref["identifier"] == "Foo"
+        strong = autoref.find("strong")
+        assert strong is not None
+        assert strong.get_text() == "Foo"
 
     @pytest.mark.parametrize(
         "md",
@@ -119,10 +126,14 @@ class TestInlineProcessor:
     )
     def test_implicit_backtick_reference_is_exact(self, md: Markdown) -> None:
         """``[`Foo`][]`` uses the code content as exact identifier (no slug)."""
-        result = md.convert("[`Foo`][]")
-        assert 'identifier="Foo"' in result
-        assert "<code>Foo</code>" in result
-        assert "slug=" not in result
+        html = soup(md.convert("[`Foo`][]"))
+        autoref = html.find("autoref")
+        assert autoref is not None
+        assert autoref["identifier"] == "Foo"
+        code = autoref.find("code")
+        assert code is not None
+        assert code.get_text() == "Foo"
+        assert "slug" not in autoref.attrs
 
     @pytest.mark.parametrize(
         "md",
@@ -140,9 +151,11 @@ class TestInlineProcessor:
         self, md: Markdown
     ) -> None:
         """``[`pathlib.Path`][]`` with inlinehilite keep exact identifier."""
-        result = md.convert("[`pathlib.Path`][]")
-        assert 'identifier="pathlib.Path"' in result
-        assert "slug=" not in result
+        html = soup(md.convert("[`pathlib.Path`][]"))
+        autoref = html.find("autoref")
+        assert autoref is not None
+        assert autoref["identifier"] == "pathlib.Path"
+        assert "slug" not in autoref.attrs
 
     @pytest.mark.parametrize(
         "md",
@@ -163,9 +176,11 @@ class TestInlineProcessor:
         self, md: Markdown
     ) -> None:
         """``[`pathlib.Path`][]`` with inlinehilite is still exact."""
-        result = md.convert("[`pathlib.Path`][]")
-        assert 'identifier="pathlib.Path"' in result
-        assert "slug=" not in result
+        html = soup(md.convert("[`pathlib.Path`][]"))
+        autoref = html.find("autoref")
+        assert autoref is not None
+        assert autoref["identifier"] == "pathlib.Path"
+        assert "slug" not in autoref.attrs
 
     @pytest.mark.parametrize(
         "md",
@@ -174,9 +189,11 @@ class TestInlineProcessor:
     )
     def test_reference_inside_code_not_converted(self, md: Markdown) -> None:
         """`` `[Foo][]` `` is not converted into an autoref."""
-        result = md.convert("`[Foo][]`")
-        assert "<autoref" not in result
-        assert "<code>[Foo][]</code>" in result
+        html = soup(md.convert("`[Foo][]`"))
+        assert html.find("autoref") is None
+        code = html.find("code")
+        assert code is not None
+        assert code.get_text() == "[Foo][]"
 
     @pytest.mark.parametrize(
         "md",
@@ -187,9 +204,11 @@ class TestInlineProcessor:
         self, md: Markdown
     ) -> None:
         """References spanning two lines use explicit identifiers (no slug)."""
-        result = md.convert("[Foo\nbar][foo-bar]")
-        assert 'identifier="foo-bar"' in result
-        assert "slug=" not in result
+        html = soup(md.convert("[Foo\nbar][foo-bar]"))
+        autoref = html.find("autoref")
+        assert autoref is not None
+        assert autoref["identifier"] == "foo-bar"
+        assert "slug" not in autoref.attrs
 
     @pytest.mark.parametrize(
         "md",
@@ -200,9 +219,11 @@ class TestInlineProcessor:
         self, md: Markdown
     ) -> None:
         """`[Foo bar][]` uses the text as identifier and adds a slug."""
-        result = md.convert("[Foo bar][]")
-        assert 'identifier="Foo bar"' in result
-        assert 'slug="foo-bar"' in result
+        html = soup(md.convert("[Foo bar][]"))
+        autoref = html.find("autoref")
+        assert autoref is not None
+        assert autoref["identifier"] == "Foo bar"
+        assert autoref["slug"] == "foo-bar"
 
     @pytest.mark.parametrize(
         ("md", "markdown_ref", "exact_expected"),
@@ -285,11 +306,13 @@ class TestInlineProcessor:
         self, md: Markdown, markdown_ref: str, exact_expected: bool
     ) -> None:
         """Code/explicit identifiers have no slug; bare-text identifiers do."""
-        output = md.convert(markdown_ref)
+        html = soup(md.convert(markdown_ref))
+        autoref = html.find("autoref")
+        assert autoref is not None
         if exact_expected:
-            assert "slug=" not in output
+            assert "slug" not in autoref.attrs
         else:
-            assert "slug=" in output
+            assert "slug" in autoref.attrs
 
 
 # ---------------------------------------------------------------------------

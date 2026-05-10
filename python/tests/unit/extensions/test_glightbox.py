@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from tests.unit.extensions.conftest import soup
+
 if TYPE_CHECKING:
     from markdown import Markdown
 
@@ -58,11 +60,12 @@ class TestBasicWrapping:
         indirect=["md"],
     )
     def test_image_wrapped_in_anchor(self, md: Markdown) -> None:
-        result = md.convert("![alt](image.png)")
-        assert '<a class="glightbox"' in result
-        assert 'href="image.png"' in result
-        assert 'data-type="image"' in result
-        assert "<img" in result
+        html = soup(md.convert("![alt](image.png)"))
+        a = html.select_one("a.glightbox")
+        assert a is not None
+        assert a["href"] == "image.png"
+        assert a["data-type"] == "image"
+        assert a.find("img") is not None
 
     @pytest.mark.parametrize(
         "md",
@@ -70,8 +73,10 @@ class TestBasicWrapping:
         indirect=["md"],
     )
     def test_anchor_contains_img(self, md: Markdown) -> None:
-        result = md.convert("![alt](image.png)")
-        assert result.index('<a class="glightbox"') < result.index("<img")
+        html = soup(md.convert("![alt](image.png)"))
+        a = html.select_one("a.glightbox")
+        assert a is not None
+        assert a.find("img") is not None
 
     @pytest.mark.parametrize(
         "md",
@@ -79,8 +84,10 @@ class TestBasicWrapping:
         indirect=["md"],
     )
     def test_src_used_as_href(self, md: Markdown) -> None:
-        result = md.convert("![](photo.jpg)")
-        assert 'href="photo.jpg"' in result
+        html = soup(md.convert("![](photo.jpg)"))
+        a = html.select_one("a.glightbox")
+        assert a is not None
+        assert a["href"] == "photo.jpg"
 
     @pytest.mark.parametrize(
         "md",
@@ -88,9 +95,13 @@ class TestBasicWrapping:
         indirect=["md"],
     )
     def test_with_title_attribute(self, md: Markdown) -> None:
-        result = md.convert('![alt](image.png "My Title")')
-        assert "<img" in result
-        assert 'href="image.png"' in result
+        html = soup(md.convert('![alt](image.png "My Title")'))
+        a = html.select_one("a.glightbox")
+        assert a is not None
+        assert a["href"] == "image.png"
+        img = a.find("img")
+        assert img is not None
+        assert img["title"] == "My Title"
 
 
 # ---------------------------------------------------------------------------
@@ -112,8 +123,8 @@ class TestSkipClasses:
     def test_builtin_skip_class_prevents_wrapping(
         self, md: Markdown, cls: str
     ) -> None:
-        result = md.convert(f'<img src="image.png" class="{cls}" />')
-        assert '<a class="glightbox"' not in result
+        html = soup(md.convert(f'<img src="image.png" class="{cls}" />'))
+        assert html.select_one("a.glightbox") is None
 
     @pytest.mark.parametrize(
         "md",
@@ -125,8 +136,8 @@ class TestSkipClasses:
         indirect=["md"],
     )
     def test_custom_skip_class_prevents_wrapping(self, md: Markdown) -> None:
-        result = md.convert('<img src="image.png" class="no-lightbox" />')
-        assert '<a class="glightbox"' not in result
+        html = soup(md.convert('<img src="image.png" class="no-lightbox" />'))
+        assert html.select_one("a.glightbox") is None
 
     @pytest.mark.parametrize(
         "md",
@@ -134,8 +145,8 @@ class TestSkipClasses:
         indirect=["md"],
     )
     def test_non_skip_class_is_wrapped(self, md: Markdown) -> None:
-        result = md.convert('<img src="image.png" class="hero" />')
-        assert '<a class="glightbox"' in result
+        html = soup(md.convert('<img src="image.png" class="hero" />'))
+        assert html.select_one("a.glightbox") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -150,8 +161,8 @@ class TestManualMode:
         indirect=["md"],
     )
     def test_skips_plain_images(self, md: Markdown) -> None:
-        result = md.convert("![alt](image.png)")
-        assert '<a class="glightbox"' not in result
+        html = soup(md.convert("![alt](image.png)"))
+        assert html.select_one("a.glightbox") is None
 
     @pytest.mark.parametrize(
         "md",
@@ -159,8 +170,10 @@ class TestManualMode:
         indirect=["md"],
     )
     def test_wraps_on_glb_images(self, md: Markdown) -> None:
-        result = md.convert('<img src="image.png" class="on-glb" />')
-        assert '<a class="glightbox"' in result
+        html = soup(md.convert('<img src="image.png" class="on-glb" />'))
+        a = html.select_one("a.glightbox")
+        assert a is not None
+        assert a.find("img") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -175,8 +188,10 @@ class TestAutoCaption:
         indirect=["md"],
     )
     def test_uses_alt_as_title(self, md: Markdown) -> None:
-        result = md.convert("![My Caption](image.png)")
-        assert 'data-title="My Caption"' in result
+        html = soup(md.convert("![My Caption](image.png)"))
+        a = html.select_one("a.glightbox")
+        assert a is not None
+        assert a["data-title"] == "My Caption"
 
     @pytest.mark.parametrize(
         "md",
@@ -184,8 +199,10 @@ class TestAutoCaption:
         indirect=["md"],
     )
     def test_disabled_by_default(self, md: Markdown) -> None:
-        result = md.convert("![My Caption](image.png)")
-        assert "data-title" not in result
+        html = soup(md.convert("![My Caption](image.png)"))
+        a = html.select_one("a.glightbox")
+        assert a is not None
+        assert "data-title" not in a.attrs
 
     @pytest.mark.parametrize(
         "md",
@@ -193,11 +210,14 @@ class TestAutoCaption:
         indirect=["md"],
     )
     def test_explicit_data_title_takes_precedence(self, md: Markdown) -> None:
-        result = md.convert(
-            '<img src="image.png" alt="alt" data-title="Override" />',
+        html = soup(
+            md.convert(
+                '<img src="image.png" alt="alt" data-title="Override" />',
+            )
         )
-        assert 'data-title="Override"' in result
-        assert result.count("data-title=") == 1
+        a = html.select_one("a.glightbox")
+        assert a is not None
+        assert a["data-title"] == "Override"
 
 
 # ---------------------------------------------------------------------------
@@ -212,10 +232,12 @@ class TestCaptionPosition:
         indirect=["md"],
     )
     def test_caption_position_forwarded_from_img(self, md: Markdown) -> None:
-        result = md.convert(
-            '<img src="image.png" data-caption-position="top" />'
+        html = soup(
+            md.convert('<img src="image.png" data-caption-position="top" />')
         )
-        assert 'data-desc-position="top"' in result
+        a = html.select_one("a.glightbox")
+        assert a is not None
+        assert a["data-desc-position"] == "top"
 
     @pytest.mark.parametrize(
         "md",
@@ -223,8 +245,10 @@ class TestCaptionPosition:
         indirect=["md"],
     )
     def test_no_position_by_default(self, md: Markdown) -> None:
-        result = md.convert("![alt](image.png)")
-        assert "data-desc-position" not in result
+        html = soup(md.convert("![alt](image.png)"))
+        a = html.select_one("a.glightbox")
+        assert a is not None
+        assert "data-desc-position" not in a.attrs
 
 
 # ---------------------------------------------------------------------------
@@ -244,9 +268,11 @@ class TestWidthHeight:
         indirect=["md"],
     )
     def test_width_and_height_forwarded(self, md: Markdown) -> None:
-        result = md.convert("![alt](image.png)")
-        assert 'data-width="800px"' in result
-        assert 'data-height="600px"' in result
+        html = soup(md.convert("![alt](image.png)"))
+        a = html.select_one("a.glightbox")
+        assert a is not None
+        assert a["data-width"] == "800px"
+        assert a["data-height"] == "600px"
 
     @pytest.mark.parametrize(
         "md",
@@ -254,9 +280,11 @@ class TestWidthHeight:
         indirect=["md"],
     )
     def test_auto_dimensions_omitted(self, md: Markdown) -> None:
-        result = md.convert("![alt](image.png)")
-        assert "data-width" not in result
-        assert "data-height" not in result
+        html = soup(md.convert("![alt](image.png)"))
+        a = html.select_one("a.glightbox")
+        assert a is not None
+        assert "data-width" not in a.attrs
+        assert "data-height" not in a.attrs
 
 
 # ---------------------------------------------------------------------------
@@ -298,8 +326,10 @@ class TestAutoThemedGalleryGrouping:
     def test_gallery_grouping(
         self, md: Markdown, src: str, expected_gallery: str
     ) -> None:
-        result = md.convert(f"![alt]({src})")
-        assert f'data-gallery="{expected_gallery}"' in result
+        html = soup(md.convert(f"![alt]({src})"))
+        a = html.select_one("a.glightbox")
+        assert a is not None
+        assert a["data-gallery"] == expected_gallery
 
     @pytest.mark.parametrize(
         "md",
@@ -307,8 +337,10 @@ class TestAutoThemedGalleryGrouping:
         indirect=["md"],
     )
     def test_no_gallery_when_disabled(self, md: Markdown) -> None:
-        result = md.convert("![alt](image.png#only-light)")
-        assert "data-gallery" not in result
+        html = soup(md.convert("![alt](image.png#only-light)"))
+        a = html.select_one("a.glightbox")
+        assert a is not None
+        assert "data-gallery" not in a.attrs
 
 
 # ---------------------------------------------------------------------------
@@ -323,9 +355,11 @@ class TestImageInsideAnchor:
         indirect=["md"],
     )
     def test_not_double_wrapped(self, md: Markdown) -> None:
-        result = md.convert("[![alt](image.png)](https://example.com)")
-        assert 'class="glightbox"' not in result
-        assert 'href="https://example.com"' in result
+        html = soup(md.convert("[![alt](image.png)](https://example.com)"))
+        assert html.select_one("a.glightbox") is None
+        a = html.select_one("a")
+        assert a is not None
+        assert a["href"] == "https://example.com"
 
 
 # ---------------------------------------------------------------------------
@@ -340,9 +374,11 @@ class TestPostprocessor:
         indirect=["md"],
     )
     def test_raw_html_image_wrapped(self, md: Markdown) -> None:
-        result = md.convert('<img src="raw.png" />')
-        assert '<a class="glightbox"' in result
-        assert 'href="raw.png"' in result
+        html = soup(md.convert('<img src="raw.png" />'))
+        a = html.select_one("a.glightbox")
+        assert a is not None
+        assert a["href"] == "raw.png"
+        assert a.find("img") is not None
 
     @pytest.mark.parametrize(
         "md",
@@ -350,5 +386,5 @@ class TestPostprocessor:
         indirect=["md"],
     )
     def test_raw_html_skip_class_not_wrapped(self, md: Markdown) -> None:
-        result = md.convert('<img src="raw.png" class="off-glb" />')
-        assert 'class="glightbox"' not in result
+        html = soup(md.convert('<img src="raw.png" class="off-glb" />'))
+        assert html.select_one("a.glightbox") is None
