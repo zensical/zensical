@@ -198,11 +198,24 @@ def _scan(cursor: Cursor) -> Iterator[Reference]:
 
         # Code block: ```...``` or `...`
         if char == _BACKTICK:
-            if cursor.at_line_start():
+            # Consume the full run so a failed match does not leave trailing
+            # backticks to be rescanned as new delimiters.
+            count = 1
+            while cursor.peek(count) == _BACKTICK:
+                count += 1
+            if (
+                cursor.at_line_start()
+                and count >= 3  # noqa: PLR2004
+                and cursor.peek(count) in (_SPACE, _TAB, _NL, _CR, -1)
+            ):
                 end = _scan_fenced_code(cursor, _BACKTICK)
                 if end is not None:
                     cursor.advance(end - cursor.pos)
                     continue
+
+                # Literal
+                cursor.advance(count)
+                continue
 
             # Inline code: `...`
             end = _scan_inline_code(cursor)
@@ -211,7 +224,7 @@ def _scan(cursor: Cursor) -> Iterator[Reference]:
                 continue
 
             # Literal
-            cursor.advance(1)
+            cursor.advance(count)
             continue
 
         # Code block: ~~~...~~~

@@ -1554,6 +1554,10 @@ class TestInlineCode:
                 b"``text`[text](href)``",
                 id="inline-code, inner backticks",
             ),
+            pytest.param(
+                b"`` `[text](href)`",
+                id="inline-code, empty code span",
+            ),
         ],
     )
     def test_inline_code(self, md: bytes) -> None:
