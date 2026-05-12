@@ -424,6 +424,10 @@ def _scan_link_or_link_ref(cursor: Cursor) -> Link | LinkReference | None:
     # Consume link id
     id, end = _scan_link_id(cursor, end)
 
+    # Ignore empty shortcut references like `[]` or `[][]`.
+    if id is None and text.start == text.end:
+        return None
+
     # Advance cursor and return link reference
     cursor.advance(end - start)
     return LinkReference(
