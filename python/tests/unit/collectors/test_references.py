@@ -311,12 +311,6 @@ class TestLinkReferences:
                 id="link-ref-with-empty-text",
             ),
             pytest.param(
-                b"[][]",
-                b"",
-                b"",
-                id="link-ref-with-empty-text-and-id",
-            ),
-            pytest.param(
                 b"[text \\]][id]",
                 b"text \\]",
                 b"id",
@@ -469,6 +463,16 @@ class TestLinkReferences:
 
     def test_no_link_ref_escaped_closing_bracket(self) -> None:
         md = b"[text\\]"
+        refs = collect(md)
+        assert len(refs) == 0
+
+    def test_no_link_ref_empty_shortcut(self) -> None:
+        md = b"[]"
+        refs = collect(md)
+        assert len(refs) == 0
+
+    def test_no_link_ref_empty_brackets(self) -> None:
+        md = b"[][]"
         refs = collect(md)
         assert len(refs) == 0
 
