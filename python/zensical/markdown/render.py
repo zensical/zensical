@@ -158,7 +158,7 @@ def _convert_toc(item: Any) -> dict:
     """Convert a table of contents item to navigation item format."""
     toc_item = {
         "title": item["data-toc-label"] or item["name"],
-        "content": item["data-toc-label"] or _remove_links(item["html"]),
+        "content": item["data-toc-label"] or _cleanup_toc_label(item["html"]),
         "id": item["id"],
         "url": f"#{item['id']}",
         "children": [],
@@ -173,7 +173,11 @@ def _convert_toc(item: Any) -> dict:
     return toc_item
 
 
-def _remove_links(html: str) -> str:
-    """Remove links from HTML string."""
+def _cleanup_toc_label(html: str) -> str:
+    """Clean up a TOC label."""
+    # Remove links
     html = re.sub(r"id=\"?[^\">]+\"?", "", html)
-    return re.sub(r"<a\s+[^>]+>(.*?)</a>", r"\1", html, flags=re.DOTALL)
+    html = re.sub(r"<a\s+[^>]+>(.*?)</a>", r"\1", html, flags=re.DOTALL)
+    # Remove abbreviations
+    html = re.sub(r"<abbr\s+[^>]+>(.*?)</abbr>", r"\1", html, flags=re.DOTALL)
+    return html  # noqa: RET504

@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 # ----------------------------------------------------------------------------
 
 
-_CONFIG = None
+_CONFIG: dict[str, Any] | None = None
 """
 Global configuration to pick up later for parsing Markdown.
 
