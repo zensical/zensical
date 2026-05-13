@@ -142,9 +142,10 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     // network of tasks will be supported.
     let config = match Config::new(config_file) {
         Ok(config) => config,
-        // If we're in serve mode, we can just wait until the configuration
-        // file is touched and start over again
-        Err(err) if matches!(mode, Mode::Serve(_, _)) => {
+        // If we're already serving (seq > 0), a previous build succeeded, so
+        // we can wait for the config file to be fixed and retry. On the first
+        // run (seq == 0) we exit immediately, just like `build` does.
+        Err(err) if matches!(&mode, Mode::Serve(_, seq) if *seq > 0) => {
             println!("[error] Failed to load configuration: {err}");
             return wait_for_touch(config_file).map_err(Into::into);
         }
