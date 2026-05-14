@@ -284,8 +284,9 @@ def get_builtin_theme_dir() -> str:
 def get_theme_dir(name: str) -> str:
     """Return the theme directory."""
     # Zensical's default theme is the replacement for the `material` theme, so
-    # make sure to use the built-in theme when `material` is specified
-    if name == "material":
+    # make sure to use the built-in theme when `material` is specified.
+    # We also reserve the `zensical` theme name to the same effect.
+    if name in ("material", "zensical"):
         return get_builtin_theme_dir()
 
     # Otherwise, check for installed themes - note that because of minijinja,
