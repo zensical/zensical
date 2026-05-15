@@ -25,7 +25,7 @@
 
 //! Workflow cache.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -92,11 +92,13 @@ where
         }
     }
 
-    // Compute artifact and convert into report - note that we need to properly
-    // handle encoding and file I/O errors here as well
-    f(args).inspect(|data| {
-        serde_json::to_string_pretty(&Cached { data, hash })
-            .map(|content| fs::write(path, content).expect("invariant"))
-            .expect("invariant");
-    })
+    let data = f(args)?;
+    let content = serde_json::to_string_pretty(&Cached { data: &data, hash })
+        .with_context(|| {
+        format!("failed to serialize cache entry for {}", path.display())
+    })?;
+    fs::write(&path, content).with_context(|| {
+        format!("failed to write cache entry to {}", path.display())
+    })?;
+    Ok(data)
 }
