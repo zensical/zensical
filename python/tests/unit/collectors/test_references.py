@@ -1672,6 +1672,11 @@ class TestMath:
         assert text(md, links[0].text) == b"before"
         assert text(md, links[0].href) == b"href"
 
+    def test_no_math(self) -> None:
+        md = b"1.000$"
+        refs = collect(md)
+        assert len(refs) == 0
+
 
 # ---------------------------------------------------------------------------
 

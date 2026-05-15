@@ -1021,12 +1021,12 @@ def _scan_inline_code(cursor: Cursor) -> int | None:
 def _scan_math_inline(cursor: Cursor) -> int | None:
     """Scan for `$...$` math."""
     end = cursor.pos
-    if end >= cursor.end and cursor.data[end] != _DOLLAR:
+    if end >= cursor.end or cursor.data[end] != _DOLLAR:
         return None
 
     # Skip opening $ and abort if it's followed by whitespace or another $
     end += 1
-    if end >= cursor.end and (
+    if end >= cursor.end or (
         cursor.data[end] in (_DOLLAR, _SPACE, _TAB, _NL, _CR)
     ):
         return None
