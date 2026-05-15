@@ -971,7 +971,7 @@ def _scan_fenced_code(cursor: Cursor, char: int) -> int | None:
         # Skip to next line and terminate if we found a closing fence
         if end - start == opening:
             rest = _skip_whitespace(cursor, end)
-            if rest >= cursor.end or cursor.data[rest] == _NL:
+            if rest >= cursor.end or cursor.data[rest] in (_CR, _NL):
                 return _skip_line(cursor, end)
 
         # Skip to next line

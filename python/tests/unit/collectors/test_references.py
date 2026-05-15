@@ -1470,6 +1470,14 @@ class TestFencedCodeBlocks:
                 b"~~~~ py\n[text](href)\n~~~~",
                 id="fenced-code-4-tildes-lang",
             ),
+            pytest.param(
+                b"\n```\n[Start][]\n```\n",
+                id="fenced-code-with-info",
+            ),
+            pytest.param(
+                b"```\r\n[Start]\r\n```\r\n",
+                id="fenced-code-crlf-with-shortcut-link-ref",
+            ),
         ],
     )
     def test_fenced_code(self, md: bytes) -> None:
