@@ -139,7 +139,7 @@ class Cursor:
         """Advance the cursor by `n` bytes."""
         for _ in range(n):
             if self.pos < self.end:
-                if self.data[self.pos] == _NL:
+                if self.data[self.pos] in (_CR, _NL):
                     self.col = 0
                 else:
                     self.col += 1
@@ -152,7 +152,7 @@ class Cursor:
     def _is_blank_prefix(self) -> bool:
         """Return whether there's only whitespace before the cursor."""
         i = self.pos - 1
-        while i >= 0 and self.data[i] != _NL:
+        while i >= 0 and self.data[i] not in (_CR, _NL):
             if self.data[i] not in _WHITESPACE:
                 return False
             i -= 1
@@ -206,7 +206,7 @@ def _scan(cursor: Cursor) -> Iterator[Reference]:
             if (
                 cursor.at_line_start()
                 and count >= 3  # noqa: PLR2004
-                and cursor.peek(count) in (_SPACE, _TAB, _NL, _CR, -1)
+                and cursor.peek(count) in (_SPACE, _TAB, _CR, _NL, -1)
             ):
                 end = _scan_fenced_code(cursor, _BACKTICK)
                 if end is not None:
@@ -462,7 +462,7 @@ def _scan_link_def(cursor: Cursor) -> LinkDefinition | None:
         result = _scan_link_href_in_angle_brackets(cursor, end)
         if result is not None:
             href, end = result
-            while end < cursor.end and cursor.data[end] != _NL:
+            while end < cursor.end and cursor.data[end] not in (_CR, _NL):
                 end += 1
 
             # Advance cursor and return link definition
@@ -477,7 +477,7 @@ def _scan_link_def(cursor: Cursor) -> LinkDefinition | None:
     # Consume link href until whitespace or quote
     begin = end
     while end < cursor.end:
-        if cursor.data[end] in (_SPACE, _TAB, _NL, _CR, _QUOTE):
+        if cursor.data[end] in (_SPACE, _TAB, _CR, _NL, _QUOTE):
             break
 
         # Literal
@@ -557,7 +557,7 @@ def _scan_link_href(cursor: Cursor, start: int) -> tuple[Span, int] | None:
             pos = _skip_whitespace_newline(cursor, pos)
             if pos < cursor.end and cursor.data[pos] == _QUOTE:
                 while pos < cursor.end and cursor.data[pos] != _RPAREN:
-                    if cursor.data[pos] == _NL:
+                    if cursor.data[pos] in (_CR, _NL):
                         return None
 
                     # Literal
@@ -599,7 +599,7 @@ def _scan_link_href(cursor: Cursor, start: int) -> tuple[Span, int] | None:
     # Skip optional title and whitespace
     href = cursor.span(start + 1, end)
     while end < cursor.end and cursor.data[end] != _RPAREN:
-        if cursor.data[end] == _NL:
+        if cursor.data[end] in (_CR, _NL):
             return None
 
         # Literal
@@ -624,7 +624,7 @@ def _scan_link_href_in_angle_brackets(
     while (
         end < cursor.end
         and cursor.data[end] != _RANGLE
-        and cursor.data[end] != _NL
+        and cursor.data[end] not in (_CR, _NL)
     ):
         end += 1
 
@@ -911,7 +911,7 @@ def _scan_footnote_def(
 
     # Trim trailing newlines from the body span
     body_end = end
-    while body_end > body_start and cursor.data[body_end - 1] in (_NL, _CR):
+    while body_end > body_start and cursor.data[body_end - 1] in (_CR, _NL):
         body_end -= 1
 
     # Build and emit the definition
@@ -1027,12 +1027,12 @@ def _scan_math_inline(cursor: Cursor) -> int | None:
     # Skip opening $ and abort if it's followed by whitespace or another $
     end += 1
     if end >= cursor.end or (
-        cursor.data[end] in (_DOLLAR, _SPACE, _TAB, _NL, _CR)
+        cursor.data[end] in (_DOLLAR, _SPACE, _TAB, _CR, _NL)
     ):
         return None
 
     # Scan for closing $
-    while end < cursor.end and cursor.data[end] != _NL:
+    while end < cursor.end and cursor.data[end] not in (_CR, _NL):
         if (
             cursor.data[end] == _DOLLAR
             # Closing $ must not be preceded by whitespace or $
@@ -1075,7 +1075,7 @@ def _scan_math(
     # Consume opening delimiter and scan for closing delimiter
     start += 2
     while start < cursor.end:
-        if not multiline and cursor.data[start] == _NL:
+        if not multiline and cursor.data[start] in (_CR, _NL):
             return None
 
         # Consume closing delimiter and return if we found it
@@ -1147,7 +1147,7 @@ def _scan_html_attrs(
     """Scans for HTML attributes."""
     attrs: dict[bytes, Span] = {}
     while pos < cursor.end and cursor.data[pos] != _RANGLE:
-        if cursor.data[pos] in (_SPACE, _TAB, _NL, _CR, _SLASH):
+        if cursor.data[pos] in (_SPACE, _TAB, _CR, _NL, _SLASH):
             pos += 1
             continue
 
@@ -1163,7 +1163,7 @@ def _scan_html_attrs(
         start = pos
         while pos < cursor.end and (
             cursor.data[pos]
-            not in (_SPACE, _TAB, _NL, _CR, _RANGLE, _SLASH, _EQUALS)
+            not in (_SPACE, _TAB, _CR, _NL, _RANGLE, _SLASH, _EQUALS)
         ):
             pos += 1
 
@@ -1171,7 +1171,7 @@ def _scan_html_attrs(
         name = cursor.data[start:pos].lower()
 
         # Skip whitespace before =
-        while pos < cursor.end and cursor.data[pos] in (_SPACE, _TAB, _NL, _CR):
+        while pos < cursor.end and cursor.data[pos] in (_SPACE, _TAB, _CR, _NL):
             pos += 1
 
         # Boolean attribute - record presence with empty span
@@ -1181,7 +1181,7 @@ def _scan_html_attrs(
 
         # Skip = and whitespace after it
         pos += 1
-        while pos < cursor.end and cursor.data[pos] in (_SPACE, _TAB, _NL, _CR):
+        while pos < cursor.end and cursor.data[pos] in (_SPACE, _TAB, _CR, _NL):
             pos += 1
 
         # Quoted value
@@ -1203,7 +1203,7 @@ def _scan_html_attrs(
         else:
             start = pos
             while pos < cursor.end and (
-                cursor.data[pos] not in (_SPACE, _TAB, _NL, _CR, _RANGLE)
+                cursor.data[pos] not in (_SPACE, _TAB, _CR, _NL, _RANGLE)
             ):
                 pos += 1
 
@@ -1240,7 +1240,7 @@ def _scan_html_tag(cursor: Cursor) -> tuple[int, list[Link]] | None:
 
     # Must be followed by whitespace, >, or /
     if end >= cursor.end or (
-        cursor.data[end] not in (_SPACE, _TAB, _NL, _CR, _RANGLE, _SLASH)
+        cursor.data[end] not in (_SPACE, _TAB, _CR, _NL, _RANGLE, _SLASH)
     ):
         return None
 
@@ -1289,7 +1289,7 @@ def _scan_html_block(cursor: Cursor) -> int | None:
 
     # Skip if there are newlines in the opening tag
     pos, attrs = result
-    if b"\n" in cursor.data[start:pos]:
+    if b"\n" in cursor.data[start:pos] or b"\r" in cursor.data[start:pos]:
         return None
 
     # If markdown attribute is set to a valid value, the md_in_html extension
@@ -1302,9 +1302,7 @@ def _scan_html_block(cursor: Cursor) -> int | None:
 
     # Inline form: opening and closing tag on the same line
     closing_tag = b"</" + name + b">"
-    eol = cursor.data.find(b"\n", pos)
-    if eol == -1:
-        eol = cursor.end
+    eol = _find_line_end(cursor, pos)
 
     # Search for closing tag on the same line
     close = cursor.data.find(closing_tag, pos, eol + 1)
@@ -1313,7 +1311,7 @@ def _scan_html_block(cursor: Cursor) -> int | None:
 
     # Multi-line form: require a newline (with optional trailing whitespace)
     i = _skip_whitespace(cursor, pos)
-    if i >= cursor.end or cursor.data[i] not in (_NL, _CR):
+    if i >= cursor.end or cursor.data[i] not in (_CR, _NL):
         return None
     if (
         cursor.data[i] == _CR
@@ -1331,8 +1329,7 @@ def _scan_html_block(cursor: Cursor) -> int | None:
             return None
 
         # Search for closing tag
-        start = cursor.data.rfind(b"\n", 0, pos)
-        start = 0 if start == -1 else start + 1
+        start = _find_line_start(cursor, pos)
         if cursor.data[start:pos].strip() == b"":
             return _skip_line_ending(cursor, pos + len(closing_tag))
 
@@ -1360,19 +1357,25 @@ def _scan_jinja(cursor: Cursor) -> int | None:
     else:
         return None
 
-    # Scan for closing delimiter, allowing newlines but not blank lines
+    # Scan for closing delimiter, allowing line endings but not blank lines
     end = start + 2
     newlines = 0
     while end < cursor.end:
         char = cursor.data[end]
 
-        # Check for two consecutive newlines
-        if char == _NL:
+        # Check for two consecutive line endings
+        if char in (_CR, _NL):
             newlines += 1
 
-            # Terminte if we encounter a blank line
+            # Terminate if we encounter a blank line
             if newlines == 2:  # noqa: PLR2004
                 return None
+            if (
+                char == _CR
+                and end + 1 < cursor.end
+                and cursor.data[end + 1] == _NL
+            ):
+                end += 1
         else:
             newlines = 0
 
@@ -1451,7 +1454,13 @@ def _skip_whitespace(cursor: Cursor, pos: int) -> int:
 def _skip_whitespace_newline(cursor: Cursor, pos: int) -> int:
     """Skip trailing horizontal whitespace and at most one newline."""
     pos = _skip_whitespace(cursor, pos)
-    if pos < cursor.end and cursor.data[pos] == _NL:
+    if pos < cursor.end and cursor.data[pos] in (_CR, _NL):
+        if (
+            cursor.data[pos] == _CR
+            and pos + 1 < cursor.end
+            and cursor.data[pos + 1] == _NL
+        ):
+            pos += 1
         pos = _skip_whitespace(cursor, pos + 1)
     return pos
 
@@ -1469,7 +1478,14 @@ def _skip_line_ending(cursor: Cursor, pos: int) -> int:
 
 def _skip_line(cursor: Cursor, pos: int) -> int:
     """Skip to the next line, consuming the newline."""
-    while pos < cursor.end and cursor.data[pos] != _NL:
+    while pos < cursor.end and cursor.data[pos] not in (_CR, _NL):
+        pos += 1
+    if (
+        pos < cursor.end
+        and cursor.data[pos] == _CR
+        and pos + 1 < cursor.end
+        and cursor.data[pos + 1] == _NL
+    ):
         pos += 1
     if pos < cursor.end:
         pos += 1
@@ -1481,10 +1497,25 @@ def _find_bracket(cursor: Cursor, pos: int) -> int:
     while (
         pos < cursor.end
         and cursor.data[pos] != _RBRACKET
-        and cursor.data[pos] != _NL
+        and cursor.data[pos] not in (_CR, _NL)
     ):
         pos += 1
     return pos
+
+
+def _find_line_end(cursor: Cursor, pos: int) -> int:
+    """Find the next line ending or end of buffer."""
+    while pos < cursor.end and cursor.data[pos] not in (_CR, _NL):
+        pos += 1
+    return pos
+
+
+def _find_line_start(cursor: Cursor, pos: int) -> int:
+    """Find the first byte after the previous line ending."""
+    start = pos - 1
+    while start >= 0 and cursor.data[start] not in (_CR, _NL):
+        start -= 1
+    return start + 1
 
 
 # ----------------------------------------------------------------------------
