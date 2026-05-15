@@ -1672,6 +1672,9 @@ class TestMath:
         assert text(md, links[0].text) == b"before"
         assert text(md, links[0].href) == b"href"
 
+    def test_line_ending_with_dollar(self) -> None:
+        collect(b"text$")  # no IndexError
+
 
 # ---------------------------------------------------------------------------
 
