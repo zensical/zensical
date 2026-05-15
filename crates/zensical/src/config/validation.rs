@@ -56,6 +56,25 @@ pub struct Validation {
 }
 
 // ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
+
+impl Validation {
+    /// Return whether any validation check is enabled.
+    #[inline]
+    pub fn is_enabled(&self) -> bool {
+        self.unresolved_references
+            || self.unresolved_footnotes
+            || self.unused_definitions
+            || self.unused_footnotes
+            || self.shadowed_definitions
+            || self.shadowed_footnotes
+            || self.invalid_links
+            || self.invalid_link_anchors
+    }
+}
+
+// ----------------------------------------------------------------------------
 // Trait implementations
 // ----------------------------------------------------------------------------
 

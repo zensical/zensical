@@ -100,9 +100,11 @@ impl Module for Main {
         let pages = page.select([wait_for_markdown(&self.config)]);
 
         // Collect all anchors and references from pages, to validate links
-        let references = collect_references(&files);
-        let anchors = collect_anchors(&page);
-        validate(&self.config, self.strict, references, anchors);
+        if self.config.project.validation.is_enabled() {
+            let references = collect_references(&files);
+            let anchors = collect_anchors(&page);
+            validate(&self.config, self.strict, references, anchors);
+        }
 
         // Generate navigation and search index
         let nav = generate_nav(&self.config, &pages);
