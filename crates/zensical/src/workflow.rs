@@ -277,6 +277,10 @@ pub fn process_markdown(
         .map(move |id: &Id, path: Source| {
             let data = fs::read_to_string(&*path)?;
 
+            // Remove Byte-Order-Mark (BOM)
+            let data = data.strip_prefix('\u{FEFF}').unwrap_or(&data);
+            let data = data.to_owned();
+
             // Compute URL using same logic as Page::new()
             let site_dir = config.project.site_dir.clone();
             let use_directory_urls = config.project.use_directory_urls;
