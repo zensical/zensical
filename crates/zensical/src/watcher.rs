@@ -228,9 +228,9 @@ impl Watcher {
         // Watch docs and template directories
         agent.watch(&config.path)?;
         for theme_dir in &config.theme_dirs {
-            // Skip `.icons` directory. On NetBSD, inotify uses the kqueue
-            // backend which opens one file descriptor per file/directory,
-            // quickly reaching any file descriptor limit set on the system.
+            // Skip `.icons` directory. On NetBSD, kqueue opens one file
+            // descriptor per file/directory, quickly reaching limits set by
+            // the system on the number of open file descriptors.
             match fs::read_dir(theme_dir) {
                 Ok(entries) => {
                     for entry in entries.flatten() {
