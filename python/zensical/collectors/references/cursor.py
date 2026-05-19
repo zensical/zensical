@@ -1042,6 +1042,8 @@ def _scan_math_inline(cursor: Cursor) -> int | None:
 
     # Scan for closing $
     while end < cursor.end and cursor.data[end] not in (_CR, _NL):
+        if cursor.data[end] == _BACKTICK:
+            return None
         if (
             cursor.data[end] == _DOLLAR
             # Closing $ must not be preceded by whitespace or $

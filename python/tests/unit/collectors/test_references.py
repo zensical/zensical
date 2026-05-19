@@ -1854,6 +1854,11 @@ class TestMath:
         refs = collect(md)
         assert len(refs) == 0
 
+    def test_no_math_inline_across_code(self) -> None:
+        md = b"| <span>$<span> | `#!python 'ab$'` | `#!python '[abc]'` |"
+        refs = collect(md)
+        assert len(refs) == 0
+
     @pytest.mark.parametrize(
         "md",
         [
