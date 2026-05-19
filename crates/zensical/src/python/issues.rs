@@ -303,14 +303,31 @@ impl Issues {
                         .map_or((anchor, 0), |(left, right)| {
                             (left, right.len() + 3)
                         });
-                    if anchor.is_empty()
-                        || !path.is_empty()
-                            && !Path::new(path).extension().is_some_and(|ext| {
-                                ext.eq_ignore_ascii_case("md")
-                            })
-                    {
+
+                    // Skip empty anchors since they are technically valid
+                    if anchor.is_empty() {
                         continue;
                     }
+
+                    // We must check if the path looks like a Markdown file
+                    // used as a directory before checking if it looks like a
+                    // Markdown file at all, since the former is invalid which
+                    // we need to report as an invalid link
+                    if !path.is_empty() && !is_markdown_path(path) {
+                        if is_invalid_markdown_path(path) {
+                            issues.push(Issue::InvalidLink {
+                                path: base.into(),
+                                span,
+                                href: to_slash(
+                                    &resolve_relative(base, &decode_href(path))
+                                        .to_string_lossy(),
+                                ),
+                            });
+                        }
+                        continue;
+                    }
+
+                    // Resolve the link against the base path
                     let link = to_slash(
                         &resolve_relative(base, &decode_href(path))
                             .to_string_lossy(),
@@ -338,12 +355,23 @@ impl Issues {
                         });
                     }
                 } else {
-                    if !Path::new(&href)
-                        .extension()
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
-                    {
+                    if !is_markdown_path(&href) {
+                        if is_invalid_markdown_path(&href) {
+                            issues.push(Issue::InvalidLink {
+                                path: base.into(),
+                                span,
+                                href: to_slash(
+                                    &resolve_relative(
+                                        base,
+                                        &decode_href(&href),
+                                    )
+                                    .to_string_lossy(),
+                                ),
+                            });
+                        }
                         continue;
                     }
+
                     let link = to_slash(
                         &resolve_relative(base, &decode_href(&href))
                             .to_string_lossy(),
@@ -570,6 +598,22 @@ where
     normalize(base_dir.join(href))
 }
 
+/// Returns whether a URL path points directly to a Markdown file.
+fn is_markdown_path(path: &str) -> bool {
+    path.rsplit('/').next().is_some_and(|name| {
+        name.rsplit_once('.')
+            .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("md"))
+    })
+}
+
+/// Returns whether a URL path looks like a Markdown file used as a directory.
+fn is_invalid_markdown_path(path: &str) -> bool {
+    path.split('/').any(|name| {
+        name.rsplit_once('.')
+            .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("md"))
+    })
+}
+
 /// Decodes a percent-encoded URL.
 fn decode_href(href: &str) -> String {
     percent_decode_str(href).decode_utf8_lossy().into_owned()
@@ -579,4 +623,37 @@ fn decode_href(href: &str) -> String {
 /// map key comparisons, since markdown hrefs always use forward slashes.
 fn to_slash(path: &str) -> String {
     path.replace('\\', "/")
+}
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::{is_invalid_markdown_path, is_markdown_path};
+
+    #[test]
+    fn markdown_path_must_end_in_md_file() {
+        assert!(is_markdown_path("target.md"));
+        assert!(is_markdown_path("docs/target.md"));
+        assert!(is_markdown_path("docs/target.MD"));
+
+        assert!(!is_markdown_path(""));
+        assert!(!is_markdown_path("target/"));
+        assert!(!is_markdown_path("target.md/"));
+        assert!(!is_markdown_path("target.md/index.md/"));
+    }
+
+    #[test]
+    fn markdown_path_as_directory_is_invalid() {
+        assert!(is_invalid_markdown_path("target.md/"));
+        assert!(is_invalid_markdown_path("docs/target.md/"));
+        assert!(is_invalid_markdown_path("docs/target.md/child"));
+        assert!(is_invalid_markdown_path("docs/target.MD/"));
+
+        assert!(!is_invalid_markdown_path(""));
+        assert!(!is_invalid_markdown_path("target/"));
+        assert!(!is_invalid_markdown_path("target.mdx/"));
+    }
 }
