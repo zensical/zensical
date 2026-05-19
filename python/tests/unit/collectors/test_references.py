@@ -449,6 +449,44 @@ class TestLinkReferences:
         assert text(md, links[0].text) == b"id"
         assert text(md, links[0].href) == b"id"
 
+    @pytest.mark.parametrize(
+        "md",
+        [
+            pytest.param(b"text [TOC]", id="inline"),
+            pytest.param(b"[TOC] text", id="inline-prefix"),
+            pytest.param(b"[TOC]\ntext", id="paragraph"),
+            pytest.param(b"    [TOC]", id="code-block"),
+        ],
+    )
+    def test_link_ref_toc_text(self, md: bytes) -> None:
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+        assert text(md, link_refs[0].text) == b"TOC"
+        assert text(md, link_refs[0].id) == b"TOC"
+
+    def test_link_ref_collapsed_toc_id(self) -> None:
+        md = b"[TOC][]"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+        assert text(md, link_refs[0].text) == b"TOC"
+        assert text(md, link_refs[0].id) == b"TOC"
+
+    def test_link_ref_explicit_toc_id(self) -> None:
+        md = b"[TOC][id]"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+        assert text(md, link_refs[0].text) == b"TOC"
+        assert text(md, link_refs[0].id) == b"id"
+
     # --- negative cases ---
 
     def test_no_link_ref_escaped_brackets(self) -> None:
@@ -473,6 +511,21 @@ class TestLinkReferences:
 
     def test_no_link_ref_empty_brackets(self) -> None:
         md = b"[][]"
+        refs = collect(md)
+        assert len(refs) == 0
+
+    def test_no_link_ref_toc_marker(self) -> None:
+        md = b"[TOC]"
+        refs = collect(md)
+        assert len(refs) == 0
+
+    def test_no_link_ref_toc_marker_with_shift(self) -> None:
+        md = b"[TOC]"
+        refs = collect(md, shift=10)
+        assert len(refs) == 0
+
+    def test_no_link_ref_toc_marker_block(self) -> None:
+        md = b"before\n\n[TOC]\n\nafter"
         refs = collect(md)
         assert len(refs) == 0
 
@@ -599,9 +652,7 @@ class TestLinkDefinitions:
             ),
         ],
     )
-    def test_link_def_angle_brackets_with_link_after(
-        self, md: bytes
-    ) -> None:
+    def test_link_def_angle_brackets_with_link_after(self, md: bytes) -> None:
         refs = collect(md)
         assert len(refs) == 2
 

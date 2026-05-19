@@ -422,10 +422,15 @@ def _scan_link_or_link_ref(cursor: Cursor) -> Link | LinkReference | None:
             )
 
     # Consume link id
+    after_text = end
     id, end = _scan_link_id(cursor, end)
 
     # Ignore empty shortcut references like `[]` or `[][]`.
     if id is None and text.start == text.end:
+        return None
+
+    # Ignore Python Markdown's table-of-contents marker.
+    if id is None and _is_toc_marker(cursor, text, after_text):
         return None
 
     # Advance cursor and return link reference
@@ -691,6 +696,32 @@ def _scan_link_id_identifier(
 
     # Unmatched
     return None
+
+
+def _is_toc_marker(cursor: Cursor, text: Span, end: int) -> bool:
+    """Return whether a shortcut reference is a TOC marker block."""
+    start = text.start - cursor.shift - 1
+    if cursor.data[start + 1 : end - 1] != b"TOC":
+        return False
+
+    # Python Markdown treats the marker as a block, not inline text. A block can
+    # be indented up to three spaces before it becomes a code block.
+    if not cursor.at_line_start() or cursor.col > 3:  # noqa: PLR2004
+        return False
+
+    # The marker must be on a line by itself
+    line = _find_line_start(cursor, start)
+    if not _is_previous_line_blank(cursor, line):
+        return False
+
+    # Skip whitespace after the marker and ensure there's nothing else
+    pos = _skip_whitespace(cursor, end)
+    if pos < cursor.end and cursor.data[pos] not in (_CR, _NL):
+        return False
+
+    # The next line must be blank or non-existent
+    pos = _skip_line(cursor, pos)
+    return pos >= cursor.end or _is_blank_line(cursor, pos)
 
 
 # ---------------------------------------------------------------------------
@@ -1490,6 +1521,27 @@ def _skip_line(cursor: Cursor, pos: int) -> int:
     if pos < cursor.end:
         pos += 1
     return pos
+
+
+def _is_blank_line(cursor: Cursor, pos: int) -> bool:
+    """Return whether the line at the given position is blank."""
+    end = _find_line_end(cursor, pos)
+    return all(char in _WHITESPACE for char in cursor.data[pos:end])
+
+
+def _is_previous_line_blank(cursor: Cursor, pos: int) -> bool:
+    """Return whether the line before the given position is blank."""
+    if pos == 0:
+        return True
+
+    # Find the end of the previous line, skipping any trailing newlines
+    end = pos - 1
+    if end > 0 and cursor.data[end - 1] == _CR:
+        end -= 1
+
+    # Find the start of the previous line and check if it's blank
+    start = _find_line_start(cursor, end)
+    return all(char in _WHITESPACE for char in cursor.data[start:end])
 
 
 def _find_bracket(cursor: Cursor, pos: int) -> int:
