@@ -425,12 +425,16 @@ def _scan_link_or_link_ref(cursor: Cursor) -> Link | LinkReference | None:
     after_text = end
     id, end = _scan_link_id(cursor, end)
 
-    # Ignore empty shortcut references like `[]` or `[][]`.
+    # Ignore empty shortcut references like `[]` or `[][]`
     if id is None and text.start == text.end:
         return None
 
-    # Ignore Python Markdown's table-of-contents marker.
+    # Ignore Python Markdown's table-of-contents marker
     if id is None and _is_toc_marker(cursor, text, after_text):
+        return None
+
+    # Ignore GitHub callout markers inside blockquotes
+    if id is None and _is_callout_marker(cursor, text, after_text):
         return None
 
     # Advance cursor and return link reference
@@ -696,32 +700,6 @@ def _scan_link_id_identifier(
 
     # Unmatched
     return None
-
-
-def _is_toc_marker(cursor: Cursor, text: Span, end: int) -> bool:
-    """Return whether a shortcut reference is a TOC marker block."""
-    start = text.start - cursor.shift - 1
-    if cursor.data[start + 1 : end - 1] != b"TOC":
-        return False
-
-    # Python Markdown treats the marker as a block, not inline text. A block can
-    # be indented up to three spaces before it becomes a code block.
-    if not cursor.at_line_start() or cursor.col > 3:  # noqa: PLR2004
-        return False
-
-    # The marker must be on a line by itself
-    line = _find_line_start(cursor, start)
-    if not _is_previous_line_blank(cursor, line):
-        return False
-
-    # Skip whitespace after the marker and ensure there's nothing else
-    pos = _skip_whitespace(cursor, end)
-    if pos < cursor.end and cursor.data[pos] not in (_CR, _NL):
-        return False
-
-    # The next line must be blank or non-existent
-    pos = _skip_line(cursor, pos)
-    return pos >= cursor.end or _is_blank_line(cursor, pos)
 
 
 # ---------------------------------------------------------------------------
@@ -1470,6 +1448,66 @@ def _scan_tasklist_checkbox(cursor: Cursor) -> int | None:
 
     # Return position after checkbox
     return pos + 3
+
+
+# ---------------------------------------------------------------------------
+
+
+def _is_toc_marker(cursor: Cursor, text: Span, end: int) -> bool:
+    """Return whether a shortcut reference is a TOC marker block."""
+    start = text.start - cursor.shift - 1
+    if cursor.data[start + 1 : end - 1] != b"TOC":
+        return False
+
+    # Python Markdown treats the marker as a block, not inline text. A block can
+    # be indented up to three spaces before it becomes a code block.
+    if not cursor.at_line_start() or cursor.col > 3:  # noqa: PLR2004
+        return False
+
+    # The marker must be on a line by itself
+    line = _find_line_start(cursor, start)
+    if not _is_previous_line_blank(cursor, line):
+        return False
+
+    # Skip whitespace after the marker and ensure there's nothing else
+    pos = _skip_whitespace(cursor, end)
+    if pos < cursor.end and cursor.data[pos] not in (_CR, _NL):
+        return False
+
+    # The next line must be blank or non-existent
+    pos = _skip_line(cursor, pos)
+    return pos >= cursor.end or _is_blank_line(cursor, pos)
+
+
+def _is_callout_marker(cursor: Cursor, text: Span, end: int) -> bool:
+    """Return whether a shortcut reference is a GitHub callout marker."""
+    start = text.start - cursor.shift - 1
+    if cursor.data[start + 1 : end - 1] not in (
+        b"!NOTE",
+        b"!TIP",
+        b"!IMPORTANT",
+        b"!WARNING",
+        b"!CAUTION",
+    ):
+        return False
+
+    # Skip whitespace after the marker and ensure there's nothing else
+    pos = _skip_whitespace(cursor, end)
+    if pos < cursor.end and cursor.data[pos] not in (_CR, _NL):
+        return False
+
+    # Skip to the next line and ensure it's not blank
+    found = False
+    pos = _find_line_start(cursor, start)
+    while pos < start:
+        pos = _skip_whitespace(cursor, pos)
+        if pos >= start or cursor.data[pos] != _RANGLE:
+            return False
+        found = True
+        pos = _skip_whitespace(cursor, pos + 1)
+
+    # The callout marker must be preceded by one or more > characters
+    return found and pos == start
 
 
 # ---------------------------------------------------------------------------

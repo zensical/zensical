@@ -487,6 +487,41 @@ class TestLinkReferences:
         assert text(md, link_refs[0].text) == b"TOC"
         assert text(md, link_refs[0].id) == b"id"
 
+    @pytest.mark.parametrize(
+        ("md", "expected_text"),
+        [
+            pytest.param(b"[!NOTE]", b"!NOTE", id="not-blockquote"),
+            pytest.param(b"> text [!NOTE]", b"!NOTE", id="inline"),
+            pytest.param(b"> [!NOTE] text", b"!NOTE", id="trailing-text"),
+            pytest.param(b"> [!note]", b"!note", id="lowercase"),
+        ],
+    )
+    def test_link_ref_callout_text(
+        self, md: bytes, expected_text: bytes
+    ) -> None:
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+        assert text(md, link_refs[0].text) == expected_text
+
+    @pytest.mark.parametrize(
+        ("md", "expected_id"),
+        [
+            pytest.param(b"> [!NOTE][]", b"!NOTE", id="collapsed"),
+            pytest.param(b"> [!NOTE][id]", b"id", id="explicit"),
+        ],
+    )
+    def test_link_ref_callout_id(self, md: bytes, expected_id: bytes) -> None:
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+        assert text(md, link_refs[0].text) == b"!NOTE"
+        assert text(md, link_refs[0].id) == expected_id
+
     # --- negative cases ---
 
     def test_no_link_ref_escaped_brackets(self) -> None:
@@ -526,6 +561,30 @@ class TestLinkReferences:
 
     def test_no_link_ref_toc_marker_block(self) -> None:
         md = b"before\n\n[TOC]\n\nafter"
+        refs = collect(md)
+        assert len(refs) == 0
+
+    @pytest.mark.parametrize(
+        "md",
+        [
+            pytest.param(b"> [!NOTE]", id="note"),
+            pytest.param(b"> [!TIP]", id="tip"),
+            pytest.param(b"> [!IMPORTANT]", id="important"),
+            pytest.param(b"> [!WARNING]", id="warning"),
+            pytest.param(b"> [!CAUTION]", id="caution"),
+            pytest.param(
+                b"> [!NOTE]\n> This is a **note** admonition.",
+                id="note-body",
+            ),
+            pytest.param(
+                b"> [!WARNING]\n> This is a **warning** admonition.",
+                id="warning-body",
+            ),
+            pytest.param(b">>[!NOTE]", id="nested-compact"),
+            pytest.param(b"> > [!NOTE]", id="nested-spaced"),
+        ],
+    )
+    def test_no_link_ref_callout_marker(self, md: bytes) -> None:
         refs = collect(md)
         assert len(refs) == 0
 
