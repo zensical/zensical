@@ -1390,6 +1390,11 @@ class TestFootnoteReferences:
         ("md", "expected_id"),
         [
             pytest.param(
+                b"[^]",
+                b"",
+                id="footnote-ref-empty-id",
+            ),
+            pytest.param(
                 b"[^1]",
                 b"1",
                 id="footnote-ref",
@@ -1420,11 +1425,6 @@ class TestFootnoteReferences:
         ("md", "expected_id"),
         [
             pytest.param(
-                b"[^]",
-                b"^",
-                id="link-ref",
-            ),
-            pytest.param(
                 b"[^ ]",
                 b"^ ",
                 id="link-ref, space",
@@ -1445,6 +1445,15 @@ class TestFootnoteReferences:
         assert link_refs[0].kind == "link"
         assert text(md, link_refs[0].text) == expected_id
         assert text(md, link_refs[0].id) == expected_id
+
+    def test_no_footnote_ref_escaped_id(self) -> None:
+        md = b"[^a\\_b]\n\n[^a_b]: note"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        note_defs = footnote_defs_only(refs)
+        assert len(note_defs) == 1
+        assert text(md, note_defs[0].id) == b"a_b"
 
 
 # ---------------------------------------------------------------------------
