@@ -871,10 +871,7 @@ def _scan_footnote_ref_or_def(
     if end >= cursor.end or cursor.data[end] != _RBRACKET:
         return None
 
-    # Skip if we didn't find an id
     id = cursor.span(start + 2, end)
-    if id.start == id.end:
-        return None
 
     # Validate id - non-empty, no internal spaces
     text = cursor.data[id.start : id.end]

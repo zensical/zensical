@@ -1390,6 +1390,11 @@ class TestFootnoteReferences:
         ("md", "expected_id"),
         [
             pytest.param(
+                b"[^]",
+                b"",
+                id="footnote-ref-empty-id",
+            ),
+            pytest.param(
                 b"[^1]",
                 b"1",
                 id="footnote-ref",
@@ -1419,11 +1424,6 @@ class TestFootnoteReferences:
     @pytest.mark.parametrize(
         ("md", "expected_id"),
         [
-            pytest.param(
-                b"[^]",
-                b"^",
-                id="link-ref",
-            ),
             pytest.param(
                 b"[^ ]",
                 b"^ ",
