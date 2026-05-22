@@ -298,11 +298,15 @@ impl Issues {
             let base = Path::new(&base_str);
             for (span, href) in mappings {
                 if let Some((path, anchor)) = href.split_once('#') {
-                    let (anchor, len) = anchor
-                        .split_once(":~:")
-                        .map_or((anchor, 0), |(left, right)| {
-                            (left, right.len() + 3)
-                        });
+                    let offset = path.len();
+                    let path = decode_markdown_href(path);
+                    let anchor = decode_markdown_href(anchor);
+                    let (anchor, len) =
+                        if let Some((left, right)) = anchor.split_once(":~:") {
+                            (left.to_string(), right.len() + 3)
+                        } else {
+                            (anchor, 0)
+                        };
 
                     // Skip empty anchors since they are technically valid
                     if anchor.is_empty() {
@@ -313,13 +317,13 @@ impl Issues {
                     // used as a directory before checking if it looks like a
                     // Markdown file at all, since the former is invalid which
                     // we need to report as an invalid link
-                    if !path.is_empty() && !is_markdown_path(path) {
-                        if is_invalid_markdown_path(path) {
+                    if !path.is_empty() && !is_markdown_path(&path) {
+                        if is_invalid_markdown_path(&path) {
                             issues.push(Issue::InvalidLink {
                                 path: base.into(),
                                 span,
                                 href: to_slash(
-                                    &resolve_relative(base, &decode_href(path))
+                                    &resolve_relative(base, &path)
                                         .to_string_lossy(),
                                 ),
                             });
@@ -329,22 +333,20 @@ impl Issues {
 
                     // Resolve the link against the base path
                     let link = to_slash(
-                        &resolve_relative(base, &decode_href(path))
-                            .to_string_lossy(),
+                        &resolve_relative(base, &path).to_string_lossy(),
                     );
 
                     // Check if the link exists, and if it does, whether the
                     // anchor exists on the target page
                     if let Some(anchors) = anchor_map.get(&link) {
-                        if !anchors.contains(anchor) {
+                        if !anchors.contains(&anchor) {
                             issues.push(Issue::InvalidLinkAnchor {
                                 path: base.into(),
                                 span: Span::from(
-                                    (span.start + path.len() + 1)
-                                        ..span.end - len,
+                                    (span.start + offset + 1)..span.end - len,
                                 ),
                                 href: href.clone(),
-                                anchor: anchor.to_string(),
+                                anchor: anchor.clone(),
                             });
                         }
                     } else {
@@ -355,17 +357,15 @@ impl Issues {
                         });
                     }
                 } else {
+                    let href = decode_markdown_href(&href);
                     if !is_markdown_path(&href) {
                         if is_invalid_markdown_path(&href) {
                             issues.push(Issue::InvalidLink {
                                 path: base.into(),
                                 span,
                                 href: to_slash(
-                                    &resolve_relative(
-                                        base,
-                                        &decode_href(&href),
-                                    )
-                                    .to_string_lossy(),
+                                    &resolve_relative(base, &href)
+                                        .to_string_lossy(),
                                 ),
                             });
                         }
@@ -373,8 +373,7 @@ impl Issues {
                     }
 
                     let link = to_slash(
-                        &resolve_relative(base, &decode_href(&href))
-                            .to_string_lossy(),
+                        &resolve_relative(base, &href).to_string_lossy(),
                     );
 
                     if !anchor_map.contains_key(&link) {
@@ -619,6 +618,51 @@ fn decode_href(href: &str) -> String {
     percent_decode_str(href).decode_utf8_lossy().into_owned()
 }
 
+/// Decodes a Markdown link destination.
+fn decode_markdown_href(href: &str) -> String {
+    unescape_markdown(&decode_href(href))
+}
+
+/// Unescapes Markdown punctuation escapes.
+fn unescape_markdown(value: &str) -> String {
+    let mut result = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(char) = chars.next() {
+        if char == '\\'
+            && chars
+                .peek()
+                .is_some_and(|char| is_markdown_escapable(*char))
+        {
+            result.push(chars.next().expect("checked above"));
+        } else {
+            result.push(char);
+        }
+    }
+    result
+}
+
+/// Returns whether a character can be escaped in Markdown.
+fn is_markdown_escapable(char: char) -> bool {
+    matches!(
+        char,
+        '\\' | '`'
+            | '*'
+            | '_'
+            | '{'
+            | '}'
+            | '['
+            | ']'
+            | '>'
+            | '('
+            | ')'
+            | '#'
+            | '+'
+            | '-'
+            | '.'
+            | '!'
+    )
+}
+
 /// Converts a path string to use forward slashes for consistent cross-platform
 /// map key comparisons, since markdown hrefs always use forward slashes.
 fn to_slash(path: &str) -> String {
@@ -631,7 +675,9 @@ fn to_slash(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_invalid_markdown_path, is_markdown_path};
+    use super::{
+        decode_markdown_href, is_invalid_markdown_path, is_markdown_path,
+    };
 
     #[test]
     fn markdown_path_must_end_in_md_file() {
@@ -655,5 +701,13 @@ mod tests {
         assert!(!is_invalid_markdown_path(""));
         assert!(!is_invalid_markdown_path("target/"));
         assert!(!is_invalid_markdown_path("target.mdx/"));
+    }
+
+    #[test]
+    fn markdown_href_decodes_escapes() {
+        assert_eq!(decode_markdown_href("#a\\_b"), "#a_b");
+        assert_eq!(decode_markdown_href(r"a\%b"), r"a\%b");
+        assert_eq!(decode_markdown_href(r"a\:b"), r"a\:b");
+        assert_eq!(decode_markdown_href(r"a\qb"), r"a\qb");
     }
 }

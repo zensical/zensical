@@ -889,6 +889,11 @@ def _scan_footnote_ref_or_def(
     ):
         return _scan_footnote_def(cursor, id, end)
 
+    # Python Markdown doesn't recognize footnote references with escapes.
+    if _has_escaped_char(text):
+        cursor.advance(end - start)
+        return iter(())
+
     # Advance cursor and return link
     cursor.advance(end - start)
     return FootnoteReference(
@@ -1507,6 +1512,16 @@ def _is_callout_marker(cursor: Cursor, text: Span, end: int) -> bool:
 
     # The callout marker must be preceded by one or more > characters
     return found and pos == start
+
+
+def _has_escaped_char(value: bytes) -> bool:
+    """Return whether a value contains an escaped Markdown character."""
+    i = 0
+    while i + 1 < len(value):
+        if value[i] == _BACKSLASH and value[i + 1] in _ESCAPABLE:
+            return True
+        i += 1
+    return False
 
 
 # ---------------------------------------------------------------------------
