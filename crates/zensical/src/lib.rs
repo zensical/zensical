@@ -132,6 +132,7 @@ fn clear_dir(dir: &Path) -> io::Result<()> {
 }
 
 /// Run the build process.
+#[allow(clippy::too_many_lines)]
 fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     #[cfg(feature = "tracing")]
     let _guard = setup_tracing();
@@ -280,6 +281,13 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     // Exit with error, if any
     if let Some(err) = maybe_err {
         println!("{err}");
+        // Walk the error source chain so the root cause (e.g. a missing icon
+        // name) is visible instead of only the outermost template error.
+        let mut cause: &dyn std::error::Error = &err;
+        while let Some(source) = cause.source() {
+            println!("  caused by: {source}");
+            cause = source;
+        }
         std::process::exit(1);
     }
 
