@@ -106,8 +106,17 @@ class TestFilters:
 
 
 class TestMacroEnv:
-    def test_registers_macros_and_filters(self) -> None:
+    def test_conf_is_stored(self) -> None:
+        conf = {"site_name": "My Site", "docs_dir": "/docs"}
+        env = MacroEnv(conf=conf)
+        assert env.conf is conf
+
+    def test_conf_defaults_to_empty_dict(self) -> None:
         env = MacroEnv()
+        assert env.conf == {}
+
+    def test_registers_macros_and_filters(self) -> None:
+        env = MacroEnv(conf={})
 
         @env.macro
         def twice(value: int) -> int:
@@ -195,21 +204,42 @@ class TestLoadModule:
             "        return s.upper()\n",
             encoding="utf-8",
         )
-        variables, macros, filters = _load_module("main", tmp_path)
-        assert variables["site_name"] == "Demo"
-        assert macros["twice"](3) == 6
-        assert filters["shout"]("hi") == "HI"
+        env = MacroEnv(conf={})
+        _load_module(env, "main", tmp_path)
+        assert env.variables["site_name"] == "Demo"
+        assert env.macros["twice"](3) == 6
+        assert env.filters["shout"]("hi") == "HI"
 
     @pytest.mark.parametrize(
-        "module_name",
+        ("module_name", "file_rel_path"),
         [
-            pytest.param("../evil", id="path_traversal"),
-            pytest.param("foo/bar", id="forward_slash"),
-            pytest.param("foo\\\\bar", id="backslash"),
+            pytest.param("../evil", "../evil.py", id="path_traversal"),
+            pytest.param("foo/bar", "foo/bar.py", id="forward_slash"),
+            pytest.param("foo\\\\bar", "foo\\\\bar.py", id="backslash"),
         ],
     )
-    def test_rejects_invalid_names(self, module_name: str) -> None:
-        assert _load_module(module_name) == ({}, {}, {})
+    def test_rejects_invalid_names(
+        self,
+        module_name: str,
+        file_rel_path: str,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        define_env_source = (
+            "def define_env(env):\n"
+            "    env.variables['pwned'] = True\n"
+            "    env.macros['evil'] = lambda: None\n"
+            "    env.filters['bad'] = lambda x: x\n"
+        )
+        target = tmp_path / file_rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(define_env_source, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        env = MacroEnv(conf={})
+        _load_module(env, module_name)
+        assert env.variables == {}
+        assert env.macros == {}
+        assert env.filters == {}
 
 
 # ---------------------------------------------------------------------------

@@ -148,7 +148,8 @@ See also the [Jinja2 documentation on builtin filters](https://jinja.palletsproj
 class MacroEnv:
     """Minimal env object for compatibility with MkDocs Macros."""
 
-    def __init__(self) -> None:
+    def __init__(self, conf: dict[str, Any] | None = None) -> None:
+        self.conf = conf if conf is not None else {}
         self.variables: VariablesType = {}
         self.macros: MacrosType = {}
         self.filters: FiltersType = {}
@@ -219,6 +220,7 @@ class MacrosPreprocessor(Preprocessor):
         page = context.page if context else None
         project_config = context.config if context else {}
         project_root = Path(project_config.get("root_dir", ".")).resolve()
+        macros_env = MacroEnv(conf=project_config)
 
         # Don't render if not enabled by default and no page-level override
         if (
@@ -260,21 +262,17 @@ class MacrosPreprocessor(Preprocessor):
         # Load module.
         # Relative path (without extension) or importable module name
         if self.config.module_name:
-            mod_vars, mod_macros, mod_filters = _load_module(
-                self.config.module_name,
-                project_root,
-            )
-            variables.update(mod_vars)
-            macros.update(mod_macros)
-            filters.update(mod_filters)
+            _load_module(macros_env, self.config.module_name, project_root)
 
         # Load pluglets (preinstalled modules)
         # Importable module names only
         for plug in self.config.modules:
-            plug_vars, plug_macros, plug_filters = _load_module(plug)
-            variables.update(plug_vars)
-            macros.update(plug_macros)
-            filters.update(plug_filters)
+            _load_module(macros_env, plug)
+
+        # Store declared variables, macros and filters.
+        variables.update(macros_env.variables)
+        macros.update(macros_env.macros)
+        filters.update(macros_env.filters)
 
         # Merge page metadata
         if page:
@@ -668,8 +666,8 @@ def _get_fake_table_readers() -> dict[str, Callable]:
 
 
 def _load_module(
-    module_name: str, project_root: Path | None = None
-) -> VariablesMacrosFiltersType:
+    env: MacroEnv, module_name: str, project_root: Path | None = None
+) -> None:
     """Load a module by name (e.g. 'main')."""
     if project_root:
         for candidate in [
@@ -687,24 +685,20 @@ def _load_module(
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
                 if hasattr(mod, "define_env"):
-                    env = MacroEnv()
                     mod.define_env(env)
-                    return env.variables, env.macros, env.filters
+                    return
             break
 
     # Only try import for package-like names (no path separators or "..").
     if "/" in module_name or "\\" in module_name or ".." in module_name:
-        return {}, {}, {}
+        return
     try:
         mod = importlib.import_module(module_name)
     except ImportError:
         pass
     else:
         if hasattr(mod, "define_env"):
-            env = MacroEnv()
             mod.define_env(env)
-            return env.variables, env.macros, env.filters
-    return {}, {}, {}
 
 
 def _load_one_yaml(
