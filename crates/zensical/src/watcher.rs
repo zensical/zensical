@@ -225,7 +225,12 @@ impl Watcher {
             }
         });
 
-        // Watch docs and template directories
+        // Watch docs directory first, so docs files enter the scheduler
+        // before theme/config files. This ensures the build loop stays
+        // alive long enough for the barrier to collect all markdown pages.
+        agent.watch(config.get_docs_dir())?;
+
+        // Watch template directories
         agent.watch(&config.path)?;
         for theme_dir in &config.theme_dirs {
             // Skip `.icons` directory. On NetBSD, kqueue opens one file
@@ -257,9 +262,6 @@ impl Watcher {
         let site_dir = config.get_site_dir();
         fs::create_dir_all(&site_dir).unwrap();
         agent.watch(&site_dir)?;
-
-        // Return file watcher
-        agent.watch(config.get_docs_dir())?;
         Ok(Self { agent })
     }
 
