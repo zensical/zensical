@@ -70,6 +70,9 @@ tracing-subscriber = { workspace = true, optional = true }
 webbrowser.workspace = true
 zrx.workspace = true
 
+[dev-dependencies]
+tempfile = "3"
+
 [features]
 default = []
 tracing = [
