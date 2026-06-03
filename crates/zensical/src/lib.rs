@@ -122,10 +122,20 @@ fn wait_for_touch(path: &Path) -> io::Result<bool> {
 fn clear_dir(dir: &Path) -> io::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path();
-        if path.is_dir() {
-            std::fs::remove_dir_all(&path)?;
-        } else {
-            std::fs::remove_file(&path)?;
+
+        // Only remove non-hidden paths (not starting with `.`) to match
+        // MkDocs' behavior. This allows users to track the (empty) site folder
+        // by adding a `.gitkeep` file within it.
+        if !path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with('.'))
+        {
+            if path.is_dir() {
+                std::fs::remove_dir_all(&path)?;
+            } else {
+                std::fs::remove_file(&path)?;
+            }
         }
     }
     Ok(())
@@ -340,4 +350,108 @@ fn zensical(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(serve, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     Ok(())
+}
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn clear_dir_removes_non_hidden_file() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("file.txt");
+
+        fs::write(&file, "hello").unwrap();
+
+        clear_dir(dir.path()).unwrap();
+
+        assert!(!file.exists());
+        assert!(dir.path().exists());
+    }
+
+    #[test]
+    fn clear_dir_removes_non_hidden_directory_recursively() {
+        let dir = tempdir().unwrap();
+        let subdir = dir.path().join("subdir");
+
+        fs::create_dir(&subdir).unwrap();
+        fs::write(subdir.join("nested.txt"), "hello").unwrap();
+
+        clear_dir(dir.path()).unwrap();
+
+        assert!(!subdir.exists());
+        assert!(dir.path().exists());
+    }
+
+    #[test]
+    fn clear_dir_preserves_hidden_file() {
+        let dir = tempdir().unwrap();
+        let hidden = dir.path().join(".gitkeep");
+
+        fs::write(&hidden, "").unwrap();
+
+        clear_dir(dir.path()).unwrap();
+
+        assert!(hidden.exists());
+    }
+
+    #[test]
+    fn clear_dir_preserves_hidden_directory() {
+        let dir = tempdir().unwrap();
+        let hidden_dir = dir.path().join(".cache");
+
+        fs::create_dir(&hidden_dir).unwrap();
+        fs::write(hidden_dir.join("file.txt"), "hello").unwrap();
+
+        clear_dir(dir.path()).unwrap();
+
+        assert!(hidden_dir.exists());
+        assert!(hidden_dir.join("file.txt").exists());
+    }
+
+    #[test]
+    fn clear_dir_removes_only_non_hidden_entries() {
+        let dir = tempdir().unwrap();
+
+        let file = dir.path().join("file.txt");
+        let subdir = dir.path().join("subdir");
+        let hidden_file = dir.path().join(".gitkeep");
+        let hidden_dir = dir.path().join(".cache");
+
+        fs::write(&file, "hello").unwrap();
+
+        fs::create_dir(&subdir).unwrap();
+        fs::write(subdir.join("nested.txt"), "hello").unwrap();
+
+        fs::write(&hidden_file, "").unwrap();
+
+        fs::create_dir(&hidden_dir).unwrap();
+        fs::write(hidden_dir.join("nested.txt"), "hello").unwrap();
+
+        clear_dir(dir.path()).unwrap();
+
+        assert!(!file.exists());
+        assert!(!subdir.exists());
+
+        assert!(hidden_file.exists());
+        assert!(hidden_dir.exists());
+        assert!(hidden_dir.join("nested.txt").exists());
+
+        assert!(dir.path().exists());
+    }
+
+    #[test]
+    fn clear_dir_empty_directory_is_ok() {
+        let dir = tempdir().unwrap();
+
+        clear_dir(dir.path()).unwrap();
+
+        assert!(dir.path().exists());
+    }
 }
