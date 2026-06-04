@@ -486,7 +486,10 @@ def _scan_markdown_comment(cursor: Cursor) -> int | None:
         return None
 
     id, end = _scan_link_id(cursor, start)
-    if id is None or cursor.data[id.start - cursor.shift : id.end - cursor.shift] != b"//":
+    if (
+        id is None
+        or cursor.data[id.start - cursor.shift : id.end - cursor.shift] != b"//"
+    ):
         return None
     if end >= cursor.end or cursor.data[end] != _COLON:
         return None
