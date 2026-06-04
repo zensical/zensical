@@ -183,6 +183,13 @@ def _scan(cursor: Cursor) -> Iterator[Reference]:
                 cursor.advance(end - cursor.pos)
                 continue
 
+        # Markdown comment hack: [//]: ...
+        if cursor.at_line_start():
+            end = _scan_markdown_comment(cursor)
+            if end is not None:
+                cursor.advance(end - cursor.pos)
+                continue
+
         # Escaped character or math
         if char == _BACKSLASH:
             next = cursor.peek(1)
@@ -465,6 +472,26 @@ def _scan_snippet(cursor: Cursor) -> int | None:
         return None
 
     return _skip_line(cursor, pos)
+
+
+# ---------------------------------------------------------------------------
+
+
+def _scan_markdown_comment(cursor: Cursor) -> int | None:
+    """Scan for a Markdown comment line written as `[//]: ...`."""
+    start = cursor.pos
+
+    # Skip if there're more than four spaces of indentation
+    if cursor.col > 3:  # noqa: PLR2004
+        return None
+
+    id, end = _scan_link_id(cursor, start)
+    if id is None or cursor.data[id.start - cursor.shift : id.end - cursor.shift] != b"//":
+        return None
+    if end >= cursor.end or cursor.data[end] != _COLON:
+        return None
+
+    return _skip_line(cursor, end)
 
 
 # ---------------------------------------------------------------------------

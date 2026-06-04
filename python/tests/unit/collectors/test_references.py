@@ -1766,6 +1766,28 @@ class TestIndentedCodeBlocks:
 # ---------------------------------------------------------------------------
 
 
+class TestMarkdownComments:
+    """Tests for Markdown comments written as link-definition hacks."""
+
+    def test_markdown_comment_is_ignored(self) -> None:
+        md = b"[//]: # (comment)\n"
+        refs = collect(md)
+        assert len(refs) == 0
+
+    def test_markdown_comment_does_not_hide_following_link(self) -> None:
+        md = b"[//]: # (comment)\n[after](href)\n"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert text(md, links[0].text) == b"after"
+        assert text(md, links[0].href) == b"href"
+
+
+# ---------------------------------------------------------------------------
+
+
 class TestInlineCode:
     """Tests for inline code."""
 
