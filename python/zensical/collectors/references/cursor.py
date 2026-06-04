@@ -169,6 +169,13 @@ def _scan(cursor: Cursor) -> Iterator[Reference]:
     while cursor.pos < cursor.end:
         char = cursor.data[cursor.pos]
 
+        # Snippet directives and section markers: --8<-- ...
+        if cursor.at_line_start():
+            end = _scan_snippet(cursor)
+            if end is not None:
+                cursor.advance(end - cursor.pos)
+                continue
+
         # Escaped character or math
         if char == _BACKSLASH:
             next = cursor.peek(1)
@@ -382,6 +389,44 @@ def _scan(cursor: Cursor) -> Iterator[Reference]:
 
         # Literal
         cursor.advance(1)
+
+
+# ---------------------------------------------------------------------------
+
+
+def _scan_snippet(cursor: Cursor) -> int | None:
+    """Scan for a pymdownx.snippets directive or section marker line."""
+    pos = _skip_whitespace(cursor, cursor.pos)
+
+    # Markdown snippet sections are commonly wrapped in heading comments.
+    if pos < cursor.end and cursor.data[pos] == _HASH:
+        pos = _skip_whitespace(cursor, pos + 1)
+
+    # Match the scissors marker: -+8<-+
+    start = pos
+    while pos < cursor.end and cursor.data[pos] == _DASH:
+        pos += 1
+    if pos == start or pos >= cursor.end or cursor.data[pos] != ord(b"8"):
+        return None
+    pos += 1
+
+    start = pos
+    while pos < cursor.end and cursor.data[pos] == _LANGLE:
+        pos += 1
+    if pos == start:
+        return None
+
+    start = pos
+    while pos < cursor.end and cursor.data[pos] == _DASH:
+        pos += 1
+    if pos == start:
+        return None
+
+    # Snippet syntax ends at the line boundary.
+    if pos < cursor.end and cursor.data[pos] not in (_SPACE, _TAB, _CR, _NL):
+        return None
+
+    return _skip_line(cursor, pos)
 
 
 # ---------------------------------------------------------------------------

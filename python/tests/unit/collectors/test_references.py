@@ -1710,6 +1710,37 @@ class TestFencedCodeBlocks:
 # ---------------------------------------------------------------------------
 
 
+class TestSnippets:
+    """Tests for pymdownx.snippets markers."""
+
+    def test_section_markers_are_ignored(self) -> None:
+        md = (
+            b"# --8<-- [start:reference_section]\n"
+            b"Text\n"
+            b"# --8<-- [end:reference_section]\n"
+        )
+        refs = collect(md)
+        assert len(refs) == 0
+
+    def test_section_markers_do_not_hide_following_links(self) -> None:
+        md = (
+            b"# --8<-- [start:reference_section]\n"
+            b"Text\n"
+            b"# --8<-- [end:reference_section]\n"
+            b"[after](href)\n"
+        )
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert text(md, links[0].text) == b"after"
+        assert text(md, links[0].href) == b"href"
+
+
+# ---------------------------------------------------------------------------
+
+
 class TestInlineCode:
     """Tests for inline code."""
 
