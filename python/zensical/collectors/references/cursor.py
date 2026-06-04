@@ -409,7 +409,7 @@ def _scan_indented_code(cursor: Cursor) -> int | None:
 
     pos = line
     indent, end = _measure_indent(cursor, pos)
-    if indent < 4:
+    if indent < 4:  # noqa: PLR2004
         return None
     if end >= cursor.end or cursor.data[end] in (_CR, _NL):
         return None
@@ -422,7 +422,7 @@ def _scan_indented_code(cursor: Cursor) -> int | None:
             continue
 
         indent, end = _measure_indent(cursor, pos)
-        if indent < 4:
+        if indent < 4:  # noqa: PLR2004
             break
         pos = _skip_line(cursor, end)
 

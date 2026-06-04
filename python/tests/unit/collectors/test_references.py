@@ -1745,7 +1745,9 @@ class TestIndentedCodeBlocks:
         refs = collect(md)
         assert len(refs) == 0
 
-    def test_indented_code_with_blank_line_continuation_is_ignored(self) -> None:
+    def test_indented_code_with_blank_line_continuation_is_ignored(
+        self,
+    ) -> None:
         md = b"\n    [Start][]\n\n    [End][]\n"
         refs = collect(md)
         assert len(refs) == 0
