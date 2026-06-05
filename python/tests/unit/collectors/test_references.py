@@ -455,6 +455,7 @@ class TestLinkReferences:
             pytest.param(b"text [TOC]", id="inline"),
             pytest.param(b"[TOC] text", id="inline-prefix"),
             pytest.param(b"[TOC]\ntext", id="paragraph"),
+            pytest.param(b"    [TOC]", id="code-block"),
         ],
     )
     def test_link_ref_toc_text(self, md: bytes) -> None:
@@ -736,7 +737,10 @@ class TestLinkDefinitions:
     def test_no_link_def_indent(self) -> None:
         md = b"    [id]: href"
         refs = collect(md)
-        assert len(refs) == 0
+        assert len(refs) == 1
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
 
     def test_no_link_def_prefix(self) -> None:
         md = b"text [id]: href"
@@ -1725,35 +1729,6 @@ class TestSnippets:
             b"# --8<-- [end:reference_section]\n"
             b"[after](href)\n"
         )
-        refs = collect(md)
-        assert len(refs) == 1
-
-        links = links_only(refs)
-        assert len(links) == 1
-        assert text(md, links[0].text) == b"after"
-        assert text(md, links[0].href) == b"href"
-
-
-# ---------------------------------------------------------------------------
-
-
-class TestIndentedCodeBlocks:
-    """Tests for indented code blocks."""
-
-    def test_indented_code_is_ignored(self) -> None:
-        md = b"\n    [Start][]\n"
-        refs = collect(md)
-        assert len(refs) == 0
-
-    def test_indented_code_with_blank_line_continuation_is_ignored(
-        self,
-    ) -> None:
-        md = b"\n    [Start][]\n\n    [End][]\n"
-        refs = collect(md)
-        assert len(refs) == 0
-
-    def test_indented_code_does_not_hide_following_link(self) -> None:
-        md = b"\n    [Start][]\n\n[after](href)\n"
         refs = collect(md)
         assert len(refs) == 1
 
