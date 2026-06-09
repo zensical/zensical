@@ -41,7 +41,7 @@ on:
 
 permissions:
   attestations: write # Required for attestations
-  id-token: write     # Required for OIDC
+  id-token: write # Required for OIDC
 
 jobs:
   linux:
