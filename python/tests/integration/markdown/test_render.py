@@ -104,3 +104,41 @@ class TestTocCleanup:
         # The child heading must preserve the abbreviation text.
         child = result["toc"][0]["children"][0]
         assert child["content"] == "Using CSS"
+
+    def test_images_stripped_from_toc_content(self) -> None:
+        """Images defined in the page must not appear as <img> in TOC."""
+        result = render(
+            content="# ![icon](../../images/system-32.png) System\n",
+            path="index.md",
+            url="/",
+        )
+
+        # Sanity-check: the rendered page body must contain <img>.
+        assert "<img" in result["content"]
+
+        # The TOC must contain exactly one top-level entry.
+        assert len(result["toc"]) == 1
+        heading = result["toc"][0]
+
+        # The TOC content must be plain text – no <img> tags.
+        assert "<img" not in heading["content"]
+        assert heading["content"].strip() == "System"
+
+    def test_images_stripped_from_nested_toc(self) -> None:
+        """Image stripping must apply at every nesting level."""
+        result = render(
+            content=(
+                "# Top level\n\n## ![icon](../../images/system-32.png) System\n"
+            ),
+            path="index.md",
+            url="/",
+        )
+
+        # The rendered page body must contain <img>.
+        assert "<img" in result["content"]
+
+        # Collect content from all TOC levels.
+        all_contents = _toc_contents(result["toc"])
+
+        # No level should contain <img>.
+        assert all("<img" not in c for c in all_contents)

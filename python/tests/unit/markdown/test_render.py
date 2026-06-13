@@ -80,13 +80,30 @@ class TestCleanupTocLabel:
                 "\nAbbr\n",
                 id="multiline_abbr",
             ),
+            # Images ------------------------------------------------------
+            pytest.param(
+                '<img src="image.png" alt="Image">',
+                "",
+                id="img_tag",
+            ),
+            pytest.param(
+                '<img src="image.png" alt="Image">Text',
+                "Text",
+                id="img_tag_with_text_after",
+            ),
+            pytest.param(
+                'Text<img src="image.png" alt="Image">',
+                "Text",
+                id="img_tag_with_text_before",
+            ),
             # Combined and passthrough ------------------------------------
             pytest.param(
                 '<a href="#x">Intro to '
                 '<abbr title="HyperText Markup Language">HTML</abbr>'
+                '<img src="image.png" alt="Image">'
                 "</a>",
                 "Intro to HTML",
-                id="links_and_abbreviations",
+                id="combined_and_passthrough",
             ),
             pytest.param(
                 "Just plain text",
