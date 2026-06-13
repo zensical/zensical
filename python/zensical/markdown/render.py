@@ -180,4 +180,6 @@ def _cleanup_toc_label(html: str) -> str:
     html = re.sub(r"<a\s+[^>]+>(.*?)</a>", r"\1", html, flags=re.DOTALL)
     # Remove abbreviations
     html = re.sub(r"<abbr\s+[^>]+>(.*?)</abbr>", r"\1", html, flags=re.DOTALL)
+    # Remove images
+    html = re.sub(r"<img\s+[^>]+>", "", html, flags=re.DOTALL)
     return html  # noqa: RET504
