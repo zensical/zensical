@@ -191,7 +191,10 @@ def _is_relative(value: str) -> bool:
         return False
 
     # Absolute URLs (e.g. `https://example.com`) and protocol-relative URLs
-    url = urlparse(value)
+    try:
+        url = urlparse(value)
+    except ValueError:
+        return False
     if url.scheme or url.netloc or url.path.startswith("/"):
         return False
 
