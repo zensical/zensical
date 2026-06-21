@@ -85,7 +85,7 @@ impl SearchIndex {
         for (_id, page) in pages {
             let iter = nav.ancestors(&page).into_iter().rev();
             let mut path = iter
-                .map(|item| item.title.expect("invariant"))
+                .filter_map(|item| item.display_title().map(ToString::to_string))
                 .collect::<Vec<_>>();
 
             // Add page title to path if not already present - this might be
