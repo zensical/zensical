@@ -83,12 +83,12 @@ impl Default for Validation {
     #[inline]
     fn default() -> Self {
         Self {
-            unresolved_references: true,
-            unresolved_footnotes: true,
-            unused_definitions: true,
-            unused_footnotes: true,
-            shadowed_definitions: true,
-            shadowed_footnotes: true,
+            unresolved_references: false,
+            unresolved_footnotes: false,
+            unused_definitions: false,
+            unused_footnotes: false,
+            shadowed_definitions: false,
+            shadowed_footnotes: false,
             invalid_links: true,
             invalid_link_anchors: true,
         }
