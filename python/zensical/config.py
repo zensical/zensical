@@ -592,12 +592,12 @@ def _apply_defaults(config: dict, path: str) -> dict:
 
     # Initialize defaults for validation
     validation = {
-        "unresolved_references": True,
-        "unresolved_footnotes": True,
-        "unused_definitions": True,
-        "unused_footnotes": True,
-        "shadowed_definitions": True,
-        "shadowed_footnotes": True,
+        "unresolved_references": False,
+        "unresolved_footnotes": False,
+        "unused_definitions": False,
+        "unused_footnotes": False,
+        "shadowed_definitions": False,
+        "shadowed_footnotes": False,
         "invalid_links": True,
         "invalid_link_anchors": True,
     }
@@ -606,9 +606,10 @@ def _apply_defaults(config: dict, path: str) -> dict:
     # validation of links right now, as navigation will change significantly
     if "validation" in config:
         if isinstance(config["validation"], bool):
-            config["validation"] = dict.fromkeys(
-                validation, config["validation"]
-            )
+            config["validation"] = {
+                "invalid_links": config["validation"],
+                "invalid_link_anchors": config["validation"],
+            }
 
         # Hoist links configuration to the top level, if present
         input = config["validation"]
