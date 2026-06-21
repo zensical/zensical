@@ -378,6 +378,7 @@ keep = {
     "li",
     "ol",
     "ul",
+    "small",
     "sub",
     "sup",
 }
