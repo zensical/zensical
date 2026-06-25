@@ -30,6 +30,8 @@ use std::fmt::Write;
 use std::path::Path;
 use zrx::path::PathExt;
 
+use zensical_serve::http::Uri;
+
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
@@ -40,13 +42,18 @@ use zrx::path::PathExt;
 /// relative to the current page. If no page object is given, a static template
 /// is rendered, which means that URLs must be resolved relative to base URL.
 pub fn url_filter(state: &State, url: String) -> String {
-    if url.starts_with('#') || url.starts_with('/') {
+    if url.starts_with('#') {
         return url;
     }
 
     // Leave absolute links unchanged
     if url.starts_with("http://") || url.starts_with("https://") {
         return url;
+    }
+
+    // Encode local URLs
+    if url.starts_with('/') {
+        return encode_local_url(&url);
     }
 
     // Create target URL
@@ -75,7 +82,7 @@ pub fn url_filter(state: &State, url: String) -> String {
 
         // We can return if we don't stay on the same page
         if relative_url != "./." {
-            return relative_url;
+            return encode_local_url(&relative_url);
         }
 
         // If directory URLs are enabled, and the target is ".", we use need to
@@ -87,18 +94,19 @@ pub fn url_filter(state: &State, url: String) -> String {
         if source.ends_with(".html") && url.ends_with(".html") {
             return target
                 .file_name()
-                .map(|name| name.to_string_lossy().to_string())
+                .map(|name| encode_local_url(&name.to_string_lossy()))
                 .unwrap_or_else(|| url);
         }
-        url
+        encode_local_url(&url)
 
     // Render URLs in static templates
     } else {
         let source = state.lookup("base_url").expect("invariant");
-        Path::new(&source.to_string())
+        let url = Path::new(&source.to_string())
             .join(target.normalize())
             .to_string_lossy()
-            .replace('\\', "/")
+            .replace('\\', "/");
+        encode_local_url(&url)
     }
 }
 
@@ -146,4 +154,52 @@ pub fn script_tag_filter(state: &State, value: Value) -> String {
     // Return script tag
     html.push_str("></script>");
     html
+}
+
+// ----------------------------------------------------------------------------
+
+// Local URL encoding
+fn encode_local_url(url: &str) -> String {
+    let (path, suffix) = match url.find(['?', '#']) {
+        Some(index) => (&url[..index], &url[index..]),
+        None => (url, ""),
+    };
+
+    // Encode the path using `Uri::from`
+    let encoded = Uri::from(path).to_string();
+    format!("{encoded}{suffix}")
+}
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::encode_local_url;
+
+    #[test]
+    fn local_urls_encode_ampersands_in_paths() {
+        assert_eq!(encode_local_url("/test&test/page/"), "/test%26test/page/");
+        assert_eq!(
+            encode_local_url("./test&test/page/"),
+            "./test%26test/page/"
+        );
+    }
+
+    #[test]
+    fn local_urls_preserve_query_and_fragment_suffixes() {
+        assert_eq!(
+            encode_local_url("./test&test/page/?q=a&b#frag"),
+            "./test%26test/page/?q=a&b#frag"
+        );
+    }
+
+    #[test]
+    fn local_urls_do_not_double_encode_existing_escapes() {
+        assert_eq!(
+            encode_local_url("./test%26test/page/"),
+            "./test%26test/page/"
+        );
+    }
 }
