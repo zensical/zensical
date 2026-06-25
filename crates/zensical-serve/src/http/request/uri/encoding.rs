@@ -35,9 +35,9 @@ use std::borrow::Cow;
 /// Character set to be percent-encoded.
 #[rustfmt::skip]
 const SET: &AsciiSet = &percent_encoding::CONTROLS
-    .add(b' ').add(b'"').add(b'#').add(b'%').add(b'<').add(b'>').add(b'[')
-    .add(b']').add(b'^').add(b'`').add(b'{').add(b'|').add(b'}').add(b'?')
-    .add(b'~');
+    .add(b' ').add(b'"').add(b'#').add(b'%').add(b'&').add(b'<').add(b'>')
+    .add(b'[').add(b']').add(b'^').add(b'`').add(b'{').add(b'|').add(b'}')
+    .add(b'?').add(b'~');
 
 // ----------------------------------------------------------------------------
 // Functions

@@ -174,3 +174,18 @@ impl fmt::Display for Uri<'_> {
         Ok(())
     }
 }
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::Uri;
+
+    #[test]
+    fn path_ampersands_must_be_percent_encoded() {
+        let uri = Uri::from("/test&test/page/");
+        assert_eq!(uri.to_string(), "/test%26test/page/");
+    }
+}
