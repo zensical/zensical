@@ -368,27 +368,43 @@ def _apply_defaults(config: dict, path: str) -> dict:
     We must set all properties, as well as nested properties to `None`, or PyO3
     will refuse to convert them, as the key must definitely exist.
     """
-    project_root = config["root_dir"] = os.path.dirname(path)
+    config["root_dir"] = os.path.dirname(path)
+    project_root = Path(config["root_dir"]).resolve()
 
     if "site_name" not in config:
         raise ConfigurationError("Missing required setting: site_name")
 
     # Set site directory
     set_default(config, "site_dir", "site", str)
-    if ".." in config.get("site_dir", ""):
-        raise ConfigurationError("site_dir must not contain '..'")
+    if config["site_dir"] == "":
+        raise ConfigurationError("site_dir must not be empty")
+    site_dir = Path(config["site_dir"])
+    if site_dir.is_absolute():
+        site_dir = site_dir.resolve()
+    else:
+        site_dir = project_root.joinpath(site_dir).resolve()
+    if not site_dir.is_relative_to(project_root):
+        raise ConfigurationError("site_dir must be within project root")
 
     # Set docs directory
     set_default(config, "docs_dir", "docs", str)
-    if ".." in config.get("docs_dir", ""):
-        raise ConfigurationError("docs_dir must not contain '..'")
+    if config["docs_dir"] == "":
+        raise ConfigurationError("docs_dir must not be empty")
+    docs_dir = Path(config["docs_dir"])
+    if docs_dir.is_absolute():
+        docs_dir = docs_dir.resolve()
+    else:
+        docs_dir = project_root.joinpath(docs_dir).resolve()
+    if not docs_dir.is_relative_to(project_root):
+        raise ConfigurationError("docs_dir must be within project root")
+
+    # Validate that site_dir is not the same as docs_dir
+    if site_dir == docs_dir:
+        raise ConfigurationError("site_dir and docs_dir must be different")
 
     # Validate that docs directory exists
-    docs_dir_path = os.path.join(project_root, config["docs_dir"])
-    if not os.path.isdir(docs_dir_path):
-        raise ConfigurationError(
-            f"Docs directory does not exist: {docs_dir_path}"
-        )
+    if not docs_dir.is_dir():
+        raise ConfigurationError(f"Docs directory does not exist: {docs_dir}")
 
     # Set defaults for core settings
     set_default(config, "site_url", None, str)
@@ -414,16 +430,16 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(config, "edit_uri", None, str)
 
     # Set defaults for repository name settings
-    docs_dir = config.get("docs_dir")
     repo_names = {
         "github.com": "GitHub",
         "gitlab.com": "Gitlab",
         "bitbucket.org": "Bitbucket",
     }
+    rel_docs_dir = docs_dir.relative_to(project_root)
     edit_uris = {
-        "github.com": f"edit/master/{docs_dir}",
-        "gitlab.com": f"edit/master/{docs_dir}",
-        "bitbucket.org": f"src/default/{docs_dir}",
+        "github.com": f"edit/master/{rel_docs_dir}",
+        "gitlab.com": f"edit/master/{rel_docs_dir}",
+        "bitbucket.org": f"src/default/{rel_docs_dir}",
     }
     repo_url = config.get("repo_url")
     if repo_url:
