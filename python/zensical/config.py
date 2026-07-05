@@ -678,6 +678,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
 
     # Map plugins configuration to Markdown extensions
     _shim_autorefs(config)
+    _shim_markdown_exec(config)
     _shim_mkdocstrings(config, path)
     _shim_glightbox(config)
     _shim_macros(config)
