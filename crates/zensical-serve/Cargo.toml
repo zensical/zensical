@@ -23,7 +23,7 @@
 
 [package]
 name = "zensical-serve"
-version = "0.0.3"
+version = "0.0.4"
 description = "HTTP server"
 edition.workspace = true
 rust-version.workspace = true
