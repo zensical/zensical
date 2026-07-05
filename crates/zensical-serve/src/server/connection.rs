@@ -27,7 +27,7 @@
 
 use mio::net::TcpStream;
 use mio::Interest;
-use std::io::{Cursor, ErrorKind, Read, Write};
+use std::io::{self, Cursor, ErrorKind, Read, Write};
 use std::mem;
 use std::time::Instant;
 use tungstenite::protocol::WebSocketConfig;
@@ -179,19 +179,7 @@ impl Connection {
                     // In case of other errors, close the connection - for now
                     // well just print the error, and add proper handling later
                     Err(err) => {
-                        match err.kind() {
-                            ErrorKind::ConnectionReset
-                            | ErrorKind::ConnectionAborted
-                            | ErrorKind::BrokenPipe
-                            | ErrorKind::UnexpectedEof => {
-                                // All of those are expected errors, so we just
-                                // fall through here without printing anything
-                            }
-                            _ => {
-                                eprintln!("Error: {err}");
-                            }
-                        }
-                        return Ok(Signal::Close);
+                        return Ok(handle_socket_error(err));
                     }
                 }
             };
@@ -244,18 +232,7 @@ impl Connection {
                     // In case of other errors, close the connection - for now
                     // well just print the error, and add proper handling later
                     Err(err) => {
-                        match err.kind() {
-                            ErrorKind::ConnectionReset
-                            | ErrorKind::ConnectionAborted
-                            | ErrorKind::BrokenPipe
-                            | ErrorKind::UnexpectedEof => {
-                                // All of those are expected errors, so we just
-                                // fall through here without printing anything
-                            }
-                            _ => {
-                                eprintln!("Error: {err}");
-                            }
-                        }
+                        return Ok(handle_socket_error(err));
                     }
                 }
             }
@@ -281,5 +258,50 @@ impl Connection {
     /// Check if connection has timed out
     pub fn is_timed_out(&self, now: Instant) -> bool {
         now.duration_since(self.time).as_secs() > 30
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
+fn handle_socket_error(err: io::Error) -> Signal {
+    match err.kind() {
+        ErrorKind::ConnectionReset
+        | ErrorKind::ConnectionAborted
+        | ErrorKind::BrokenPipe
+        | ErrorKind::UnexpectedEof => {
+            // Expected connection termination while reading or writing.
+        }
+        _ => {
+            eprintln!("Error: {err}");
+        }
+    }
+
+    Signal::Close
+}
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::{handle_socket_error, Signal};
+    use std::io::{Error, ErrorKind};
+
+    #[test]
+    fn fatal_write_errors_close_connection() {
+        for kind in [
+            ErrorKind::ConnectionReset,
+            ErrorKind::ConnectionAborted,
+            ErrorKind::BrokenPipe,
+            ErrorKind::UnexpectedEof,
+        ] {
+            assert!(matches!(
+                handle_socket_error(Error::from(kind)),
+                Signal::Close
+            ));
+        }
     }
 }
