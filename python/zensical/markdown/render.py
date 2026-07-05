@@ -122,7 +122,7 @@ def render(content: str, path: str, url: str) -> dict:
 
     # Inform markdown-exec that it runs through Zensical.
     try:
-        import markdown_exec  # noqa: PLC0415
+        import markdown_exec  # noqa: PLC0415  # ty:ignore[unresolved-import]
     except ImportError:
         pass
     else:
