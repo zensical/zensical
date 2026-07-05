@@ -83,7 +83,7 @@ impl Config {
         let path = path.as_ref();
         Python::attach(|py| {
             // Reset global data in compatibility modules
-            py.import("zensical.compat.autorefs")?
+            py.import("zensical.extensions.autorefs")?
                 .call_method0("reset")?;
             py.import("zensical.compat.mkdocstrings")?
                 .call_method0("reset")?;

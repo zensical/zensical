@@ -136,7 +136,7 @@ impl Agent {
     /// use zensical_watch::Agent;
     ///
     /// // Create file agent and start watching
-    /// let agent = Agent::new(Duration::from_millis(20), |event| {
+    /// let agent = Agent::new(Duration::from_millis(20), false, |event| {
     ///     println!("Event: {:?}", event);
     ///     Ok(())
     /// });
@@ -174,7 +174,7 @@ impl Agent {
     /// use zensical_watch::Agent;
     ///
     /// // Create file agent and start watching
-    /// let agent = Agent::new(Duration::from_millis(20), |event| {
+    /// let agent = Agent::new(Duration::from_millis(20), false, |event| {
     ///     println!("Event: {:?}", event);
     ///     Ok(())
     /// });

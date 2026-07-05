@@ -311,12 +311,6 @@ class TestLinkReferences:
                 id="link-ref-with-empty-text",
             ),
             pytest.param(
-                b"[][]",
-                b"",
-                b"",
-                id="link-ref-with-empty-text-and-id",
-            ),
-            pytest.param(
                 b"[text \\]][id]",
                 b"text \\]",
                 b"id",
@@ -455,6 +449,79 @@ class TestLinkReferences:
         assert text(md, links[0].text) == b"id"
         assert text(md, links[0].href) == b"id"
 
+    @pytest.mark.parametrize(
+        "md",
+        [
+            pytest.param(b"text [TOC]", id="inline"),
+            pytest.param(b"[TOC] text", id="inline-prefix"),
+            pytest.param(b"[TOC]\ntext", id="paragraph"),
+            pytest.param(b"    [TOC]", id="code-block"),
+        ],
+    )
+    def test_link_ref_toc_text(self, md: bytes) -> None:
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+        assert text(md, link_refs[0].text) == b"TOC"
+        assert text(md, link_refs[0].id) == b"TOC"
+
+    def test_link_ref_collapsed_toc_id(self) -> None:
+        md = b"[TOC][]"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+        assert text(md, link_refs[0].text) == b"TOC"
+        assert text(md, link_refs[0].id) == b"TOC"
+
+    def test_link_ref_explicit_toc_id(self) -> None:
+        md = b"[TOC][id]"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+        assert text(md, link_refs[0].text) == b"TOC"
+        assert text(md, link_refs[0].id) == b"id"
+
+    @pytest.mark.parametrize(
+        ("md", "expected_text"),
+        [
+            pytest.param(b"[!NOTE]", b"!NOTE", id="not-blockquote"),
+            pytest.param(b"> text [!NOTE]", b"!NOTE", id="inline"),
+            pytest.param(b"> [!NOTE] text", b"!NOTE", id="trailing-text"),
+            pytest.param(b"> [!note]", b"!note", id="lowercase"),
+        ],
+    )
+    def test_link_ref_callout_text(
+        self, md: bytes, expected_text: bytes
+    ) -> None:
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+        assert text(md, link_refs[0].text) == expected_text
+
+    @pytest.mark.parametrize(
+        ("md", "expected_id"),
+        [
+            pytest.param(b"> [!NOTE][]", b"!NOTE", id="collapsed"),
+            pytest.param(b"> [!NOTE][id]", b"id", id="explicit"),
+        ],
+    )
+    def test_link_ref_callout_id(self, md: bytes, expected_id: bytes) -> None:
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+        assert text(md, link_refs[0].text) == b"!NOTE"
+        assert text(md, link_refs[0].id) == expected_id
+
     # --- negative cases ---
 
     def test_no_link_ref_escaped_brackets(self) -> None:
@@ -469,6 +536,55 @@ class TestLinkReferences:
 
     def test_no_link_ref_escaped_closing_bracket(self) -> None:
         md = b"[text\\]"
+        refs = collect(md)
+        assert len(refs) == 0
+
+    def test_no_link_ref_empty_shortcut(self) -> None:
+        md = b"[]"
+        refs = collect(md)
+        assert len(refs) == 0
+
+    def test_no_link_ref_empty_brackets(self) -> None:
+        md = b"[][]"
+        refs = collect(md)
+        assert len(refs) == 0
+
+    def test_no_link_ref_toc_marker(self) -> None:
+        md = b"[TOC]"
+        refs = collect(md)
+        assert len(refs) == 0
+
+    def test_no_link_ref_toc_marker_with_shift(self) -> None:
+        md = b"[TOC]"
+        refs = collect(md, shift=10)
+        assert len(refs) == 0
+
+    def test_no_link_ref_toc_marker_block(self) -> None:
+        md = b"before\n\n[TOC]\n\nafter"
+        refs = collect(md)
+        assert len(refs) == 0
+
+    @pytest.mark.parametrize(
+        "md",
+        [
+            pytest.param(b"> [!NOTE]", id="note"),
+            pytest.param(b"> [!TIP]", id="tip"),
+            pytest.param(b"> [!IMPORTANT]", id="important"),
+            pytest.param(b"> [!WARNING]", id="warning"),
+            pytest.param(b"> [!CAUTION]", id="caution"),
+            pytest.param(
+                b"> [!NOTE]\n> This is a **note** admonition.",
+                id="note-body",
+            ),
+            pytest.param(
+                b"> [!WARNING]\n> This is a **warning** admonition.",
+                id="warning-body",
+            ),
+            pytest.param(b">>[!NOTE]", id="nested-compact"),
+            pytest.param(b"> > [!NOTE]", id="nested-spaced"),
+        ],
+    )
+    def test_no_link_ref_callout_marker(self, md: bytes) -> None:
         refs = collect(md)
         assert len(refs) == 0
 
@@ -565,8 +681,15 @@ class TestLinkDefinitions:
         assert text(md, link_defs[0].id) == expected_id
         assert text(md, link_defs[0].href) == expected_href
 
-    def test_link_def_title_on_next_line(self) -> None:
-        md = b'[id]: href\n  "Title"'
+    @pytest.mark.parametrize(
+        "md",
+        [
+            pytest.param(b'[id]: href\n  "Title"', id="lf"),
+            pytest.param(b'[id]: href\r\n  "Title"', id="crlf"),
+            pytest.param(b'[id]: href\r  "Title"', id="cr"),
+        ],
+    )
+    def test_link_def_title_on_next_line(self, md: bytes) -> None:
         refs = collect(md)
         assert len(refs) == 1
 
@@ -574,6 +697,32 @@ class TestLinkDefinitions:
         assert len(link_defs) == 1
         assert text(md, link_defs[0].id) == b"id"
         assert text(md, link_defs[0].href) == b"href"
+
+    @pytest.mark.parametrize(
+        "md",
+        [
+            pytest.param(
+                b"[id]: <href>\r\n[after](href)",
+                id="crlf",
+            ),
+            pytest.param(
+                b"[id]: <href>\r[after](href)",
+                id="cr",
+            ),
+        ],
+    )
+    def test_link_def_angle_brackets_with_link_after(self, md: bytes) -> None:
+        refs = collect(md)
+        assert len(refs) == 2
+
+        link_defs = link_defs_only(refs)
+        assert len(link_defs) == 1
+        assert text(md, link_defs[0].id) == b"id"
+        assert text(md, link_defs[0].href) == b"href"
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert text(md, links[0].text) == b"after"
 
     # --- negative cases ---
 
@@ -1201,6 +1350,18 @@ class TestWikilinks:
                 b"id",
                 id="link-ref-with-newline",
             ),
+            pytest.param(
+                b"[[Page]]\r\n[id]",
+                b"[Page]",
+                b"id",
+                id="link-ref-with-crlf",
+            ),
+            pytest.param(
+                b"[[Page]]\r[id]",
+                b"[Page]",
+                b"id",
+                id="link-ref-with-cr",
+            ),
         ],
     )
     def test_no_wikilink(
@@ -1228,6 +1389,11 @@ class TestFootnoteReferences:
     @pytest.mark.parametrize(
         ("md", "expected_id"),
         [
+            pytest.param(
+                b"[^]",
+                b"",
+                id="footnote-ref-empty-id",
+            ),
             pytest.param(
                 b"[^1]",
                 b"1",
@@ -1259,11 +1425,6 @@ class TestFootnoteReferences:
         ("md", "expected_id"),
         [
             pytest.param(
-                b"[^]",
-                b"^",
-                id="link-ref",
-            ),
-            pytest.param(
                 b"[^ ]",
                 b"^ ",
                 id="link-ref, space",
@@ -1284,6 +1445,15 @@ class TestFootnoteReferences:
         assert link_refs[0].kind == "link"
         assert text(md, link_refs[0].text) == expected_id
         assert text(md, link_refs[0].id) == expected_id
+
+    def test_no_footnote_ref_escaped_id(self) -> None:
+        md = b"[^a\\_b]\n\n[^a_b]: note"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        note_defs = footnote_defs_only(refs)
+        assert len(note_defs) == 1
+        assert text(md, note_defs[0].id) == b"a_b"
 
 
 # ---------------------------------------------------------------------------
@@ -1466,6 +1636,18 @@ class TestFencedCodeBlocks:
                 b"~~~~ py\n[text](href)\n~~~~",
                 id="fenced-code-4-tildes-lang",
             ),
+            pytest.param(
+                b"\n```\n[Start][]\n```\n",
+                id="fenced-code-with-info",
+            ),
+            pytest.param(
+                b"```\r\n[Start]\r\n```\r\n",
+                id="fenced-code-crlf-with-shortcut-link-ref",
+            ),
+            pytest.param(
+                b"```\r[Start]\r```\r",
+                id="fenced-code-cr-with-shortcut-link-ref",
+            ),
         ],
     )
     def test_fenced_code(self, md: bytes) -> None:
@@ -1528,6 +1710,59 @@ class TestFencedCodeBlocks:
 # ---------------------------------------------------------------------------
 
 
+class TestSnippets:
+    """Tests for pymdownx.snippets markers."""
+
+    def test_section_markers_are_ignored(self) -> None:
+        md = (
+            b"# --8<-- [start:reference_section]\n"
+            b"Text\n"
+            b"# --8<-- [end:reference_section]\n"
+        )
+        refs = collect(md)
+        assert len(refs) == 0
+
+    def test_section_markers_do_not_hide_following_links(self) -> None:
+        md = (
+            b"# --8<-- [start:reference_section]\n"
+            b"Text\n"
+            b"# --8<-- [end:reference_section]\n"
+            b"[after](href)\n"
+        )
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert text(md, links[0].text) == b"after"
+        assert text(md, links[0].href) == b"href"
+
+
+# ---------------------------------------------------------------------------
+
+
+class TestMarkdownComments:
+    """Tests for Markdown comments written as link-definition hacks."""
+
+    def test_markdown_comment_is_ignored(self) -> None:
+        md = b"[//]: # (comment)\n"
+        refs = collect(md)
+        assert len(refs) == 0
+
+    def test_markdown_comment_does_not_hide_following_link(self) -> None:
+        md = b"[//]: # (comment)\n[after](href)\n"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert text(md, links[0].text) == b"after"
+        assert text(md, links[0].href) == b"href"
+
+
+# ---------------------------------------------------------------------------
+
+
 class TestInlineCode:
     """Tests for inline code."""
 
@@ -1553,6 +1788,10 @@ class TestInlineCode:
             pytest.param(
                 b"``text`[text](href)``",
                 id="inline-code, inner backticks",
+            ),
+            pytest.param(
+                b"`` `[text](href)`",
+                id="inline-code, empty code span",
             ),
         ],
     )
@@ -1631,6 +1870,14 @@ class TestMath:
                 id="match-block-brackets",
             ),
             pytest.param(
+                b"\\[\r\n[text](href)\r\n\\]",
+                id="match-block-brackets-crlf",
+            ),
+            pytest.param(
+                b"\\[\r[text](href)\r\\]",
+                id="match-block-brackets-cr",
+            ),
+            pytest.param(
                 b"\\[ [text](href) \\]",
                 id="match-block-brackets, single line",
             ),
@@ -1664,6 +1911,32 @@ class TestMath:
         assert text(md, links[0].text) == b"before"
         assert text(md, links[0].href) == b"href"
 
+    def test_no_math(self) -> None:
+        md = b"1.000$"
+        refs = collect(md)
+        assert len(refs) == 0
+
+    def test_no_math_inline_across_code(self) -> None:
+        md = b"| <span>$<span> | `#!python 'ab$'` | `#!python '[abc]'` |"
+        refs = collect(md)
+        assert len(refs) == 0
+
+    @pytest.mark.parametrize(
+        "md",
+        [
+            pytest.param(b"$[text](href)\n$", id="lf"),
+            pytest.param(b"$[text](href)\r\n$", id="crlf"),
+            pytest.param(b"$[text](href)\r$", id="cr"),
+        ],
+    )
+    def test_no_math_inline_across_line_ending(self, md: bytes) -> None:
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert text(md, links[0].text) == b"text"
+
 
 # ---------------------------------------------------------------------------
 
@@ -1683,6 +1956,16 @@ class TestHtmlLinks:
                 b'<div>\n<a href="href">text</a>\n</div>',
                 b"href",
                 id="html-a-href, in block",
+            ),
+            pytest.param(
+                b'<div>\r\n<a href="href">text</a>\r\n</div>',
+                b"href",
+                id="html-a-href, in block, crlf",
+            ),
+            pytest.param(
+                b'<div>\r<a href="href">text</a>\r</div>',
+                b"href",
+                id="html-a-href, in block, cr",
             ),
             pytest.param(
                 b'<img src="image.png">',
@@ -1891,6 +2174,14 @@ class TestJinja:
                 id="jinja-block",
             ),
             pytest.param(
+                b"{% if\r\n[text](href)\r\n%}",
+                id="jinja-block-crlf",
+            ),
+            pytest.param(
+                b"{% if\r[text](href)\r%}",
+                id="jinja-block-cr",
+            ),
+            pytest.param(
                 b"{{ [text](href) }}",
                 id="jinja-expr",
             ),
@@ -1904,6 +2195,22 @@ class TestJinja:
         refs = collect(md)
         assert len(refs) == 0
 
+    @pytest.mark.parametrize(
+        "md",
+        [
+            pytest.param(b"{% if\n\n[text](href) %}", id="lf"),
+            pytest.param(b"{% if\r\n\r\n[text](href) %}", id="crlf"),
+            pytest.param(b"{% if\r\r[text](href) %}", id="cr"),
+        ],
+    )
+    def test_refs_after_jinja_blank_line(self, md: bytes) -> None:
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert text(md, links[0].text) == b"text"
+
 
 # ---------------------------------------------------------------------------
 
@@ -1911,10 +2218,38 @@ class TestJinja:
 class TestExclusions:
     """Tests for further exclusions."""
 
-    def test_abbreviations(self) -> None:
-        md = b"*[abbr]: text\n"
+    @pytest.mark.parametrize(
+        "md",
+        [
+            pytest.param(b"*[abbr]: text\n", id="lf"),
+            pytest.param(b"*[abbr]: text\r\n", id="crlf"),
+            pytest.param(b"*[abbr]: text\r", id="cr"),
+        ],
+    )
+    def test_abbreviations(self, md: bytes) -> None:
         refs = collect(md)
         assert len(refs) == 0
+
+    @pytest.mark.parametrize(
+        "md",
+        [
+            pytest.param(
+                b"*[abbr]: text\r\n[after](href)",
+                id="crlf",
+            ),
+            pytest.param(
+                b"*[abbr]: text\r[after](href)",
+                id="cr",
+            ),
+        ],
+    )
+    def test_abbreviation_with_link_after(self, md: bytes) -> None:
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert text(md, links[0].text) == b"after"
 
     @pytest.mark.parametrize(
         "md",

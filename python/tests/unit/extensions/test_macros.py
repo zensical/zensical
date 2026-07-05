@@ -29,6 +29,7 @@ import pandas
 import pytest
 from jinja2.exceptions import TemplateSyntaxError, UndefinedError
 
+from tests.unit.extensions.conftest import soup
 from zensical.extensions.context import ContextPreprocessor
 from zensical.extensions.macros import (
     MacroEnv,
@@ -105,8 +106,17 @@ class TestFilters:
 
 
 class TestMacroEnv:
-    def test_registers_macros_and_filters(self) -> None:
+    def test_conf_is_stored(self) -> None:
+        conf = {"site_name": "My Site", "docs_dir": "/docs"}
+        env = MacroEnv(conf=conf)
+        assert env.conf is conf
+
+    def test_conf_defaults_to_empty_dict(self) -> None:
         env = MacroEnv()
+        assert env.conf == {}
+
+    def test_registers_macros_and_filters(self) -> None:
+        env = MacroEnv(conf={})
 
         @env.macro
         def twice(value: int) -> int:
@@ -194,21 +204,42 @@ class TestLoadModule:
             "        return s.upper()\n",
             encoding="utf-8",
         )
-        variables, macros, filters = _load_module("main", tmp_path)
-        assert variables["site_name"] == "Demo"
-        assert macros["twice"](3) == 6
-        assert filters["shout"]("hi") == "HI"
+        env = MacroEnv(conf={})
+        _load_module(env, "main", tmp_path)
+        assert env.variables["site_name"] == "Demo"
+        assert env.macros["twice"](3) == 6
+        assert env.filters["shout"]("hi") == "HI"
 
     @pytest.mark.parametrize(
-        "module_name",
+        ("module_name", "file_rel_path"),
         [
-            pytest.param("../evil", id="path_traversal"),
-            pytest.param("foo/bar", id="forward_slash"),
-            pytest.param("foo\\\\bar", id="backslash"),
+            pytest.param("../evil", "../evil.py", id="path_traversal"),
+            pytest.param("foo/bar", "foo/bar.py", id="forward_slash"),
+            pytest.param("foo\\\\bar", "foo\\\\bar.py", id="backslash"),
         ],
     )
-    def test_rejects_invalid_names(self, module_name: str) -> None:
-        assert _load_module(module_name) == ({}, {}, {})
+    def test_rejects_invalid_names(
+        self,
+        module_name: str,
+        file_rel_path: str,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        define_env_source = (
+            "def define_env(env):\n"
+            "    env.variables['pwned'] = True\n"
+            "    env.macros['evil'] = lambda: None\n"
+            "    env.filters['bad'] = lambda x: x\n"
+        )
+        target = tmp_path / file_rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(define_env_source, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        env = MacroEnv(conf={})
+        _load_module(env, module_name)
+        assert env.variables == {}
+        assert env.macros == {}
+        assert env.filters == {}
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +249,7 @@ class TestLoadModule:
 
 class TestPreprocessor:
     @pytest.mark.parametrize(
-        ("md", "expected"),
+        ("md", "expected_text"),
         [
             pytest.param(
                 {
@@ -230,7 +261,7 @@ class TestPreprocessor:
                         },
                     }
                 },
-                "<p>Value: {{ 1 + 1 }}</p>",
+                "Value: {{ 1 + 1 }}",
                 id="disabled_keeps_template",
             ),
             pytest.param(
@@ -243,17 +274,19 @@ class TestPreprocessor:
                         },
                     }
                 },
-                "<p>Value: 2</p>",
+                "Value: 2",
                 id="enabled_renders",
             ),
         ],
         indirect=["md"],
     )
     def test_respects_render_by_default(
-        self, md: Markdown, expected: str
+        self, md: Markdown, expected_text: str
     ) -> None:
-        source = "Value: {{ 1 + 1 }}"
-        assert md.convert(source) == expected
+        html = soup(md.convert("Value: {{ 1 + 1 }}"))
+        p = html.select_one("p")
+        assert p is not None
+        assert p.get_text() == expected_text
 
     @pytest.mark.parametrize(
         "md",
@@ -275,7 +308,10 @@ class TestPreprocessor:
         indirect=["md"],
     )
     def test_renders_when_opted_in_by_page_meta(self, md: Markdown) -> None:
-        assert md.convert("Value: {{ 1 + 1 }}") == "<p>Value: 2</p>"
+        html = soup(md.convert("Value: {{ 1 + 1 }}"))
+        p = html.select_one("p")
+        assert p is not None
+        assert p.get_text() == "Value: 2"
 
     @pytest.mark.parametrize(
         "md",
@@ -312,9 +348,10 @@ class TestPreprocessor:
             "        return f'Hello {name}!'\n",
             encoding="utf-8",
         )
-        rendered = md.convert("{{ greet(name) }}\n\n{{ who }}")
-        assert "Hello Ada!" in rendered
-        assert "world" in rendered
+        html = soup(md.convert("{{ greet(name) }}\n\n{{ who }}"))
+        text = html.get_text()
+        assert "Hello Ada!" in text
+        assert "world" in text
 
     @pytest.mark.parametrize(
         "md",
@@ -335,7 +372,8 @@ class TestPreprocessor:
         indirect=["md"],
     )
     def test_error_handling_keep_text_by_default(self, md: Markdown) -> None:
-        assert "{{ not_closed" in md.convert("{{ not_closed")
+        html = soup(md.convert("{{ not_closed"))
+        assert "{{ not_closed" in html.get_text()
 
     @pytest.mark.parametrize(
         "md",
@@ -446,9 +484,13 @@ class TestPreprocessor:
             "        return f'```{lang}\\n{code}\\n```\\n'\n",
             encoding="utf-8",
         )
-        result = md.convert("{{ code_snippet('python', 'x = 1 + 1') }}")
-        assert "<code>python" not in result
-        assert "x = 1 + 1" not in result  # we expect spans
+        html = soup(md.convert("{{ code_snippet('python', 'x = 1 + 1') }}"))
+        code = html.select_one("code")
+        assert code is not None
+        # Language in class attr, not text
+        assert "python" not in code.get_text()
+        # Source broken into syntax-highlighted spans
+        assert code.select("span")
 
 
 # ---------------------------------------------------------------------------
@@ -685,10 +727,14 @@ class TestTableReaders:
         (tmp_path / "scores.csv").write_text(
             "Player,Score\nAlice,100\nBob,80\n", encoding="utf-8"
         )
-        result = md.convert("{{ read_csv('scores.csv') }}")
-        assert "Player" in result
-        assert "Alice" in result
-        assert "Score" in result
+        html = soup(md.convert("{{ read_csv('scores.csv') }}"))
+        table = html.select_one("table")
+        assert table is not None
+        headers = [th.get_text(strip=True) for th in table.select("th")]
+        assert "Player" in headers
+        assert "Score" in headers
+        cells = [td.get_text(strip=True) for td in table.select("td")]
+        assert "Alice" in cells
 
     @pytest.mark.parametrize(
         "md",
@@ -712,8 +758,11 @@ class TestTableReaders:
         self, md: Markdown, tmp_path: Path
     ) -> None:
         (tmp_path / "nums.csv").write_text("X,Y\n1,2\n3,4\n", encoding="utf-8")
-        result = md.convert(
-            "{{ pd_read_csv('nums.csv') | convert_to_md_table }}"
+        html = soup(
+            md.convert("{{ pd_read_csv('nums.csv') | convert_to_md_table }}")
         )
-        assert "X" in result
-        assert "Y" in result
+        table = html.select_one("table")
+        assert table is not None
+        headers = [th.get_text(strip=True) for th in table.select("th")]
+        assert "X" in headers
+        assert "Y" in headers

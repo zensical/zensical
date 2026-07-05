@@ -53,3 +53,26 @@ pub struct NavigationItem {
     /// Whether this item is currently active.
     pub active: bool,
 }
+
+// ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
+
+impl NavigationItem {
+    /// Returns the effective display title for the item.
+    ///
+    /// This mirrors the navigation template behavior for indexed sections,
+    /// where an empty section title falls back to the linked index page title.
+    pub fn display_title(&self) -> Option<&str> {
+        self.title
+            .as_deref()
+            .filter(|title| !title.is_empty())
+            .or_else(|| {
+                self.children
+                    .iter()
+                    .find(|item| item.is_index)
+                    .and_then(|item| item.title.as_deref())
+                    .filter(|title| !title.is_empty())
+            })
+    }
+}

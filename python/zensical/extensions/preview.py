@@ -67,7 +67,7 @@ class PreviewProcessor(Treeprocessor):
 
     def __init__(self, md: Markdown, config: PreviewConfig):
         """Initialize the treeprocessor."""
-        self.md: Markdown = md
+        super().__init__(md)
         self.config = config
 
     def run(self, root: Element) -> None:
@@ -88,7 +88,7 @@ class PreviewProcessor(Treeprocessor):
             raise TypeError("Links processor not registered")
 
         # Normalize configurations
-        configurations = self.config.configurations
+        configurations = list(self.config.configurations)
         configurations.append(
             {
                 "sources": self.config.sources,

@@ -53,7 +53,7 @@ dependencies = [
     "jinja2>=3.1",
     "markdown>=3.7",
     "pygments>=2.20",
-    "pymdown-extensions>=10.21.2",
+    "pymdown-extensions>=10.21.3",
     "pyyaml>=6.0.2",
     "tomli>=2.4.0",
 ]
@@ -70,12 +70,15 @@ zensical = "zensical.main:cli"
 
 [dependency-groups]
 dev = [
+    "beautifulsoup4>=4.14.3",
+    "lxml>=6.1.0",
     "maturin>=1.10.2",
     "pandas>=2.3.3",
     "pytest>=9.0.3",
     "ruff>=0.12.8",
     "tabulate>=0.10.0",
     "ty>=0.0.32",
+    "types-markdown>=3.10.2",
     "types-pyyaml>=6.0.12",
 ]
 

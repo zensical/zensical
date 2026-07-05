@@ -21,5 +21,43 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
-python/tests/** linguist-vendored
-scripts/* linguist-vendored
+from __future__ import annotations
+
+import copy
+from typing import Any
+
+import pytest
+
+from zensical import config
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(name="base_config", scope="session")
+def _fixture_base_config(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> dict[str, Any]:
+    """Build a fully-processed config once per session."""
+    root = tmp_path_factory.mktemp("integration_base")
+    (root / "docs").mkdir()
+    return config._apply_defaults(
+        {
+            "site_name": "Test",
+            "markdown_extensions": config.DEFAULT_MARKDOWN_EXTENSIONS,
+        },
+        str(root / "zensical.toml"),
+    )
+
+
+@pytest.fixture(autouse=True)
+def _fixture_set_config(base_config: dict[str, Any]) -> Any:
+    """Give each test a fresh copy of the config and restore state after.
+
+    render() mutates the global config (it appends/updates ContextExtension),
+    so every test must start from an isolated copy.
+    """
+    config._CONFIG = copy.deepcopy(base_config)
+    yield
+    config._CONFIG = None

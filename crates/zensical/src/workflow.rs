@@ -100,9 +100,11 @@ impl Module for Main {
         let pages = page.select([wait_for_markdown(&self.config)]);
 
         // Collect all anchors and references from pages, to validate links
-        let references = collect_references(&files);
-        let anchors = collect_anchors(&page);
-        validate(&self.config, self.strict, references, anchors);
+        if self.config.project.validation.is_enabled() {
+            let references = collect_references(&files);
+            let anchors = collect_anchors(&page);
+            validate(&self.config, self.strict, references, anchors);
+        }
 
         // Generate navigation and search index
         let nav = generate_nav(&self.config, &pages);
@@ -274,6 +276,10 @@ pub fn process_markdown(
         // Python interpreter with all tasks competing for the GIL.
         .map(move |id: &Id, path: Source| {
             let data = fs::read_to_string(&*path)?;
+
+            // Remove Byte-Order-Mark (BOM)
+            let data = data.strip_prefix('\u{FEFF}').unwrap_or(&data);
+            let data = data.to_owned();
 
             // Compute URL using same logic as Page::new()
             let site_dir = config.project.site_dir.clone();
