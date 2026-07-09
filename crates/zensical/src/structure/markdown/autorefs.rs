@@ -261,6 +261,20 @@ impl Autorefs {
         Self::default()
     }
 
+    /// Merges another `Autorefs` into this one.
+    ///
+    /// Entries from `other` take precedence over existing entries. Used to
+    /// merge stale cached autorefs with fresh data from the Python process,
+    /// so that pages not re-processed in the current build retain their
+    /// previously registered identifiers while newly processed pages override
+    /// any stale entries.
+    pub fn merge(&mut self, other: Autorefs) {
+        self.primary.extend(other.primary);
+        self.secondary.extend(other.secondary);
+        self.inventory.extend(other.inventory);
+        self.titles.extend(other.titles);
+    }
+
     /// Parses HTML attributes string into a HashMap.
     ///
     /// @todo Document that this is not the most resilient HTML parser

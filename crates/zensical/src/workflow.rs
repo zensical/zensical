@@ -347,7 +347,7 @@ pub fn generate_nav(
 ) -> Stream<Id, Navigation> {
     let config = config.clone();
     pages.map(move |pages: Vec<(Key<Id>, Page)>| {
-        Navigation::new(config.project.nav.clone(), pages)
+        Navigation::new(config.get_cache_dir(), config.project.nav.clone(), pages)
     })
 }
 

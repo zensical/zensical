@@ -25,7 +25,9 @@
 
 //! Navigation.
 
+use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::path::{Path, PathBuf};
 
 use ahash::HashMap;
 use pyo3::types::PyAnyMethods;
@@ -73,10 +75,16 @@ pub struct Navigation {
 impl Navigation {
     /// Creates a navigation from the given items.
     pub fn new(
-        mut items: Vec<NavigationItem>, pages: Vec<(Key<Id>, Page)>,
+        cache_dir: PathBuf, mut items: Vec<NavigationItem>,
+        pages: Vec<(Key<Id>, Page)>,
     ) -> Self {
+        // Fetch and cache autorefs once, used by both branches below
+        let autorefs = get_autorefs_cached(&cache_dir);
+
         if items.is_empty() {
-            return Self::from(pages);
+            let mut nav = Self::from(pages);
+            nav.autorefs = autorefs;
+            return nav;
         }
 
         // Create a map of pages for easy lookup, so we can resolve titles and
@@ -157,8 +165,6 @@ impl Navigation {
             items.hash(&mut hasher);
             hasher.finish()
         };
-
-        let autorefs = get_autorefs();
 
         // Return navigation
         Self {
@@ -365,6 +371,8 @@ impl From<Vec<(Key<Id>, Page)>> for Navigation {
             hasher.finish()
         };
 
+        // Fetch without caching — Navigation::new() will override this with
+        // the cached+merged result when called through the normal build path.
         let autorefs = get_autorefs();
 
         // Determine homepage and return navigation
@@ -439,6 +447,29 @@ pub(crate) fn to_title(component: &str) -> String {
     } else {
         title
     }
+}
+
+fn get_autorefs_cached(cache_dir: &Path) -> Autorefs {
+    let path = cache_dir.join("autorefs.json");
+
+    // Load previously cached autorefs, falling back to empty if unavailable
+    let mut autorefs = fs::read(&path)
+        .ok()
+        .and_then(|data| serde_json::from_slice::<Autorefs>(&data).ok())
+        .unwrap_or_default();
+
+    // Fetch fresh data from the Python process and merge, giving it precedence
+    // over cached entries — pages re-processed in this build are authoritative
+    // while identifiers from unchanged (cached) pages are preserved from cache
+    autorefs.merge(get_autorefs());
+
+    // Write merged autorefs back to cache
+    if let Ok(data) = serde_json::to_string_pretty(&autorefs) {
+        let _ = fs::create_dir_all(cache_dir);
+        let _ = fs::write(&path, data);
+    }
+
+    autorefs
 }
 
 fn get_autorefs() -> Autorefs {
