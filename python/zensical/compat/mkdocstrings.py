@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -103,15 +104,31 @@ def get_mkdocstrings_extension(
     return MkdocstringsExtension(handlers=HANDLERS, autorefs=autorefs)
 
 
-def get_inventory() -> bytes:
-    """Get the objects.inv inventory as bytes.
+def get_inventory(cached: bytes | None) -> bytes:
+    """Get inventory bytes, merging cached entries with fresh handlers data."""
+    try:
+        from mkdocstrings import (  # noqa: PLC0415  # ty:ignore[unresolved-import]
+            Inventory,
+        )
+    except ImportError:
+        return cached or b""
 
-    This function is called from Rust to write
-    the objects.inv file in the site directory.
-    """
-    if HANDLERS:
+    if HANDLERS is None:
+        return cached or b""
+
+    if not cached:
         return HANDLERS.inventory.format_sphinx()
-    return b""
+
+    base = Inventory.parse_sphinx(BytesIO(cached))
+    for name, item in HANDLERS.inventory.items():
+        base[name] = item
+
+    # Bug in mkdocstrings's `parse_sphinx` method
+    # not parsing project and version (fixed in latest).
+    base.project = HANDLERS.inventory.project
+    base.version = HANDLERS.inventory.version
+
+    return base.format_sphinx()
 
 
 def reset() -> None:
