@@ -310,7 +310,7 @@ toggle.name = "Switch to light mode"
 # but you can customize this list to your needs.
 #
 # Read more:
-# - https://zensical.org/docs/setup/extensions/
+# - https://zensical.org/docs/setup/extensions/about
 # ----------------------------------------------------------------------------
 [project.markdown_extensions.abbr]
 [project.markdown_extensions.admonition]
