@@ -46,6 +46,8 @@ pub use item::SearchItem;
 /// Search configuration.
 #[derive(Clone, Debug, PartialEq, Eq, FromPyObject, Serialize)]
 pub struct SearchConfig {
+    /// Languages for tokenizer.
+    pub lang: Vec<String>,
     /// Separator for tokenizer.
     pub separator: String,
 }
@@ -66,12 +68,24 @@ pub struct SearchIndex {
 // Implementations
 // ----------------------------------------------------------------------------
 
+impl SearchConfig {
+    /// Creates search configuration for the configured theme language.
+    fn new(config: SearchPluginConfig, language: &str) -> Self {
+        Self {
+            lang: vec![language.to_string()],
+            separator: config.separator,
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+
 impl SearchIndex {
     /// Creates a search index from pages.
     #[allow(clippy::assigning_clones)]
     pub fn new(
         pages: Vec<(Key<Id>, Page)>, nav: &Navigation,
-        config: SearchPluginConfig,
+        config: SearchPluginConfig, language: &str,
     ) -> Self {
         let mut items: Vec<SearchItem> = Vec::new();
 
@@ -85,7 +99,9 @@ impl SearchIndex {
         for (_id, page) in pages {
             let iter = nav.ancestors(&page).into_iter().rev();
             let mut path = iter
-                .filter_map(|item| item.display_title().map(ToString::to_string))
+                .filter_map(|item| {
+                    item.display_title().map(ToString::to_string)
+                })
                 .collect::<Vec<_>>();
 
             // Add page title to path if not already present - this might be
@@ -120,7 +136,10 @@ impl SearchIndex {
         }
 
         // Return search
-        Self { config: config.into(), items }
+        Self {
+            config: SearchConfig::new(config, language),
+            items,
+        }
     }
 }
 
@@ -129,12 +148,3 @@ impl SearchIndex {
 // ----------------------------------------------------------------------------
 
 impl Value for SearchIndex {}
-
-// ----------------------------------------------------------------------------
-
-impl From<SearchPluginConfig> for SearchConfig {
-    /// Converts plugin configuration into search configuration.
-    fn from(config: SearchPluginConfig) -> Self {
-        Self { separator: config.separator }
-    }
-}

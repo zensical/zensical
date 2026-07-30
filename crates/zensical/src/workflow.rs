@@ -392,7 +392,8 @@ pub fn generate_search_index(
     let config = config.clone();
     pages.product(nav).map(move |pages, nav| {
         let plugin = config.project.plugins.search.config.clone();
-        let search = SearchIndex::new(pages, &nav, plugin);
+        let language = &config.project.theme.language;
+        let search = SearchIndex::new(pages, &nav, plugin, language);
 
         // Serialize search index to json, and obtain site directory
         let data = serde_json::to_string(&search).expect("invariant");
