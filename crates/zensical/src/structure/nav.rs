@@ -28,10 +28,11 @@
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use ahash::HashMap;
-use pyo3::types::PyAnyMethods;
-use pyo3::{FromPyObject, Python};
+use pyo3::types::{PyAny, PyAnyMethods};
+use pyo3::{Bound, FromPyObject, PyResult, Python};
 use serde::Serialize;
 use zrx::id::Id;
 use zrx::scheduler::{Key, Value};
@@ -63,7 +64,8 @@ pub struct Navigation {
     /// Homepage, if defined.
     pub homepage: Option<NavigationItem>,
     /// Autorefs (mkdocstrings).
-    pub autorefs: Autorefs,
+    #[pyo3(from_py_with = extract_shared_autorefs)]
+    pub autorefs: Arc<Autorefs>,
     /// Precomputed hash.
     pub hash: u64,
 }
@@ -83,7 +85,7 @@ impl Navigation {
 
         if items.is_empty() {
             let mut nav = Self::from(pages);
-            nav.autorefs = autorefs;
+            nav.autorefs = Arc::new(autorefs);
             return nav;
         }
 
@@ -170,7 +172,7 @@ impl Navigation {
         Self {
             items,
             homepage,
-            autorefs,
+            autorefs: Arc::new(autorefs),
             hash,
         }
     }
@@ -378,7 +380,7 @@ impl From<Vec<(Key<Id>, Page)>> for Navigation {
         // Determine homepage and return navigation
         Self {
             homepage: items.iter().find(|item| item.is_index).cloned(),
-            autorefs,
+            autorefs: Arc::new(autorefs),
             items,
             hash,
         }
@@ -449,6 +451,12 @@ pub(crate) fn to_title(component: &str) -> String {
     }
 }
 
+fn extract_shared_autorefs(
+    value: &Bound<'_, PyAny>,
+) -> PyResult<Arc<Autorefs>> {
+    value.extract::<Autorefs>().map(Arc::new)
+}
+
 fn get_autorefs_cached(cache_dir: &Path) -> Autorefs {
     let path = cache_dir.join("autorefs.json");
 
@@ -491,6 +499,20 @@ fn get_autorefs() -> Autorefs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_clone_shares_autorefs() {
+        let nav = Navigation {
+            items: Vec::new(),
+            homepage: None,
+            autorefs: Arc::new(Autorefs::new()),
+            hash: 0,
+        };
+
+        let clone = nav.clone();
+
+        assert!(Arc::ptr_eq(&nav.autorefs, &clone.autorefs));
+    }
 
     /// https://github.com/zensical/zensical/issues/66
     #[test]
