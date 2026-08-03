@@ -411,6 +411,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(config, "site_description", None, str)
     set_default(config, "site_author", None, str)
     set_default(config, "use_directory_urls", True, bool)
+    set_default(config, "strict", False, bool)
     set_default(config, "dev_addr", "localhost:8000", str)
     set_default(config, "copyright", None, str)
     set_default(config, "watch", [], list)

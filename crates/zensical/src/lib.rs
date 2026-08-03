@@ -185,7 +185,9 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
 
     // Determine if strict mode is enabled
     let strict = match &mode {
-        Mode::Build(options) => options.strict.unwrap_or(false),
+        Mode::Build(options) => {
+            options.strict.unwrap_or(false) || config.project.strict
+        }
         Mode::Serve(_, _) => false,
     };
 
