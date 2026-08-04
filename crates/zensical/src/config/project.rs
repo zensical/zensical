@@ -62,6 +62,8 @@ pub struct Project {
     pub site_dir: String,
     /// Whether to use directory URLs.
     pub use_directory_urls: bool,
+    /// Whether to abort the build on any warnings.
+    pub strict: bool,
     /// Development server address.
     pub dev_addr: String,
     /// Copyright notice.
