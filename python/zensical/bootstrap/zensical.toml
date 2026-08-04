@@ -1,9 +1,14 @@
 [project]
-site_name = "Documentation"
-site_description = "A new project generated from the default template project."
-site_author = "<your name here>"
-copyright = "Copyright &copy; 2026 The authors"
 site_url = "https://www.example.com/"
+site_name = "Documentation"
+# site_description = "Your project description"
+# site_author = "Your name"
+
+# copyright = "Copyright &copy; 2026 Your name"
+
+# repo_url = "https://github.com/user/repo"
+# repo_name = "user/repo"
+# edit_uri = "edit/main/docs/"
 
 nav = [
   { "Get started" = "index.md" },
@@ -19,46 +24,42 @@ nav = [
 # favicon = "images/favicon.png"
 language = "en"
 features = [
-    "announce.dismiss",
-#     "content.action.edit",
-#     "content.action.view",
-    "content.code.annotate",
-    "content.code.copy",
-    "content.code.select",
-    "content.footnote.tooltips",
-    "content.tabs.link",
-    "content.tooltips",
-#     "header.autohide",
-#     "navigation.expand",
-    "navigation.footer",
-    "navigation.indexes",
-    "navigation.instant",
-    "navigation.instant.prefetch",
-#     "navigation.instant.progress",
-    "navigation.path",
-#     "navigation.prune",
-    "navigation.sections",
-#     "navigation.tabs",
-#     "navigation.tabs.sticky",
-    "navigation.top",
-    "navigation.tracking",
-    "search.highlight",
-#     "toc.follow",
-#     "toc.integrate",
+  "announce.dismiss",
+  # "content.action.edit",
+  # "content.action.view",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.code.select",
+  "content.footnote.tooltips",
+  "content.tabs.link",
+  "content.tooltips",
+  # "header.autohide",
+  # "navigation.expand",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  # "navigation.instant.progress",
+  "navigation.path",
+  # "navigation.prune",
+  "navigation.sections",
+  # "navigation.tabs",
+  # "navigation.tabs.sticky",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+  # "toc.follow",
+  # "toc.integrate",
 ]
 
 # logo = "assets/logo.png"
 
-#[project.theme.icon]
+# [project.theme.icon]
 # logo = "lucide/smile"
 
-#[project.theme.font]
+# [project.theme.font]
 # text = "Inter"
 # code = "Jetbrains Mono"
-
-#[[project.extra.social]]
-# icon = "fontawesome/brands/github"
-# link = "https://github.com/user/repo"
 
 [[project.theme.palette]]
 media = "(prefers-color-scheme)"
@@ -77,6 +78,14 @@ scheme = "slate"
 toggle.icon = "lucide/moon"
 toggle.name = "Switch to system preference"
 
+# [[project.extra.social]]
+# icon = "fontawesome/brands/github"
+# link = "https://github.com/user/repo"
+
+# [[project.extra.social]]
+# icon = "fontawesome/brands/mastodon"
+# link = "https://fosstodon.org/@user"
+
 [project.markdown_extensions]
 abbr = {}
 admonition = {}
@@ -84,34 +93,46 @@ attr_list = {}
 def_list = {}
 footnotes = {}
 md_in_html = {}
-pymdownx.arithmatex = { generic = true }
+toc = {
+  permalink = true
+}
+pymdownx.arithmatex = {
+  generic = true
+}
 pymdownx.betterem = {}
 pymdownx.caret = {}
 pymdownx.details = {}
 pymdownx.emoji = {
-    emoji_generator = "zensical.extensions.emoji.to_svg",
-    emoji_index = "zensical.extensions.emoji.twemoji",
+  emoji_generator = "zensical.extensions.emoji.to_svg",
+  emoji_index = "zensical.extensions.emoji.twemoji",
 }
 pymdownx.highlight = {
-    anchor_linenums = true,
-    line_spans = "__span",
-    pygments_lang_class = true,
+  anchor_linenums = true,
+  line_spans = "__span",
+  pygments_lang_class = true,
 }
 pymdownx.inlinehilite = {}
 pymdownx.keys = {}
 pymdownx.magiclink = {}
 pymdownx.mark = {}
 pymdownx.smartsymbols = {}
+# pymdownx.snippets = {
+#   base_path = "includes",
+# }
 pymdownx.superfences = {
-    custom_fences = [
-        {
-            name = "mermaid",
-            class = "mermaid",
-            format = "pymdownx.superfences.fence_code_format",
-        },
-    ],
+  custom_fences = [
+    {
+      name = "mermaid",
+      class = "mermaid",
+      format = "pymdownx.superfences.fence_code_format",
+    },
+  ],
 }
-pymdownx.tabbed = { alternate_style = true, combine_header_slug = true }
-pymdownx.tasklist = { custom_checkbox = true }
+pymdownx.tabbed = {
+  alternate_style = true,
+  combine_header_slug = true
+}
+pymdownx.tasklist = {
+  custom_checkbox = true
+}
 pymdownx.tilde = {}
-toc = { permalink = true }
