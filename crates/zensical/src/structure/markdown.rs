@@ -41,7 +41,7 @@ use crate::structure::toc::Section;
 
 mod autorefs;
 
-pub use autorefs::Autorefs;
+pub use autorefs::{AutorefResolutions, Autorefs};
 
 // ----------------------------------------------------------------------------
 // Constants

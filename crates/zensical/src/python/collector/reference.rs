@@ -35,7 +35,7 @@ mod footnote;
 mod link;
 
 pub use footnote::{FootnoteDefinition, FootnoteReference};
-pub use link::{Link, LinkDefinition, LinkReference};
+pub use link::{Link, LinkDefinition, LinkReference, LinkReferenceKind};
 
 // ----------------------------------------------------------------------------
 // Enums

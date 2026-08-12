@@ -25,13 +25,15 @@
 
 //! Workflow definitions
 
+use ahash::{HashMap, HashSet};
 use pyo3::types::PyAnyMethods;
 use pyo3::Python;
 use regex::Regex;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::{fs, io};
 use zrx::id::matcher::Matcher;
 use zrx::id::{id, Id};
@@ -41,7 +43,7 @@ use zrx::stream::{Barrier, Stream, Workflow};
 
 use super::config::Config;
 use super::python::{Anchors, Issues, References};
-use super::structure::markdown::Markdown;
+use super::structure::markdown::{AutorefResolutions, Markdown};
 use super::structure::nav::Navigation;
 use super::structure::page::Page;
 use super::structure::search::SearchIndex;
@@ -80,6 +82,62 @@ pub struct Main {
     strict: bool,
 }
 
+/// Page-content generation used to align validation inputs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct PageGeneration(u64);
+
+impl zrx::scheduler::Value for PageGeneration {}
+
+/// Render generation used to align validation with rendered autoreferences.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct ValidationGeneration(u64, u64);
+
+impl zrx::scheduler::Value for ValidationGeneration {}
+
+/// Navigation generation used to construct validation sites.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ValidationNavigation(u64);
+
+impl zrx::scheduler::Value for ValidationNavigation {}
+
+/// Site-wide validation pages shared across workflow products.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SharedValidationPages(Arc<ValidationPages>);
+
+impl zrx::scheduler::Value for SharedValidationPages {}
+
+/// Site-wide validation inputs shared across rendered pages.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ValidationSite {
+    /// Monotonically increasing site snapshot sequence.
+    sequence: u64,
+    /// Navigation hash used when pages were rendered.
+    nav_hash: u64,
+    /// References, anchors, and generations for all pages.
+    pages: Arc<ValidationPages>,
+}
+
+impl zrx::scheduler::Value for ValidationSite {}
+
+/// Validation state collected while pages are rendered.
+#[derive(Debug, Default)]
+struct ValidationState {
+    /// Current site snapshot sequence.
+    sequence: u64,
+    /// Whether issues for the current site snapshot were printed.
+    reported: bool,
+    /// Pages expected in the current site snapshot.
+    expected: HashSet<(Id, ValidationGeneration)>,
+    /// Pages that have not rendered for the current site snapshot.
+    missing: HashSet<(Id, ValidationGeneration)>,
+    /// Current site snapshot, if validation inputs are ready.
+    site: Option<ValidationSite>,
+    /// Autoref resolutions indexed by source page and generation.
+    resolutions: HashMap<(Id, ValidationGeneration), AutorefResolutions>,
+}
+
+type ValidationPages = Vec<(Key<Id>, (References, (Anchors, PageGeneration)))>;
+
 // ----------------------------------------------------------------------------
 // Implementations
 // ----------------------------------------------------------------------------
@@ -100,13 +158,6 @@ impl Module for Main {
         let page = generate_page(&self.config, &markdown);
         let pages = page.select([wait_for_markdown(&self.config)]);
 
-        // Collect all anchors and references from pages, to validate links
-        if self.config.project.validation.is_enabled() {
-            let references = collect_references(&files);
-            let anchors = collect_anchors(&page);
-            validate(&self.config, self.strict, references, anchors);
-        }
-
         // Generate navigation and search index
         let nav = generate_nav(&self.config, &pages);
         generate_search_index(&self.config, &nav, &pages);
@@ -114,9 +165,23 @@ impl Module for Main {
         // Generate object inventory
         generate_object_inventory(&self.config, &pages);
 
-        // // Render static and extra templates, as well as pages
+        // Render static and extra templates, as well as pages.
         render_templates(&self.config, &files, &nav);
-        render_pages(&self.config, &page, &nav);
+        let autorefs = render_pages(&self.config, &page, &nav);
+
+        // Validate and print issues after all page autorefs have resolved.
+        if self.config.project.validation.is_enabled() {
+            let references = collect_references(&self.config, &files);
+            let anchors = collect_anchors(&page);
+            validate(
+                &self.config,
+                self.strict,
+                references,
+                anchors,
+                autorefs,
+                &nav,
+            );
+        }
         Ok(())
     }
 }
@@ -148,10 +213,15 @@ pub fn wait_for_markdown(config: &Config) -> (Key<Id>, Barrier<Id>) {
 
 /// Create a stream to collect references from all Markdown files.
 pub fn collect_references(
-    files: &Stream<Id, Source>,
+    config: &Config, files: &Stream<Id, Source>,
 ) -> Stream<Id, References> {
-    let matcher =
-        Arc::new(Matcher::from_str("zrs:::::**/*.md:").expect("invariant"));
+    let matcher = Arc::new(
+        Matcher::from_str(&format!(
+            "zrs::::{}:**/*.md:",
+            config.project.docs_dir
+        ))
+        .expect("invariant"),
+    );
 
     // Create pipeline to collect references
     files
@@ -159,21 +229,135 @@ pub fn collect_references(
         .map(|Source { path }| fs::read_to_string(&*path)?.parse())
 }
 
-/// Create a stream to collect anchors from pages.
-pub fn collect_anchors(pages: &Stream<Id, Page>) -> Stream<Id, Anchors> {
-    pages.map(move |page: Page| page.content.parse())
+/// Create a stream to collect anchors and generations from pages.
+pub fn collect_anchors(
+    pages: &Stream<Id, Page>,
+) -> Stream<Id, (Anchors, PageGeneration)> {
+    pages.map(move |page: Page| {
+        let generation = page_generation(&page);
+        Ok::<_, anyhow::Error>((page.content.parse()?, generation))
+    })
 }
 
 /// Create a stream to validate references against anchors.
 pub fn validate(
     config: &Config, strict: bool, refs: Stream<Id, References>,
-    anchors: Stream<Id, Anchors>,
+    anchors: Stream<Id, (Anchors, PageGeneration)>,
+    autorefs: Stream<Id, (Id, ValidationGeneration, AutorefResolutions)>,
+    nav: &Stream<Id, Navigation>,
 ) {
-    let combined = refs.join(&anchors).select([wait_for_markdown(config)]);
     let validation = config.project.validation.clone();
-    combined
-        .map(Issues::new)
-        .inspect(move |issues: &Issues| issues.print(&validation, strict));
+    let pages = refs
+        .join(&anchors)
+        .select([wait_for_markdown(config)])
+        .map(|pages: ValidationPages| SharedValidationPages(Arc::new(pages)));
+    let nav = nav.map(|nav: Navigation| ValidationNavigation(nav.hash));
+    let sequence = Arc::new(AtomicU64::new(0));
+    let pages = pages.join(&nav).map(
+        move |pages: SharedValidationPages, nav: ValidationNavigation| {
+            ValidationSite {
+                sequence: sequence.fetch_add(1, Ordering::Relaxed) + 1,
+                nav_hash: nav.0,
+                pages: pages.0,
+            }
+        },
+    );
+    let state = Arc::new(Mutex::new(ValidationState::default()));
+
+    let site_state = Arc::clone(&state);
+    let site_validation = validation.clone();
+    pages.map(move |site: ValidationSite| {
+        let issues = {
+            let mut state = site_state.lock().expect("invariant");
+            update_validation_site(&mut state, site);
+            validation_issues(&mut state)
+        };
+        if let Some(issues) = issues {
+            issues.print(&site_validation, strict)?;
+        }
+        Ok::<_, anyhow::Error>(())
+    });
+
+    autorefs.map(
+        move |source: Id,
+              generation: ValidationGeneration,
+              autorefs: AutorefResolutions| {
+            let issues = {
+                let mut state = state.lock().expect("invariant");
+                let current = (source, generation);
+                state.resolutions.insert(current.clone(), autorefs);
+                if state.expected.contains(&current) {
+                    state.missing.remove(&current);
+                }
+                validation_issues(&mut state)
+            };
+            if let Some(issues) = issues {
+                issues.print(&validation, strict)?;
+            }
+            Ok::<_, anyhow::Error>(())
+        },
+    );
+}
+
+/// Update validation state with a new site snapshot.
+fn update_validation_site(state: &mut ValidationState, site: ValidationSite) {
+    if site.sequence <= state.sequence {
+        return;
+    }
+
+    let expected = site
+        .pages
+        .iter()
+        .map(|(key, (_, (_, page_generation)))| {
+            let id = key.try_as_id().expect("invariant");
+            let generation =
+                ValidationGeneration(page_generation.0, site.nav_hash);
+            (id.clone(), generation)
+        })
+        .collect::<HashSet<_>>();
+    state.resolutions.retain(|key, _| expected.contains(key));
+    state.missing = expected
+        .iter()
+        .filter(|key| !state.resolutions.contains_key(*key))
+        .cloned()
+        .collect();
+    state.sequence = site.sequence;
+    state.reported = false;
+    state.expected = expected;
+    state.site = Some(site);
+}
+
+/// Create issues once every page in the current snapshot has rendered.
+fn validation_issues(state: &mut ValidationState) -> Option<Issues> {
+    if state.reported || !state.missing.is_empty() {
+        return None;
+    }
+
+    let site = state.site.as_ref()?;
+    let iter = site.pages.iter().cloned().map(
+        |(key, (references, (anchors, page_generation)))| {
+            let id = key.try_as_id().expect("invariant");
+            let generation =
+                ValidationGeneration(page_generation.0, site.nav_hash);
+            let autorefs = state
+                .resolutions
+                .get(&(id.clone(), generation))
+                .cloned()
+                .expect("invariant");
+            (key, (references, anchors, autorefs))
+        },
+    );
+    let issues = Issues::new(iter);
+    state.reported = true;
+    Some(issues)
+}
+
+/// Compute a generation from page content relevant to validation.
+fn page_generation(page: &Page) -> PageGeneration {
+    let mut hasher = DefaultHasher::new();
+    page.content.hash(&mut hasher);
+    page.meta.hash(&mut hasher);
+    PageGeneration(hasher.finish())
 }
 
 /// Create a stream to process static assets.
@@ -348,7 +532,11 @@ pub fn generate_nav(
 ) -> Stream<Id, Navigation> {
     let config = config.clone();
     pages.map(move |pages: Vec<(Key<Id>, Page)>| {
-        Navigation::new(config.get_cache_dir(), config.project.nav.clone(), pages)
+        Navigation::new(
+            config.get_cache_dir(),
+            config.project.nav.clone(),
+            pages,
+        )
     })
 }
 
@@ -469,35 +657,34 @@ pub fn render_templates(
 /// Render pages.
 pub fn render_pages(
     config: &Config, page: &Stream<Id, Page>, nav: &Stream<Id, Navigation>,
-) -> Stream<Id, ()> {
+) -> Stream<Id, (Id, ValidationGeneration, AutorefResolutions)> {
     let config = config.clone();
-    page.product(nav)
-        .map(move |mut page: Page, nav: Navigation| {
+    let pages = page.map(|id: &Id, page: Page| (id.clone(), page));
+    pages.product(nav).map(
+        move |(source, mut page): (Id, Page), nav: Navigation| {
             let id = page.url.clone();
 
             // Compute hash of page content
-            let hash = {
-                let mut hasher = DefaultHasher::new();
-                page.content.hash(&mut hasher);
-                page.meta.hash(&mut hasher);
-                hasher.finish()
-            };
+            let page_generation = page_generation(&page);
+            let generation = ValidationGeneration(page_generation.0, nav.hash);
 
             // Render page if we don't have a recent cached version at our own
             // disposal. Otherwise, just return if the content did not change.
-            let args = (config.hash, nav.hash, hash);
+            let args = (config.hash, nav.hash, page_generation.0);
             cached(
                 &config,
                 id,
                 args,
                 |(_, _, _)| Ok(page.render(&config, nav)?),
             )
-            .and_then(|data| {
+            .and_then(|(data, autorefs)| {
                 let path = Path::new(&page.path);
                 fs::create_dir_all(path.parent().expect("invariant"))?;
-                fs::write(path, &*data).map_err(Into::into)
+                fs::write(path, &*data)?;
+                Ok((source, generation, autorefs))
             })
-        })
+        },
+    )
 }
 
 /// Creates a workflow for the given config.
