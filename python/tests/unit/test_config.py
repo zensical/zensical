@@ -171,6 +171,23 @@ class TestPluginShimming:
         config = self._parse_yaml(tmp_path, plugins={"glightbox": {}})
         assert GlightboxExtension.name in config["markdown_extensions"]
 
+    def test_mike_plugin_defaults_with_versioned_build(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("MIKE_DOCS_VERSION", "0.3")
+        config = self._parse_yaml(
+            tmp_path,
+            site_url="https://example.com",
+            plugins=["mike"],
+        )
+        assert config["site_url"] == "https://example.com/0.3"
+        assert config["plugins"]["mike"]["config"] == {
+            "alias_type": "symlink",
+            "redirect_template": None,
+            "deploy_prefix": "",
+            "canonical_version": None,
+        }
+
     def test_glightbox_adds_extension_and_forwards_config(
         self, tmp_path: Path
     ) -> None:
