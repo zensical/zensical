@@ -116,7 +116,7 @@ impl SearchIndex {
 
             // For each page, adjust the location of each item and add it to
             // the overall list
-            for mut item in page.search {
+            for mut item in page.search.iter().cloned() {
                 let location = match item.location {
                     Some(id) => format!("{}#{}", page.url, id),
                     _ => page.url.clone(),

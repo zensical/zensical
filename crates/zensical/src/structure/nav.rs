@@ -60,7 +60,8 @@ use iter::Iter;
 #[derive(Clone, Debug, PartialEq, Eq, FromPyObject, Serialize)]
 pub struct Navigation {
     /// Navigation items.
-    pub items: Vec<NavigationItem>,
+    #[pyo3(from_py_with = extract_shared_items)]
+    pub items: Arc<Vec<NavigationItem>>,
     /// Homepage, if defined.
     pub homepage: Option<NavigationItem>,
     /// Autorefs (mkdocstrings).
@@ -170,7 +171,7 @@ impl Navigation {
 
         // Return navigation
         Self {
-            items,
+            items: Arc::new(items),
             homepage,
             autorefs: Arc::new(autorefs),
             hash,
@@ -204,7 +205,8 @@ impl Navigation {
 
         // Set active state starting from the root
         let mut items = self.items;
-        recurse(&mut items, &page.url);
+        let items_mut = Arc::<Vec<NavigationItem>>::make_mut(&mut items);
+        recurse(items_mut, &page.url);
         Self {
             items,
             homepage: self.homepage,
@@ -356,9 +358,9 @@ impl From<Vec<(Key<Id>, Page)>> for Navigation {
 
             // Insert page into the section
             section.push(NavigationItem {
-                title: Some(page.title),
-                url: Some(page.url),
-                canonical_url: page.canonical_url,
+                title: Some(page.title.clone()),
+                url: Some(page.url.clone()),
+                canonical_url: page.canonical_url.clone(),
                 meta: Some(page.meta.clone()),
                 children: Vec::new(),
                 is_index: is_index(&file),
@@ -381,7 +383,7 @@ impl From<Vec<(Key<Id>, Page)>> for Navigation {
         Self {
             homepage: items.iter().find(|item| item.is_index).cloned(),
             autorefs: Arc::new(autorefs),
-            items,
+            items: Arc::new(items),
             hash,
         }
     }
@@ -457,6 +459,12 @@ fn extract_shared_autorefs(
     value.extract::<Autorefs>().map(Arc::new)
 }
 
+fn extract_shared_items(
+    value: &Bound<'_, PyAny>,
+) -> PyResult<Arc<Vec<NavigationItem>>> {
+    value.extract::<Vec<NavigationItem>>().map(Arc::new)
+}
+
 fn get_autorefs_cached(cache_dir: &Path) -> Autorefs {
     let path = cache_dir.join("autorefs.json");
 
@@ -501,9 +509,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_clone_shares_autorefs() {
+    fn test_clone_shares_immutable_data() {
         let nav = Navigation {
-            items: Vec::new(),
+            items: Arc::new(Vec::new()),
             homepage: None,
             autorefs: Arc::new(Autorefs::new()),
             hash: 0,
@@ -512,6 +520,7 @@ mod tests {
         let clone = nav.clone();
 
         assert!(Arc::ptr_eq(&nav.autorefs, &clone.autorefs));
+        assert!(Arc::ptr_eq(&nav.items, &clone.items));
     }
 
     /// https://github.com/zensical/zensical/issues/66

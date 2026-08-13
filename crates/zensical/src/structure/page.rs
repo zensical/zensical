@@ -26,10 +26,11 @@
 //! Page.
 
 use minijinja::{context, Error};
-use pyo3::FromPyObject;
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::ops::Deref;
 use std::path::PathBuf;
+use std::sync::Arc;
 use zensical_serve::http::Uri;
 use zrx::id::Id;
 use zrx::scheduler::Value;
@@ -48,16 +49,13 @@ use super::toc::Section;
 // Structs
 // ----------------------------------------------------------------------------
 
-/// Page.
+/// Immutable page data shared between scheduler branches.
 ///
-/// This data type contains all data necessary for rendering a page, including
-/// its content, metadata, table of contents, and relations to other pages. In
-/// the future, we're going to split this up into smaller components, to make
-/// rendering more modular, but right now, we just replicate what MkDocs does.
-#[allow(clippy::struct_field_names)]
-#[derive(Clone, Debug, PartialEq, Eq, FromPyObject, Serialize)]
-#[pyo3(from_item_all)]
-pub struct Page {
+/// Page values are cloned by the scheduler as they fan out into navigation,
+/// search, validation, and rendering branches. Keeping the immutable payload
+/// behind an [`Arc`] makes those clones constant-sized.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+pub struct PageData {
     /// Page target URL.
     pub url: String,
     /// Page canonical URL.
@@ -76,6 +74,20 @@ pub struct Page {
     pub toc: Vec<Section>,
     /// Search index.
     pub search: Vec<SearchItem>,
+}
+
+/// Page.
+///
+/// This data type contains all data necessary for rendering a page, including
+/// its content, metadata, table of contents, and relations to other pages. The
+/// immutable render inputs are shared across scheduler branches, while page
+/// relations remain local because they are populated during rendering.
+#[allow(clippy::struct_field_names)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Page {
+    /// Immutable page data.
+    #[serde(flatten)]
+    data: Arc<PageData>,
     /// Ancestor pages.
     pub ancestors: Vec<NavigationItem>,
     /// Previous page.
@@ -175,15 +187,17 @@ impl Page {
         // single struct, but to split up the page as necessary later on.
         let path = root_dir.join(id.to_path());
         Page {
-            url,
-            title: markdown.title,
-            meta: markdown.meta,
-            canonical_url,
-            edit_url,
-            content: markdown.content,
-            toc: markdown.toc,
-            search: markdown.search,
-            path: path.to_string_lossy().into_owned(),
+            data: Arc::new(PageData {
+                url,
+                title: markdown.title,
+                meta: markdown.meta,
+                canonical_url,
+                edit_url,
+                content: markdown.content,
+                toc: markdown.toc,
+                search: markdown.search,
+                path: path.to_string_lossy().into_owned(),
+            }),
             ancestors: Vec::new(),
             previous_page: None,
             next_page: None,
@@ -247,8 +261,65 @@ impl Page {
 impl Value for Page {}
 
 // ----------------------------------------------------------------------------
+
+impl Deref for Page {
+    type Target = PageData;
+
+    /// Dereferences to immutable page data.
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+// ----------------------------------------------------------------------------
 // Type alises
 // ----------------------------------------------------------------------------
 
 /// Page metadata.
 pub type PageMeta = BTreeMap<String, Dynamic>;
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn page() -> Page {
+        Page {
+            data: Arc::new(PageData {
+                url: String::from("/"),
+                canonical_url: None,
+                edit_url: None,
+                title: String::from("Home"),
+                meta: PageMeta::new(),
+                path: String::from("site/index.html"),
+                content: String::from("<h1>Home</h1>"),
+                toc: Vec::new(),
+                search: Vec::new(),
+            }),
+            ancestors: Vec::new(),
+            previous_page: None,
+            next_page: None,
+        }
+    }
+
+    #[test]
+    fn clone_shares_immutable_data() {
+        let page = page();
+        let clone = page.clone();
+
+        assert!(Arc::ptr_eq(&page.data, &clone.data));
+    }
+
+    #[test]
+    fn serialization_keeps_flat_page_shape() {
+        let value = serde_json::to_value(page()).unwrap();
+
+        assert_eq!(value["url"], "/");
+        assert_eq!(value["title"], "Home");
+        assert!(value.get("data").is_none());
+    }
+}
