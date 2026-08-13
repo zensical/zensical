@@ -38,7 +38,7 @@ use crate::config::Config;
 use crate::template::{Output, Template, GENERATOR};
 
 use super::dynamic::Dynamic;
-use super::markdown::Markdown;
+use super::markdown::{AutorefResolutions, Markdown};
 use super::nav::{Navigation, NavigationItem};
 use super::search::SearchItem;
 use super::tag::Tag;
@@ -197,7 +197,7 @@ impl Page {
     )]
     pub fn render(
         &mut self, config: &Config, nav: Navigation,
-    ) -> Result<Output, Error> {
+    ) -> Result<(Output, AutorefResolutions), Error> {
         let name = self.meta.get("template").map(ToString::to_string);
         let template = Template::new(
             name.unwrap_or(String::from("main.html")),
@@ -223,8 +223,9 @@ impl Page {
             page => self,
         })?;
 
-        // Replace autorefs, if any
-        Ok(Output::from(nav.autorefs.replace_in(output, &self.url)))
+        // Replace autorefs and retain their resolution results for validation
+        let (output, autorefs) = nav.autorefs.replace_in(output, &self.url);
+        Ok((Output::from(output), autorefs))
     }
 
     /// Returns the tags of the page.

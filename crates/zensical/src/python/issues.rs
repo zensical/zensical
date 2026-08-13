@@ -35,8 +35,11 @@ use zrx::id::Id;
 use zrx::scheduler::{Key, Value};
 
 use crate::config::validation::Validation;
+use crate::structure::markdown::AutorefResolutions;
 
-use super::collector::reference::Reference;
+use super::collector::reference::{
+    LinkReference, LinkReferenceKind, Reference,
+};
 use super::collector::{Anchors, References};
 use super::span::Span;
 
@@ -156,7 +159,9 @@ impl Issues {
     #[allow(clippy::too_many_lines)]
     pub fn new<T>(iter: T) -> Self
     where
-        T: IntoIterator<Item = (Key<Id>, (References, Anchors))>,
+        T: IntoIterator<
+            Item = (Key<Id>, (References, Anchors, AutorefResolutions)),
+        >,
     {
         let mut issues = Vec::new();
         let mut contents = HashMap::default();
@@ -164,7 +169,7 @@ impl Issues {
         // Create link map and anchor map and find inner-page issues
         let mut link_map = HashMap::default();
         let mut anchor_map = HashMap::default();
-        for (key, (references, anchors)) in iter {
+        for (key, (references, anchors, autorefs)) in iter {
             let id = key.try_as_id().expect("invariant");
             let path = id.location().into_owned();
 
@@ -243,6 +248,12 @@ impl Issues {
                         let id = &markdown[link.id.start..link.id.end];
                         if link_defs.contains_key(&to_id(id)) {
                             used_link_defs.insert(to_id(id));
+                        } else if autoref_id(markdown, link)
+                            .is_some_and(|id| autorefs.is_resolved(id))
+                        {
+                            // Autorefs resolved this reference while rendering
+                            // the page, so it is valid despite having no link
+                            // definition in the Markdown source.
                         } else {
                             issues.push(Issue::UnresolvedReference {
                                 path: path.clone().into(),
@@ -564,6 +575,58 @@ impl<'a> IntoIterator for &'a Issues {
 // Functions
 // ----------------------------------------------------------------------------
 
+/// Returns the identifier passed to autorefs for a link reference.
+fn autoref_id<'a>(markdown: &'a str, link: &LinkReference) -> Option<&'a str> {
+    if link.kind != LinkReferenceKind::Link {
+        return None;
+    }
+
+    let id = &markdown[link.id.start..link.id.end];
+    if link.id != link.text {
+        return Some(id);
+    }
+
+    // Autorefs only processes collapsed references (`[text][]`), not
+    // shortcut references (`[text]`). For an implicit identifier consisting
+    // of one code span, it uses the code content as the exact identifier.
+    if markdown.get(link.text.end..link.end) != Some("][]") {
+        return None;
+    }
+    Some(code_span_contents(id).unwrap_or(id))
+}
+
+/// Returns the contents when a value consists of exactly one code span.
+fn code_span_contents(value: &str) -> Option<&str> {
+    let delimiter_len = value.bytes().take_while(|byte| *byte == b'`').count();
+    if delimiter_len == 0 || value.len() <= delimiter_len * 2 {
+        return None;
+    }
+
+    let trailing_len =
+        value.bytes().rev().take_while(|byte| *byte == b'`').count();
+    if trailing_len != delimiter_len {
+        return None;
+    }
+
+    let contents = &value[delimiter_len..value.len() - delimiter_len];
+    let mut bytes = contents.bytes().peekable();
+    while let Some(byte) = bytes.next() {
+        if byte != b'`' {
+            continue;
+        }
+
+        let mut run_len = 1;
+        while bytes.next_if_eq(&b'`').is_some() {
+            run_len += 1;
+        }
+        if run_len == delimiter_len {
+            return None;
+        }
+    }
+
+    Some(contents.trim())
+}
+
 /// Converts an id to a normalized form for comparison.
 fn to_id(id: &str) -> String {
     let iter = id.split_whitespace();
@@ -676,8 +739,62 @@ fn to_slash(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_markdown_href, is_invalid_markdown_path, is_markdown_path,
+        autoref_id, code_span_contents, decode_markdown_href,
+        is_invalid_markdown_path, is_markdown_path,
     };
+    use crate::python::collector::reference::{
+        LinkReference, LinkReferenceKind,
+    };
+
+    #[test]
+    fn implicit_code_span_is_unwrapped_for_autorefs() {
+        let markdown = "[`warnings.deprecated`][]";
+        let id_end = markdown.len() - 3;
+        let link = LinkReference {
+            start: 0,
+            end: markdown.len(),
+            kind: LinkReferenceKind::Link,
+            text: (1..id_end).into(),
+            id: (1..id_end).into(),
+        };
+
+        assert_eq!(autoref_id(markdown, &link), Some("warnings.deprecated"));
+    }
+
+    #[test]
+    fn only_implicit_code_spans_are_unwrapped_for_autorefs() {
+        let shortcut = "[`identifier`]";
+        let id_end = shortcut.len() - 1;
+        let shortcut_link = LinkReference {
+            start: 0,
+            end: shortcut.len(),
+            kind: LinkReferenceKind::Link,
+            text: (1..id_end).into(),
+            id: (1..id_end).into(),
+        };
+        assert_eq!(autoref_id(shortcut, &shortcut_link), None);
+
+        let explicit = "[label][`identifier`]";
+        let explicit_link = LinkReference {
+            start: 0,
+            end: explicit.len(),
+            kind: LinkReferenceKind::Link,
+            text: (1..6).into(),
+            id: (8..explicit.len() - 1).into(),
+        };
+        assert_eq!(autoref_id(explicit, &explicit_link), Some("`identifier`"));
+    }
+
+    #[test]
+    fn code_span_delimiters_must_match() {
+        assert_eq!(
+            code_span_contents("``identifier`value``"),
+            Some("identifier`value")
+        );
+        assert_eq!(code_span_contents("` identifier `"), Some("identifier"));
+        assert_eq!(code_span_contents("`identifier``"), None);
+        assert_eq!(code_span_contents("`one` and `two`"), None);
+    }
 
     #[test]
     fn markdown_path_must_end_in_md_file() {

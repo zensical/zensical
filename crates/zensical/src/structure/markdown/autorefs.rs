@@ -25,7 +25,7 @@
 
 //! Autorefs (mkdocstrings).
 
-use ahash::HashMap;
+use ahash::{HashMap, HashSet};
 use pyo3::FromPyObject;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
@@ -33,6 +33,7 @@ use std::path::Path;
 use std::string::ToString;
 use std::sync::LazyLock;
 use zrx::path::PathExt;
+use zrx::stream::Value;
 
 // ----------------------------------------------------------------------------
 // Constants
@@ -199,6 +200,15 @@ fn is_relative_url(url: &str) -> bool {
 
 // ----------------------------------------------------------------------------
 // Structs
+// ----------------------------------------------------------------------------
+
+/// Resolution results for autoreferences in a single page.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AutorefResolutions {
+    /// Identifiers that were resolved successfully.
+    resolved: HashSet<String>,
+}
+
 // ----------------------------------------------------------------------------
 
 /// Autorefs (mkdocstrings).
@@ -448,8 +458,12 @@ impl Autorefs {
         ))
     }
 
-    /// Replaces autorefs in the given content.
-    pub fn replace_in(&self, content: String, from_url: &str) -> String {
+    /// Replaces autorefs and collects their resolution results.
+    #[allow(clippy::single_match_else)]
+    pub fn replace_in(
+        &self, content: String, from_url: &str,
+    ) -> (String, AutorefResolutions) {
+        let mut resolutions = AutorefResolutions::default();
         let output = AUTOREF_RE.replace_all(&content, |captures: &Captures| {
             let attrs_str =
                 captures.name("attrs").map_or("", |m| m.as_str());
@@ -471,6 +485,8 @@ impl Autorefs {
 
             match self.get_url_and_title_from_ids(&identifiers, from_url) {
                 Ok((url, original_title)) => {
+                    resolutions.resolved.insert(identifier.clone());
+
                     // Check if URL is external (not relative)
                     let external = !is_relative_url(&url);
 
@@ -554,7 +570,24 @@ impl Autorefs {
             }
         });
 
-        output.to_string()
+        (output.to_string(), resolutions)
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Trait implementations
+// ----------------------------------------------------------------------------
+
+impl Value for AutorefResolutions {}
+
+// ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
+
+impl AutorefResolutions {
+    /// Returns whether an identifier was resolved.
+    pub fn is_resolved(&self, identifier: &str) -> bool {
+        self.resolved.contains(identifier)
     }
 }
 
@@ -624,5 +657,27 @@ mod tests {
                 "Failed for relative_url('{current_url}', '{to_url}'), expected '{expected_href}' but got '{result}'"
             );
         }
+    }
+
+    #[test]
+    fn autoref_resolutions_are_collected_while_replacing() {
+        let mut autorefs = Autorefs::new();
+        autorefs
+            .primary
+            .insert("known".to_string(), vec!["reference/#known".to_string()]);
+
+        let (output, resolutions) = autorefs.replace_in(
+            concat!(
+                "<autoref identifier=\"known\">Known</autoref>",
+                "<autoref identifier=\"missing\">Missing</autoref>",
+            )
+            .to_string(),
+            "guide/",
+        );
+
+        assert!(resolutions.is_resolved("known"));
+        assert!(!resolutions.is_resolved("missing"));
+        assert!(output.contains("href=\"../reference/#known\""));
+        assert!(output.contains("[Missing][missing]"));
     }
 }
