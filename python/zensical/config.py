@@ -1286,17 +1286,11 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     # building the site, while only allowing for our theme at the moment.
     version = os.environ.get("MIKE_DOCS_VERSION")
     if version and config.get("site_url"):
-        mike = set_default(
-            plugins,
-            "mike",
-            {
-                "alias_type": "symlink",
-                "redirect_template": None,
-                "deploy_prefix": "",
-                "canonical_version": None,
-            },
-            dict,
-        )
+        mike = set_default(plugins, "mike", {}, dict)
+        set_default(mike, "alias_type", "symlink", str)
+        set_default(mike, "redirect_template", None)
+        set_default(mike, "deploy_prefix", "", str)
+        set_default(mike, "canonical_version", None)
 
         # Copied and adapted from mike's plugin implementation
         if mike["canonical_version"] is not None:
