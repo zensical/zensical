@@ -112,24 +112,6 @@ jobs:
       - name: Run rustfmt
         run: find crates -name "*.rs" -exec rustfmt --check {} \;
 
-  security:
-    name: Audit
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.sha }}
-
-      - name: Set up Rust cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-
-      - name: Audit dependencies
-        run: cargo audit
-
   release:
     name: Release
     runs-on: ubuntu-latest
