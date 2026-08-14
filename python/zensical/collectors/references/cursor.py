@@ -1083,6 +1083,19 @@ def _scan_inline_code(cursor: Cursor) -> int | None:
 
     # Search for matching closing backticks
     while pos < cursor.end:
+        # Inline code spans may contain line endings, but cannot cross a
+        # blank line because that starts a new block in Python-Markdown.
+        if cursor.data[pos] in (_CR, _NL):
+            line = pos + 1
+            if (
+                cursor.data[pos] == _CR
+                and line < cursor.end
+                and cursor.data[line] == _NL
+            ):
+                line += 1
+            if _is_blank_line(cursor, line):
+                return None
+
         if cursor.data[pos] == _BACKTICK:
             end = pos
 
