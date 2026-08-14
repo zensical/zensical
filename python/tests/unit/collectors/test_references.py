@@ -65,6 +65,18 @@ class TestLinks:
                 id="link-with-title",
             ),
             pytest.param(
+                b"[text]( href )",
+                b"text",
+                b"href",
+                id="link-with-surrounding-whitespace",
+            ),
+            pytest.param(
+                b"[text](< href >)",
+                b"text",
+                b"href",
+                id="link-with-angle-bracket-whitespace",
+            ),
+            pytest.param(
                 b'[text](href more"Title")',
                 b"text",
                 b"href more",
@@ -1818,6 +1830,27 @@ class TestInlineCode:
         assert len(links) == 1
         assert text(md, links[0].text) == b"text"
         assert text(md, links[0].href) == b"href"
+
+    @pytest.mark.parametrize(
+        "md",
+        [
+            pytest.param(
+                b"a`\n\n`[b]`",
+                id="blank-line",
+            ),
+            pytest.param(
+                b"a`\n \n`[b]`",
+                id="whitespace-only-line",
+            ),
+            pytest.param(
+                b"a`\r\n\r\n`[b]`",
+                id="blank-line-crlf",
+            ),
+        ],
+    )
+    def test_inline_code_does_not_cross_blank_line(self, md: bytes) -> None:
+        refs = collect(md)
+        assert len(refs) == 0
 
     # --- negative cases ---
 
