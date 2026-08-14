@@ -653,6 +653,7 @@ def _scan_link_href(cursor: Cursor, start: int) -> tuple[Span, int] | None:
 
     # Start after the opening (
     depth = 0
+    href_start = end
     while end < cursor.end:
         char = cursor.data[end]
 
@@ -673,15 +674,16 @@ def _scan_link_href(cursor: Cursor, start: int) -> tuple[Span, int] | None:
 
         # Terminate if we reach quote and trim excess whitespace
         elif char in _QUOTES:
-            while cursor.data[end - 1] in _WHITESPACE:
-                end -= 1
             break
 
         # Literal
         end += 1
 
     # Skip optional title and whitespace
-    href = cursor.span(start + 1, end)
+    href_end = end
+    while href_end > href_start and cursor.data[href_end - 1] in _WHITESPACE:
+        href_end -= 1
+    href = cursor.span(href_start, href_end)
     while end < cursor.end and cursor.data[end] != _RPAREN:
         if cursor.data[end] in (_CR, _NL):
             return None
@@ -704,7 +706,7 @@ def _scan_link_href_in_angle_brackets(
     end += 1
 
     # Scan until > or end of line
-    start = end
+    start = _skip_whitespace(cursor, end)
     while (
         end < cursor.end
         and cursor.data[end] != _RANGLE
@@ -714,7 +716,10 @@ def _scan_link_href_in_angle_brackets(
 
     # Skip closing >, or abort if we reached end of line
     if end < cursor.end and cursor.data[end] == _RANGLE:
-        return cursor.span(start, end), end + 1
+        stop = end
+        while stop > start and cursor.data[stop - 1] in _WHITESPACE:
+            stop -= 1
+        return cursor.span(start, stop), end + 1
 
     # Unmatched
     return None

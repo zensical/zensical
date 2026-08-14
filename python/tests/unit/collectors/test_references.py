@@ -65,6 +65,18 @@ class TestLinks:
                 id="link-with-title",
             ),
             pytest.param(
+                b"[text]( href )",
+                b"text",
+                b"href",
+                id="link-with-surrounding-whitespace",
+            ),
+            pytest.param(
+                b"[text](< href >)",
+                b"text",
+                b"href",
+                id="link-with-angle-bracket-whitespace",
+            ),
+            pytest.param(
                 b'[text](href more"Title")',
                 b"text",
                 b"href more",
