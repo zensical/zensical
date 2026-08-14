@@ -88,6 +88,24 @@ class AutorefsStore:
         self._secondary_url_map: dict[str, list[str]] = {}
         self._abs_url_map: dict[str, str] = {}
         self._title_map: dict[str, str] = {}
+        self._updated_pages: set[str] = set()
+        self._page_registrations: dict[str, set[tuple[bool, str, str]]] = {}
+
+    def set_page(self, page: Page) -> None:
+        """Set the current page and discard its previous registrations."""
+        self.current_page = page
+        self._updated_pages.add(page.url)
+        for primary, identifier, url in self._page_registrations.pop(
+            page.url, set()
+        ):
+            url_map = (
+                self._primary_url_map if primary else self._secondary_url_map
+            )
+            urls = url_map[identifier]
+            urls.remove(url)
+            if not urls:
+                del url_map[identifier]
+            self._title_map.pop(url, None)
 
     def register_anchor(
         self,
@@ -105,6 +123,9 @@ class AutorefsStore:
                 url_map[identifier].append(url)
         else:
             url_map[identifier] = [url]
+        self._page_registrations.setdefault(page.url, set()).add(
+            (primary, identifier, url)
+        )
         if title and url not in self._title_map:
             self._title_map[url] = title
 
@@ -424,11 +445,14 @@ def get_autorefs_data() -> dict[str, Any]:
     mkdocstrings extension (for automatic cross-references).
     """
     if AUTOREFS:
+        updated_pages = list(AUTOREFS._updated_pages)
+        AUTOREFS._updated_pages.clear()
         return {
             "primary": AUTOREFS._primary_url_map,
             "secondary": AUTOREFS._secondary_url_map,
             "inventory": AUTOREFS._abs_url_map,
             "titles": AUTOREFS._title_map,
+            "updated_pages": updated_pages,
         }
     return {}
 
@@ -436,7 +460,7 @@ def get_autorefs_data() -> dict[str, Any]:
 def set_autorefs_page(page: Page) -> None:
     """Set autorefs current page."""
     store = get_autorefs_store()
-    store.current_page = page
+    store.set_page(page)
 
 
 def reset() -> None:

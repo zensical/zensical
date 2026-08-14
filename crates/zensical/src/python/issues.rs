@@ -35,12 +35,12 @@ use zrx::id::Id;
 use zrx::scheduler::{Key, Value};
 
 use crate::config::validation::Validation;
-use crate::structure::markdown::AutorefResolutions;
+use crate::structure::markdown::UnresolvedAutorefs;
 
 use super::collector::reference::{
     LinkReference, LinkReferenceKind, Reference,
 };
-use super::collector::{Anchors, References};
+use super::collector::{Anchors, SharedReferences};
 use super::span::Span;
 
 mod error;
@@ -54,6 +54,15 @@ pub use error::{Error, Result};
 /// Issue.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Issue {
+    /// Autoref with no matching identifier.
+    ///
+    /// The span is optional, since autorefs might be introduced by templates
+    /// or transformations, in which case they cannot be located in the source.
+    UnresolvedAutoref {
+        path: PathBuf,
+        span: Option<Span>,
+        id: String,
+    },
     /// Link or image reference with no matching definition.
     UnresolvedReference {
         path: PathBuf,
@@ -124,7 +133,8 @@ impl Issue {
     /// Returns the path of the issue.
     pub fn path(&self) -> &Path {
         match self {
-            Issue::UnresolvedReference { path, .. }
+            Issue::UnresolvedAutoref { path, .. }
+            | Issue::UnresolvedReference { path, .. }
             | Issue::UnresolvedFootnote { path, .. }
             | Issue::UnusedDefinition { path, .. }
             | Issue::UnusedFootnote { path, .. }
@@ -135,9 +145,10 @@ impl Issue {
         }
     }
 
-    /// Returns the span of the issue.
-    pub fn span(&self) -> &Span {
+    /// Returns the span of the issue, if it can be located in the source.
+    pub fn span(&self) -> Option<&Span> {
         match self {
+            Issue::UnresolvedAutoref { span, .. } => span.as_ref(),
             Issue::UnresolvedReference { span, .. }
             | Issue::UnresolvedFootnote { span, .. }
             | Issue::UnusedDefinition { span, .. }
@@ -145,7 +156,7 @@ impl Issue {
             | Issue::ShadowedDefinition { span, .. }
             | Issue::ShadowedFootnote { span, .. }
             | Issue::InvalidLink { span, .. }
-            | Issue::InvalidLinkAnchor { span, .. } => span,
+            | Issue::InvalidLinkAnchor { span, .. } => Some(span),
         }
     }
 }
@@ -160,7 +171,7 @@ impl Issues {
     pub fn new<T>(iter: T) -> Self
     where
         T: IntoIterator<
-            Item = (Key<Id>, (References, Anchors, AutorefResolutions)),
+            Item = (Key<Id>, (SharedReferences, Anchors, UnresolvedAutorefs)),
         >,
     {
         let mut issues = Vec::new();
@@ -183,7 +194,7 @@ impl Issues {
             // Collect all links for each page for cross-page checking later
             let mut mappings = Vec::new();
             #[allow(clippy::case_sensitive_file_extension_comparisons)]
-            for reference in &references {
+            for reference in references.iter() {
                 if let Reference::Link(link) = reference {
                     let href =
                         &references.markdown()[link.href.start..link.href.end];
@@ -211,7 +222,7 @@ impl Issues {
 
             // 1st pass - collect link and footnote definitions
             let markdown = references.markdown();
-            for reference in &references {
+            for reference in references.iter() {
                 match reference {
                     Reference::LinkDefinition(link) => {
                         let id = &markdown[link.id.start..link.id.end];
@@ -242,18 +253,12 @@ impl Issues {
             let mut used_note_defs = HashSet::default();
 
             // 2nd pass - check link and footnote references
-            for reference in &references {
+            for reference in references.iter() {
                 match reference {
                     Reference::LinkReference(link) => {
                         let id = &markdown[link.id.start..link.id.end];
                         if link_defs.contains_key(&to_id(id)) {
                             used_link_defs.insert(to_id(id));
-                        } else if autoref_id(markdown, link)
-                            .is_some_and(|id| autorefs.is_resolved(id))
-                        {
-                            // Autorefs resolved this reference while rendering
-                            // the page, so it is valid despite having no link
-                            // definition in the Markdown source.
                         } else {
                             issues.push(Issue::UnresolvedReference {
                                 path: path.clone().into(),
@@ -298,6 +303,40 @@ impl Issues {
                         path: path.clone().into(),
                         span: (note.id.start..note.id.end).into(),
                         id: id.to_string(),
+                    });
+                }
+            }
+
+            // Report autorefs that failed to resolve while rendering the
+            // page. Index the identifiers autorefs derives from the source
+            // link references, so issues point at the exact location. When
+            // an identifier cannot be located, e.g. because the autoref was
+            // introduced by a template, fall back to a page-level issue.
+            let mut spans = HashMap::<_, Vec<Span>>::default();
+            for reference in references.iter() {
+                if let Reference::LinkReference(link) = reference {
+                    if let Some(id) = autoref_id(markdown, link) {
+                        spans
+                            .entry(id)
+                            .or_default()
+                            .push((link.id.start..link.id.end).into());
+                    }
+                }
+            }
+            for id in autorefs.iter() {
+                if let Some(spans) = spans.get(id.as_str()) {
+                    for span in spans {
+                        issues.push(Issue::UnresolvedAutoref {
+                            path: path.clone().into(),
+                            span: Some(*span),
+                            id: id.clone(),
+                        });
+                    }
+                } else {
+                    issues.push(Issue::UnresolvedAutoref {
+                        path: path.clone().into(),
+                        span: None,
+                        id: id.clone(),
                     });
                 }
             }
@@ -400,9 +439,11 @@ impl Issues {
 
         // Sort issues by path, then by span
         issues.sort_by(|a, b| {
-            a.path()
-                .cmp(b.path())
-                .then_with(|| a.span().start.cmp(&b.span().start))
+            a.path().cmp(b.path()).then_with(|| {
+                let a = a.span().map_or(0, |span| span.start);
+                let b = b.span().map_or(0, |span| span.start);
+                a.cmp(&b)
+            })
         });
 
         // Return issues
@@ -418,6 +459,12 @@ impl Issues {
             // Determine the path and kind of report
             let path = issue.path().to_string_lossy();
             let kind = match issue {
+                Issue::UnresolvedAutoref { .. } => {
+                    if !validation.invalid_links {
+                        continue;
+                    }
+                    ReportKind::Warning
+                }
                 Issue::UnresolvedReference { .. } => {
                     if !validation.unresolved_references {
                         continue;
@@ -470,6 +517,9 @@ impl Issues {
 
             // Determine the label message and color
             let (message, color) = match issue {
+                Issue::UnresolvedAutoref { .. } => {
+                    ("unresolved autoref", Color::Yellow)
+                }
                 Issue::UnresolvedReference { .. } => {
                     ("unresolved link reference", Color::Yellow)
                 }
@@ -496,17 +546,29 @@ impl Issues {
                 }
             };
 
+            // Issues without a span cannot be located in the source, so we
+            // print a plain report that only mentions the page they occur on
+            let Some(span) = issue.span() else {
+                let Issue::UnresolvedAutoref { id, .. } = issue else {
+                    unreachable!("only autorefs may lack spans");
+                };
+                Report::build(kind, (path.as_ref(), 0..0))
+                    .with_message(format!("{message} `{id}` in {path}"))
+                    .finish()
+                    .eprint((path.as_ref(), Source::from("")))?;
+                count += 1;
+                continue;
+            };
+
             // Create report
-            let builder = Report::build(
-                kind,
-                (path.as_ref(), Range::from(*issue.span())),
-            )
-            .with_message(message)
-            .with_label(
-                Label::new((path.as_ref(), Range::from(*issue.span())))
+            let builder =
+                Report::build(kind, (path.as_ref(), Range::from(*span)))
                     .with_message(message)
-                    .with_color(color),
-            );
+                    .with_label(
+                        Label::new((path.as_ref(), Range::from(*span)))
+                            .with_message(message)
+                            .with_color(color),
+                    );
 
             // Obtain Markdown source
             let source = self

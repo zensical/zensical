@@ -30,4 +30,4 @@ pub mod reference;
 pub mod snippet;
 
 pub use anchor::Anchors;
-pub use reference::References;
+pub use reference::{References, SharedReferences};

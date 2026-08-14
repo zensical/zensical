@@ -39,7 +39,7 @@ use crate::config::Config;
 use crate::template::{Output, Template, GENERATOR};
 
 use super::dynamic::Dynamic;
-use super::markdown::{AutorefResolutions, Markdown};
+use super::markdown::Markdown;
 use super::nav::{Navigation, NavigationItem};
 use super::search::SearchItem;
 use super::tag::Tag;
@@ -204,14 +204,14 @@ impl Page {
         }
     }
 
-    /// Renders the page.
+    /// Renders the page template, leaving autorefs unresolved.
     #[cfg_attr(
         feature = "tracing",
         tracing::instrument(skip_all, fields(url = %self.url))
     )]
-    pub fn render(
+    pub fn render_template(
         &mut self, config: &Config, nav: Navigation,
-    ) -> Result<(Output, AutorefResolutions), Error> {
+    ) -> Result<Output, Error> {
         let name = self.meta.get("template").map(ToString::to_string);
         let template = Template::new(
             name.unwrap_or(String::from("main.html")),
@@ -237,9 +237,7 @@ impl Page {
             page => self,
         })?;
 
-        // Replace autorefs and retain their resolution results for validation
-        let (output, autorefs) = nav.autorefs.replace_in(output, &self.url);
-        Ok((Output::from(output), autorefs))
+        Ok(Output::from(output))
     }
 
     /// Returns the tags of the page.
