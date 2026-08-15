@@ -12,7 +12,7 @@ site_name = "Documentation"
 
 nav = [
   { "Get started" = "index.md" },
-  { "Markdown in 5min" = "markdown.md" }
+  { "Markdown in 5min" = "markdown.md" },
 ]
 
 # extra_css = ["stylesheets/extra.css"]
@@ -110,7 +110,7 @@ pymdownx.mark = {}
 pymdownx.smartsymbols = {}
 # pymdownx.snippets.base_path = "includes"
 pymdownx.superfences.custom_fences = [
-  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" }
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
 ]
 pymdownx.tabbed.alternate_style = true
 pymdownx.tabbed.combine_header_slug = true
