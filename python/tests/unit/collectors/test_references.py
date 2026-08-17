@@ -1625,6 +1625,10 @@ class TestFencedCodeBlocks:
                 id="fenced-code-3-backticks-lang",
             ),
             pytest.param(
+                b"```text\n[text](href)\n\nline two\n```",
+                id="fenced-code-3-backticks-lang-without-space",
+            ),
+            pytest.param(
                 b"````\n[text](href)\n````",
                 id="fenced-code-4-backticks",
             ),
