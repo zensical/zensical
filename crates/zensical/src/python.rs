@@ -29,6 +29,6 @@ pub mod collector;
 mod issues;
 mod span;
 
-pub use collector::{Anchors, References};
+pub use collector::{Anchors, References, SharedReferences};
 pub use issues::Issues;
 pub use span::Span;

@@ -202,11 +202,11 @@ fn is_relative_url(url: &str) -> bool {
 // Structs
 // ----------------------------------------------------------------------------
 
-/// Resolution results for autoreferences in a single page.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AutorefResolutions {
-    /// Identifiers that were resolved successfully.
-    resolved: HashSet<String>,
+/// Autoref identifiers that could not be resolved in a single page.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UnresolvedAutorefs {
+    /// Identifiers in order of first appearance.
+    identifiers: Vec<String>,
 }
 
 // ----------------------------------------------------------------------------
@@ -259,6 +259,9 @@ pub struct Autorefs {
     pub inventory: HashMap<String, String>,
     // Titles.
     pub titles: HashMap<String, String>,
+    // Pages reprocessed since autorefs data was last collected.
+    #[serde(skip)]
+    pub updated_pages: Vec<String>,
 }
 
 // ----------------------------------------------------------------------------
@@ -283,6 +286,24 @@ impl Autorefs {
         self.secondary.extend(other.secondary);
         self.inventory.extend(other.inventory);
         self.titles.extend(other.titles);
+    }
+
+    /// Removes registrations owned by any of the given pages.
+    pub(crate) fn remove_pages(&mut self, pages: &HashSet<String>) {
+        self.retain_page_urls(|page| !pages.contains(page));
+    }
+
+    /// Retains registrations owned by one of the given pages.
+    pub(crate) fn retain_pages(&mut self, pages: &HashSet<String>) {
+        self.retain_page_urls(|page| pages.contains(page));
+    }
+
+    /// Retains registrations whose page URL matches the predicate.
+    fn retain_page_urls(&mut self, predicate: impl Fn(&str) -> bool) {
+        retain_url_map(&mut self.primary, &predicate);
+        retain_url_map(&mut self.secondary, &predicate);
+        self.titles
+            .retain(|url, _| predicate(page_url_from_autoref(url)));
     }
 
     /// Parses HTML attributes string into a HashMap.
@@ -458,13 +479,13 @@ impl Autorefs {
         ))
     }
 
-    /// Replaces autorefs and collects their resolution results.
+    /// Replaces autorefs and collects unresolved identifiers.
     #[allow(clippy::single_match_else)]
     pub fn replace_in(
-        &self, content: String, from_url: &str,
-    ) -> (String, AutorefResolutions) {
-        let mut resolutions = AutorefResolutions::default();
-        let output = AUTOREF_RE.replace_all(&content, |captures: &Captures| {
+        &self, content: &str, from_url: &str,
+    ) -> (String, UnresolvedAutorefs) {
+        let mut unresolved = UnresolvedAutorefs::default();
+        let output = AUTOREF_RE.replace_all(content, |captures: &Captures| {
             let attrs_str =
                 captures.name("attrs").map_or("", |m| m.as_str());
             let title =
@@ -485,8 +506,6 @@ impl Autorefs {
 
             match self.get_url_and_title_from_ids(&identifiers, from_url) {
                 Ok((url, original_title)) => {
-                    resolutions.resolved.insert(identifier.clone());
-
                     // Check if URL is external (not relative)
                     let external = !is_relative_url(&url);
 
@@ -555,7 +574,7 @@ impl Autorefs {
                     if optional {
                         format!("<span title=\"{identifier}\">{title}</span>")
                     } else {
-                        // @todo: unmapped.append((identifier, attrs.context))
+                        unresolved.insert(&identifier);
                         if title == identifier {
                             format!("[{identifier}][]")
                         } else if title == format!("<code>{identifier}</code>")
@@ -570,7 +589,7 @@ impl Autorefs {
             }
         });
 
-        (output.to_string(), resolutions)
+        (output.to_string(), unresolved)
     }
 }
 
@@ -578,17 +597,43 @@ impl Autorefs {
 // Trait implementations
 // ----------------------------------------------------------------------------
 
-impl Value for AutorefResolutions {}
+impl Value for UnresolvedAutorefs {}
 
 // ----------------------------------------------------------------------------
 // Implementations
 // ----------------------------------------------------------------------------
 
-impl AutorefResolutions {
-    /// Returns whether an identifier was resolved.
-    pub fn is_resolved(&self, identifier: &str) -> bool {
-        self.resolved.contains(identifier)
+impl UnresolvedAutorefs {
+    /// Records an identifier that failed to resolve.
+    fn insert(&mut self, identifier: &str) {
+        if !self.identifiers.iter().any(|id| id == identifier) {
+            self.identifiers.push(identifier.to_string());
+        }
     }
+
+    /// Returns an iterator over the identifiers.
+    pub fn iter(&self) -> std::slice::Iter<'_, String> {
+        self.identifiers.iter()
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
+/// Retain URL-map entries based on their owning page URL.
+fn retain_url_map(
+    map: &mut HashMap<String, Vec<String>>, predicate: &impl Fn(&str) -> bool,
+) {
+    map.retain(|_, urls| {
+        urls.retain(|url| predicate(page_url_from_autoref(url)));
+        !urls.is_empty()
+    });
+}
+
+/// Return the page URL portion of an autoref URL.
+fn page_url_from_autoref(url: &str) -> &str {
+    url.split_once('#').map_or(url, |(page, _)| page)
 }
 
 #[cfg(test)]
@@ -660,24 +705,26 @@ mod tests {
     }
 
     #[test]
-    fn autoref_resolutions_are_collected_while_replacing() {
+    fn unresolved_autorefs_are_collected_while_replacing() {
         let mut autorefs = Autorefs::new();
         autorefs
             .primary
             .insert("known".to_string(), vec!["reference/#known".to_string()]);
 
-        let (output, resolutions) = autorefs.replace_in(
+        let (output, unresolved) = autorefs.replace_in(
             concat!(
                 "<autoref identifier=\"known\">Known</autoref>",
                 "<autoref identifier=\"missing\">Missing</autoref>",
-            )
-            .to_string(),
+                "<autoref identifier=\"missing\">Missing</autoref>",
+                "<autoref identifier=\"skipped\" optional>Skipped</autoref>",
+            ),
             "guide/",
         );
 
-        assert!(resolutions.is_resolved("known"));
-        assert!(!resolutions.is_resolved("missing"));
+        let unresolved = unresolved.iter().collect::<Vec<_>>();
+        assert_eq!(unresolved, ["missing"]);
         assert!(output.contains("href=\"../reference/#known\""));
         assert!(output.contains("[Missing][missing]"));
+        assert!(output.contains("<span title=\"skipped\">Skipped</span>"));
     }
 }

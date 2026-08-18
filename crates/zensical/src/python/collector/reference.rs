@@ -27,8 +27,10 @@
 
 use pyo3::prelude::*;
 use std::fmt::{self, Debug};
+use std::ops::Deref;
 use std::slice::Iter;
 use std::str::FromStr;
+use std::sync::Arc;
 use zrx::stream::Value;
 
 mod footnote;
@@ -75,6 +77,16 @@ pub struct References {
 }
 
 // ----------------------------------------------------------------------------
+
+/// Shared reference set.
+///
+/// References embed the Markdown they were extracted from, so they're shared
+/// behind an [`Arc`] to keep a single copy per page alive while joins, site
+/// snapshots and validation state hold on to them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SharedReferences(Arc<References>);
+
+// ----------------------------------------------------------------------------
 // Implementations
 // ----------------------------------------------------------------------------
 
@@ -97,6 +109,32 @@ impl References {
 // ----------------------------------------------------------------------------
 
 impl Value for References {}
+
+// ----------------------------------------------------------------------------
+
+impl Value for SharedReferences {}
+
+// ----------------------------------------------------------------------------
+
+impl From<References> for SharedReferences {
+    /// Creates a shared reference set from a reference set.
+    #[inline]
+    fn from(references: References) -> Self {
+        Self(Arc::new(references))
+    }
+}
+
+// ----------------------------------------------------------------------------
+
+impl Deref for SharedReferences {
+    type Target = References;
+
+    /// Returns a reference to the underlying reference set.
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 // ----------------------------------------------------------------------------
 
