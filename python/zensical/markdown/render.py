@@ -86,10 +86,10 @@ def render(content: str, path: str, url: str) -> dict:
     page = Page(url=url, path=path, meta=meta)
     set_autorefs_page(page)
 
-    # Update configuration to include context extension
+    # Update configuration to include context extension.
     # It's important we mutate the global configuration here,
-    # to allow mkdocstrings to forward the extension
-    # to its inner Markdown instances
+    # to allow mkdocstrings and markdown-exec to forward
+    # the extension to their inner Markdown instances.
     config = get_config()
     for extension in config["markdown_extensions"]:
         if isinstance(extension, ContextExtension):
@@ -109,6 +109,15 @@ def render(content: str, path: str, url: str) -> dict:
         extensions=config["markdown_extensions"],
         extension_configs=config["mdx_configs"],
     )
+
+    # Note: mkdocstrings and markdown-exec do not need to propagate
+    # the links and search extensions to their inner Markdown instances:
+    # their postprocessors run last and can see inner layer contents.
+    # More importantly, inner layers *must not* run the links and search
+    # extensions: the inner links treeprocessor would transform links once,
+    # and the outer links postprocessor would transform them again.
+    # The search postprocessor would run twice for generated content,
+    # incurring a performance cost.
 
     # Register links extension, which is equivalent to MkDocs' path resolution
     # Markdown extension. This is a bandaid, until we move this to Rust
