@@ -218,8 +218,7 @@ def _scan(cursor: Cursor) -> Iterator[Reference]:
             while cursor.peek(count) == _BACKTICK:
                 count += 1
             if (
-                cursor.at_line_start()
-                and count >= 3  # noqa: PLR2004
+                cursor.at_line_start() and count >= 3  # noqa: PLR2004
             ):
                 end = _scan_fenced_code(cursor, _BACKTICK)
                 if end is not None:

@@ -842,10 +842,18 @@ def _shim_autorefs(config: dict[str, Any]) -> None:
 def _shim_markdown_exec(config: dict[str, Any]) -> None:
     # Map markdown-exec plugin configuration to superfences configuration
     if "markdown-exec" in config["plugins"]:
+        try:
+            import markdown_exec  # noqa: PLC0415  # ty:ignore[unresolved-import]
+        except ImportError as error:
+            raise ConfigurationError(
+                "markdown-exec plugin is enabled, but markdown-exec is not "
+                "installed. Please install markdown-exec or disable the plugin."
+            ) from error
         markdown_exec_config = config["plugins"]["markdown-exec"]["config"]
         enabled = markdown_exec_config.pop("enabled", True)
         languages = markdown_exec_config.get("languages", None)
         if enabled and (languages or languages is None):
+            # Check ANSI colors requirement and pygments-ansi-color presence.
             trueish = ("auto", "required", True)
             ansi = markdown_exec_config.get("ansi", False) in trueish
             if ansi and not find_spec("pygments_ansi_color"):
@@ -854,6 +862,7 @@ def _shim_markdown_exec(config: dict[str, Any]) -> None:
                     "installed. Please install pygments-ansi-color or turn off "
                     "ANSI requirement in markdown-exec configuration."
                 )
+            # Update superfences configuration.
             if "pymdownx.superfences" not in config["markdown_extensions"]:
                 config["markdown_extensions"].append("pymdownx.superfences")
             if "pymdownx.superfences" not in config["mdx_configs"]:
@@ -864,6 +873,13 @@ def _shim_markdown_exec(config: dict[str, Any]) -> None:
             superfences["custom_fences"].extend(
                 _get_markdown_exec_superfences(languages)
             )
+        # Save configuration in markdown-exec.
+        # We must pass the original, mutable references,
+        # since other shims and our `render` function might modify them.
+        markdown_exec.markdown_config.save(
+            config["markdown_extensions"],
+            config["mdx_configs"],
+        )
 
 
 def _shim_mkdocstrings(config: dict[str, Any]) -> None:
@@ -920,13 +936,8 @@ def _get_markdown_exec_superfences(
     languages: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Get superfences configuration for markdown-exec."""
-    try:
-        import markdown_exec  # noqa: PLC0415  # ty:ignore[unresolved-import]
-    except ImportError as error:
-        raise ConfigurationError(
-            "markdown-exec plugin is enabled, but markdown-exec is not "
-            "installed. Please install markdown-exec or disable the plugin."
-        ) from error
+    import markdown_exec  # noqa: PLC0415  # ty:ignore[unresolved-import]
+
     return [
         {
             "name": language,

@@ -94,9 +94,6 @@ class ContextExtension(Extension):
 
     def extendMarkdown(self, md: Markdown) -> None:
         """Register rendering context preprocessor."""
-        # We must register the extension to ensure markdown-exec
-        # is able to forward it to its inner Markdown instances
-        md.registerExtension(self)
         preprocessor = ContextPreprocessor(md=md, **self._kwargs)
         md.preprocessors.register(preprocessor, preprocessor.name, 0)
 
