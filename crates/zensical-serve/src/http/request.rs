@@ -180,11 +180,11 @@ impl<'a> Request<'a> {
                 let iter = iter
                     .take_while(|header| !header.name.is_empty())
                     .filter_map(|header| {
-                        // Ensure header value field doesn't exceed 4kb, or we
-                        // should fail for security reasons. 4kb should be more
+                        // Ensure header value field doesn't exceed 8kb, or we
+                        // should fail for security reasons. 8kb should be more
                         // than enough for any sane header value, including
                         // cookies, user agents, and authorization tokens.
-                        if header.value.len() > 4 * 1024 {
+                        if header.value.len() > 8 * 1024 {
                             let status = Status::RequestHeaderFieldsTooLarge;
                             return Some(Err(Error::Validation(status)));
                         }
