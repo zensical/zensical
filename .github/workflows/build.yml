@@ -45,15 +45,17 @@ permissions:
 
 jobs:
   linux:
-    name: Wheel (Linux, ${{ matrix.platform.target }})
+    name: Wheel (Linux, ${{ matrix.platform.name }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
         platform:
-          - target: x86_64
-          - target: x86
-          - target: aarch64
-          - target: armv7
+          - name: x64
+            target: x86_64-unknown-linux-gnu
+          - name: arm64
+            target: aarch64-unknown-linux-gnu
+          - name: armv7
+            target: armv7-unknown-linux-gnueabihf
 
     steps:
       - name: Checkout repository
@@ -92,19 +94,19 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: wheel-linux-${{ matrix.platform.target }}
+          name: wheel-linux-${{ matrix.platform.name }}
           path: artifacts/*
 
   musllinux:
-    name: Wheel (Linux, musl, ${{ matrix.platform.target }})
+    name: Wheel (Linux, musl, ${{ matrix.platform.name }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
         platform:
-          - target: x86_64
-          - target: x86
-          - target: aarch64
-          - target: armv7
+          - name: x64
+            target: x86_64-unknown-linux-musl
+          - name: arm64
+            target: aarch64-unknown-linux-musl
 
     steps:
       - name: Checkout repository
@@ -139,17 +141,21 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: wheel-musllinux-${{ matrix.platform.target }}
+          name: wheel-musllinux-${{ matrix.platform.name }}
           path: artifacts/*
 
   windows:
-    name: Wheel (Windows, ${{ matrix.platform.target }})
-    runs-on: windows-latest
+    name: Wheel (Windows, ${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.os }}
     strategy:
       matrix:
         platform:
-          - target: x64
-          - target: x86
+          - name: x64
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+          - name: arm64
+            os: windows-11-arm
+            target: aarch64-pc-windows-msvc
 
     steps:
       - name: Checkout repository
@@ -161,7 +167,7 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: 3.x
-          architecture: ${{ matrix.platform.target }}
+          architecture: ${{ matrix.platform.name }}
 
       - name: Prepare build
         run: python scripts/prepare.py
@@ -184,19 +190,21 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: wheel-windows-${{ matrix.platform.target }}
+          name: wheel-windows-${{ matrix.platform.name }}
           path: artifacts/*
 
   macos:
-    name: Wheel (macOS, ${{ matrix.platform.target }})
-    runs-on: ${{ matrix.platform.runner }}
+    name: Wheel (macOS, ${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.os }}
     strategy:
       matrix:
         platform:
-          - runner: macos-15-intel
-            target: x86_64
-          - runner: macos-15
-            target: aarch64
+          - name: x64
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+          - name: arm64
+            os: macos-15
+            target: aarch64-apple-darwin
 
     steps:
       - name: Checkout repository
@@ -230,7 +238,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: wheel-macos-${{ matrix.platform.target }}
+          name: wheel-macos-${{ matrix.platform.name }}
           path: artifacts/*
 
   sdist:
