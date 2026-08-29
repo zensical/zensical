@@ -1239,7 +1239,11 @@ def _convert_markdown_extensions(value: Any) -> tuple[list[str], dict]:
                 markdown_extensions.append(item)
 
     # Return extension list and configuration, after ensuring they're unique
-    return list(set(markdown_extensions)), mdx_configs
+    seen = set()
+    mdx_exts = [
+        ext for ext in markdown_extensions if not (ext in seen or seen.add(ext))
+    ]
+    return mdx_exts, mdx_configs
 
 
 def _convert_plugins(value: Any, config: dict) -> dict:
