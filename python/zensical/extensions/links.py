@@ -156,7 +156,9 @@ class LinksExtension(Extension):
         """Register Markdown extension."""
         md.registerExtension(self)
 
-        # Register treeprocessor - run before `inline` (priority 20)
+        # Match MkDocs' `relpath` priority. This runs after `inline` (20),
+        # which creates links and images, and after the earlier-registered
+        # `unescape` (0), which restores escaped characters in their URLs.
         treeprocessor = LinksTreeprocessor(
             md, self.path, self.use_directory_urls
         )
@@ -166,7 +168,7 @@ class LinksExtension(Extension):
         postprocessor = LinksPostprocessor(
             md, self.path, self.use_directory_urls
         )
-        md.postprocessors.register(postprocessor, postprocessor.name, 29)
+        md.postprocessors.register(postprocessor, postprocessor.name, 31)
 
 
 # -----------------------------------------------------------------------------

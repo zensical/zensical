@@ -24,8 +24,10 @@
 from __future__ import annotations
 
 import pytest
+from markdown import Markdown
 
 from zensical.extensions.links import (
+    LinksExtension,
     _is_relative,
     _md_path_to_html,
     _rewrite_url,
@@ -67,4 +69,43 @@ def test_rewrite_preserves_query_and_fragment() -> None:
     assert (
         _rewrite_url("other.md?view=full#details", "guide/page.md", True)
         == "../other/?view=full#details"
+    )
+
+
+def test_rewrites_markdown_links_after_inline_processing() -> None:
+    """The treeprocessor must run after `inline` creates link elements."""
+    md = Markdown(
+        extensions=[
+            LinksExtension(path="guide/index.md", use_directory_urls=True)
+        ]
+    )
+
+    assert md.convert("[Guide](guide.md)") == (
+        '<p><a href="guide/">Guide</a></p>'
+    )
+
+
+def test_rewrites_markdown_links_after_unescaping_url() -> None:
+    """The treeprocessor must see URLs after core `unescape` runs."""
+    md = Markdown(
+        extensions=[
+            LinksExtension(path="guide/index.md", use_directory_urls=True)
+        ]
+    )
+
+    assert md.convert(r"[Guide](guide\.md)") == (
+        '<p><a href="guide/">Guide</a></p>'
+    )
+
+
+def test_rewrites_links_in_stashed_raw_html() -> None:
+    """Raw HTML must be updated before Python-Markdown restores its stash."""
+    md = Markdown(
+        extensions=[
+            LinksExtension(path="index.md", use_directory_urls=True),
+        ],
+    )
+
+    assert md.convert('<div><a href="guide.md">Guide</a></div>') == (
+        '<div><a href="guide/">Guide</a></div>'
     )
