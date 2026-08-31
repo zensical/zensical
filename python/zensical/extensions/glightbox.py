@@ -216,6 +216,12 @@ class GlightboxTreeprocessor(Treeprocessor, ProcessorMixin):
         )
 
 
+# Python-Markdown's `toc` treeprocessor invokes every postprocessor while
+# rendering each heading and the generated table of contents, before Markdown
+# invokes them again for the complete document. Thus, this processor can run
+# several times against the same HTML stash. Since the stash grows by appending
+# blocks, a cursor both prevents wrapping images more than once and avoids
+# repeatedly scanning the already processed prefix.
 class GlightboxPostprocessor(Postprocessor, ProcessorMixin):
     """Wraps stashed images in anchors, delegating to the treeprocessor.
 
@@ -233,16 +239,16 @@ class GlightboxPostprocessor(Postprocessor, ProcessorMixin):
         self._skip_classes = self.SKIP_CLASSES | frozenset(
             self.config.skip_classes
         )
-        self._processed: set[int] = set()
+        self._cursor = 0
 
     def run(self, text: str) -> str:
         """Wrap images in stashed HTML blocks."""
-        for i, raw in enumerate(self.md.htmlStash.rawHtmlBlocks):
-            if i not in self._processed:
-                self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(
-                    self._maybe_process, raw
-                )
-                self._processed.add(i)
+        blocks = self.md.htmlStash.rawHtmlBlocks
+        while self._cursor < len(blocks):
+            blocks[self._cursor] = _RE.sub(
+                self._maybe_process, blocks[self._cursor]
+            )
+            self._cursor += 1
 
         # Return text unmodified, as we only need to modify the stashed raw HTML
         # blocks, which will later be reinstated by the raw HTML postprocessor

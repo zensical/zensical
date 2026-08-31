@@ -23,15 +23,55 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from markdown import Markdown
 
 from zensical.extensions.links import (
     LinksExtension,
+    LinksPostprocessor,
     _is_relative,
     _md_path_to_html,
     _rewrite_url,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from typing import Any
+
+
+class _TrackingBlocks(list[str]):
+    """Track indexes read from stashed blocks."""
+
+    def __init__(self, values: list[str]) -> None:
+        super().__init__(values)
+        self.visited: list[int] = []
+
+    def __iter__(self) -> Iterator[str]:
+        for index, value in enumerate(super().__iter__()):
+            self.visited.append(index)
+            yield value
+
+    def __getitem__(self, index: Any) -> Any:
+        if isinstance(index, int):
+            self.visited.append(index)
+        return super().__getitem__(index)
+
+
+class _TrackingPostprocessor(LinksPostprocessor):
+    """Record which stash indexes each invocation reads."""
+
+    def __init__(self, md: Markdown, blocks: _TrackingBlocks) -> None:
+        super().__init__(md, "guide/page.md", True)
+        self._blocks = blocks
+        self.visits: list[list[int]] = []
+
+    def run(self, text: str) -> str:
+        start = len(self._blocks.visited)
+        text = super().run(text)
+        self.visits.append(self._blocks.visited[start:])
+        return text
 
 
 @pytest.mark.parametrize(
@@ -109,3 +149,21 @@ def test_rewrites_links_in_stashed_raw_html() -> None:
     assert md.convert('<div><a href="guide.md">Guide</a></div>') == (
         '<div><a href="guide/">Guide</a></div>'
     )
+
+
+def test_postprocessor_does_not_rescan_stash_for_toc() -> None:
+    """TOC rendering does not cause processed blocks to be scanned again."""
+    md = Markdown(extensions=["toc"])
+    blocks = _TrackingBlocks([])
+    md.htmlStash.rawHtmlBlocks = blocks
+    processor = _TrackingPostprocessor(md, blocks)
+    md.postprocessors.register(processor, processor.name, 29)
+
+    html = md.convert(
+        '# One\n\n## Two\n\n## Three\n\n<a href="other.md">other</a>'
+    )
+
+    assert len(processor.visits) > 1
+    assert processor.visits[0] == list(range(len(blocks)))
+    assert all(not visited for visited in processor.visits[1:])
+    assert '<a href="../other/">other</a>' in html
