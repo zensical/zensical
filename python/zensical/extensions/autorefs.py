@@ -27,7 +27,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from html import escape
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 from xml.etree.ElementTree import Element
 
 from markdown.core import Markdown
@@ -59,6 +59,11 @@ if TYPE_CHECKING:
 
 HTAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 
+# URL order determines which target wins when several are equally
+# suitable. Dict keys give us that order plus constant-time lookups.
+OrderedSet: TypeAlias = dict[str, None]
+URLMap: TypeAlias = dict[str, OrderedSet]
+
 
 # ----------------------------------------------------------------------------
 # Globals
@@ -81,8 +86,8 @@ class AutorefsStore:
         self.scan_toc: bool = True
         self.record_backlinks: bool = False
 
-        self._primary_url_map: dict[str, list[str]] = {}
-        self._secondary_url_map: dict[str, list[str]] = {}
+        self._primary_url_map: URLMap = {}
+        self._secondary_url_map: URLMap = {}
         self._abs_url_map: dict[str, str] = {}
         self._title_map: dict[str, str] = {}
         self._page_registrations: dict[str, set[tuple[bool, str, str]]] = {}
@@ -118,7 +123,7 @@ class AutorefsStore:
 
     @staticmethod
     def _pop_urls(
-        url_map: dict[str, list[str]],
+        url_map: URLMap,
         registrations: set[tuple[bool, str, str]],
         primary: bool,
     ) -> dict[str, list[str]]:
@@ -130,12 +135,11 @@ class AutorefsStore:
 
         result: dict[str, list[str]] = {}
         for identifier, selected_urls in selected.items():
-            urls = url_map.get(identifier, [])
+            urls = url_map.get(identifier, {})
             result[identifier] = [url for url in urls if url in selected_urls]
-            remaining = [url for url in urls if url not in selected_urls]
-            if remaining:
-                url_map[identifier] = remaining
-            else:
+            for url in selected_urls:
+                urls.pop(url, None)
+            if not urls:
                 url_map.pop(identifier, None)
         return result
 
@@ -150,11 +154,7 @@ class AutorefsStore:
     ) -> None:
         url = f"{page.url}#{anchor or identifier}"
         url_map = self._primary_url_map if primary else self._secondary_url_map
-        if identifier in url_map:
-            if url not in url_map[identifier]:
-                url_map[identifier].append(url)
-        else:
-            url_map[identifier] = [url]
+        url_map.setdefault(identifier, {})[url] = None
         self._page_registrations.setdefault(page.url, set()).add(
             (primary, identifier, url)
         )

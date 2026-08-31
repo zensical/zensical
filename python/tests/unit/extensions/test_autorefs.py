@@ -117,6 +117,34 @@ class TestStore:
             "external": "https://example.com/external"
         }
 
+    def test_urls_are_ordered_and_unique(self) -> None:
+        """Candidate URLs preserve registration order without duplicates."""
+        store = get_autorefs_store()
+        page = Page("page", "page.html")
+
+        store.register_anchor(page, "identifier", "first")
+        store.register_anchor(page, "identifier", "second")
+        store.register_anchor(page, "identifier", "first")
+
+        assert get_autorefs_page_data("page")["primary"] == {
+            "identifier": ["page#first", "page#second"]
+        }
+
+    def test_page_registrations_remove_urls(self) -> None:
+        """Reprocessing a page removes its previously registered URLs."""
+        store = get_autorefs_store()
+        first_page = Page("first", "first.html")
+        second_page = Page("second", "second.html")
+        store.register_anchor(first_page, "identifier", "anchor")
+        store.register_anchor(second_page, "identifier", "anchor")
+
+        store.set_page(first_page)
+
+        assert get_autorefs_page_data("first")["primary"] == {}
+        assert get_autorefs_page_data("second")["primary"] == {
+            "identifier": ["second#anchor"]
+        }
+
 
 # ---------------------------------------------------------------------------
 # Inline processor
@@ -415,8 +443,7 @@ class TestAnchorsTreeprocessor:
                 [](){#alias10}
             """),
         )
-        store = get_autorefs_store()
-        assert store._primary_url_map == {
+        assert get_autorefs_page_data("page")["primary"] == {
             "foo": ["page#heading-foo"],
             "heading-foo": ["page#heading-foo"],
             "bar": ["page#bar"],
@@ -474,8 +501,7 @@ class TestAnchorsTreeprocessor:
                 ## Heading baz
             """),
         )
-        store = get_autorefs_store()
-        assert store._primary_url_map == {
+        assert get_autorefs_page_data("page")["primary"] == {
             "heading-foo": ["page#heading-foo"],
             "heading-bar": ["page#heading-bar"],
             "heading-baz": ["page#heading-baz"],
@@ -510,9 +536,9 @@ class TestHeadingsTreeprocessor:
     def test_register_heading(self, md: Markdown) -> None:
         """A single heading is registered under its toc-generated slug."""
         md.convert("## Foo")
-        store = get_autorefs_store()
-        assert "foo" in store._primary_url_map
-        assert store._primary_url_map["foo"] == ["page#foo"]
+        assert get_autorefs_page_data("page")["primary"]["foo"] == [
+            "page#foo"
+        ]
 
     @pytest.mark.parametrize(
         "md",
