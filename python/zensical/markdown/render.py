@@ -23,13 +23,12 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import date, datetime
 from typing import Any
 
-import yaml
 from markdown import Markdown
-from yaml import SafeLoader
 
 from zensical.config import get_config
 from zensical.extensions.autorefs import set_autorefs_page
@@ -37,25 +36,11 @@ from zensical.extensions.context import ContextExtension, Page
 from zensical.extensions.links import LinksExtension
 
 # ----------------------------------------------------------------------------
-# Constants
-# ----------------------------------------------------------------------------
-
-
-FRONT_MATTER_RE = re.compile(
-    r"^-{3}[ \r\t]*?\n(.*?\r?\n)(?:\.{3}|-{3})[ \r\t]*\n",
-    re.UNICODE | re.DOTALL,
-)
-"""
-Regex pattern to extract front matter.
-"""
-
-
-# ----------------------------------------------------------------------------
 # Functions
 # ----------------------------------------------------------------------------
 
 
-def render(content: str, path: str, url: str) -> dict:
+def render(content: str, path: str, url: str, metadata: str = "{}") -> dict:
     """Render Markdown and return HTML.
 
     This function returns rendered HTML as well as the table of contents and
@@ -63,19 +48,10 @@ def render(content: str, path: str, url: str) -> dict:
     in order to support the specific syntax of Python Markdown. We're working
     on moving the entire rendering chain to Rust.
     """
-    # First, extract metadata - the Python Markdown parser brings a metadata
-    # extension, but the implementation is broken, as it does not support full
-    # YAML syntax, e.g. lists. Thus, we just parse the metadata with YAML.
-    meta: dict = {}
-    if match := FRONT_MATTER_RE.match(content):
-        try:
-            meta = yaml.load(match.group(1), SafeLoader)
-            if isinstance(meta, dict):
-                content = content[match.end() :].lstrip("\n")
-            else:
-                meta = {}
-        except Exception:  # noqa: BLE001
-            pass
+    # Metadata inheritance and front matter are resolved in Rust before this
+    # boundary. JSON keeps the call explicit and avoids reconstructing Python
+    # objects one value at a time through the FFI.
+    meta: dict = json.loads(metadata)
 
     # Create page context and set it for autorefs.
     # We can stop setting the page if/when we vendor mkdocstrings.
@@ -143,9 +119,6 @@ def render(content: str, path: str, url: str) -> dict:
 
 
 def _sanitize(value: Any) -> Any:
-    # We currently don't have a null value for metadata in the Rust runtime
-    if value is None:
-        return ""
     if isinstance(value, (date, datetime)):
         return value.isoformat()
     if isinstance(value, dict):

@@ -46,8 +46,30 @@ use serde::Serialize;
 pub struct Plugins {
     /// Search plugin.
     pub search: SearchPlugin,
+    /// Material meta plugin.
+    pub meta: MetaPlugin,
     /// Offline plugin.
     pub offline: OfflinePlugin,
+}
+
+// ----------------------------------------------------------------------------
+
+/// Material meta plugin.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct MetaPlugin {
+    /// Plugin configuration.
+    pub config: MetaPluginConfig,
+}
+
+/// Material meta plugin configuration.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct MetaPluginConfig {
+    /// Whether metadata inheritance is enabled.
+    pub enabled: bool,
+    /// Name of metadata files inside the documentation tree.
+    pub meta_file: String,
 }
 
 // ----------------------------------------------------------------------------

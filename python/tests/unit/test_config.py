@@ -171,6 +171,16 @@ class TestPluginShimming:
         config = self._parse_yaml(tmp_path, plugins={"glightbox": {}})
         assert GlightboxExtension.name in config["markdown_extensions"]
 
+    def test_material_meta_plugin_is_normalized(self, tmp_path: Path) -> None:
+        config = self._parse_yaml(
+            tmp_path,
+            plugins={"material/meta": {"meta_file": "defaults.yml"}},
+        )
+        assert config["plugins"]["meta"]["config"] == {
+            "enabled": True,
+            "meta_file": "defaults.yml",
+        }
+
     def test_mike_plugin_defaults_with_versioned_build(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:

@@ -59,6 +59,7 @@ mio = { workspace = true, features = ["net", "os-poll"] }
 percent-encoding.workspace = true
 pyo3.workspace = true
 regex.workspace = true
+saphyr.workspace = true
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
 thiserror.workspace = true

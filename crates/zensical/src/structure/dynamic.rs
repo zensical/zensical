@@ -25,7 +25,11 @@
 
 //! Dynamic value.
 
-use pyo3::FromPyObject;
+use pyo3::exceptions::PyTypeError;
+use pyo3::types::{
+    PyAny, PyAnyMethods, PyBool, PyDict, PyFloat, PyInt, PyList, PyString,
+};
+use pyo3::{Borrowed, FromPyObject, PyErr};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
@@ -42,19 +46,15 @@ use float::Float;
 ///
 /// This data type represents any valid value that can be used as part of the
 /// metadata of a page and the extra data of configuration, supporting strings,
-/// booleans, integers, floating point numbers, lists, and maps, so basically
+/// nulls, booleans, integers, floating point numbers, lists, and maps, so
+/// basically
 /// everything supported in YAML and TOML.
 ///
-/// Null value are not supported, and currently represented as empty strings.
-/// We're aiming to provide a type safe way to define custom namespaces in the
-/// configuration, so we'll definitely revisit this as part of our efforts to
-/// make configuration much more flexible.
-#[derive(
-    Clone, Debug, FromPyObject, Hash, PartialEq, Eq, Serialize, Deserialize,
-)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
-#[pyo3(from_item_all)]
 pub enum Dynamic {
+    /// Null value.
+    Null,
     /// String value.
     String(String),
     /// Boolean value.
@@ -77,6 +77,7 @@ impl fmt::Display for Dynamic {
     /// Formats the dynamic value for display.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Dynamic::Null => write!(f, "null"),
             Dynamic::String(value) => write!(f, "{value}"),
             Dynamic::Bool(value) => write!(f, "{value}"),
             Dynamic::Integer(value) => write!(f, "{value}"),
@@ -92,5 +93,57 @@ impl fmt::Display for Dynamic {
                 write!(f, "{{{}}}", values.join(", "))
             }
         }
+    }
+}
+
+// ----------------------------------------------------------------------------
+
+impl<'a, 'py> FromPyObject<'a, 'py> for Dynamic {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+        if obj.is_none() {
+            Ok(Self::Null)
+        } else if obj.is_instance_of::<PyBool>() {
+            obj.extract().map(Self::Bool)
+        } else if obj.is_instance_of::<PyInt>() {
+            obj.extract().map(Self::Integer)
+        } else if obj.is_instance_of::<PyFloat>() {
+            obj.extract().map(|value| Self::Float(Float(value)))
+        } else if obj.is_instance_of::<PyString>() {
+            obj.extract().map(Self::String)
+        } else if obj.is_instance_of::<PyList>() {
+            obj.extract().map(Self::List)
+        } else if obj.is_instance_of::<PyDict>() {
+            obj.extract().map(Self::Map)
+        } else {
+            Err(PyTypeError::new_err("unsupported dynamic value"))
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+
+impl Dynamic {
+    /// Creates a dynamic floating-point value.
+    pub(crate) fn from_float(value: f64) -> Self {
+        Self::Float(Float(value))
+    }
+}
+
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn null_round_trips_through_json() {
+        let data = serde_json::to_string(&Dynamic::Null).unwrap();
+        assert_eq!(data, "null");
+        assert_eq!(
+            serde_json::from_str::<Dynamic>(&data).unwrap(),
+            Dynamic::Null
+        );
     }
 }

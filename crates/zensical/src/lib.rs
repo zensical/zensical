@@ -34,11 +34,14 @@ use crossbeam::channel::{unbounded, RecvTimeoutError};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::Python;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{fs, io, thread};
 use zrx::id::Id;
+use zrx::stream::{Change, Key};
 
 mod compat;
 mod config;
@@ -49,10 +52,11 @@ mod template;
 mod watcher;
 mod workflow;
 
+use compat::mkdocs::plugin::meta;
 use config::Config;
 use server::{create_server, ServeOptions};
-use watcher::Watcher;
-use workflow::create_workflow;
+use watcher::{Source, Watcher};
+use workflow::{create_workflow, Input};
 
 // ----------------------------------------------------------------------------
 // Enums
@@ -198,8 +202,9 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         .runner()
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
     let mut input = runner
-        .input::<watcher::Source>()
+        .input::<Input>()
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    let meta_settings = meta::Settings::new(&config);
 
     // Create channel for reload notifications
     let (sender, receiver) = unbounded();
@@ -237,13 +242,40 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     loop {
         match watcher.receive(Duration::from_millis(100)) {
             Ok(changes) => {
+                let metadata = Arc::new(
+                    meta::Index::load(&config.get_docs_dir(), &meta_settings)
+                        .map_err(|error| {
+                        PyRuntimeError::new_err(format!("{error:#}"))
+                    })?,
+                );
+                let dependents = metadata_dependents(
+                    &changes,
+                    &config.get_docs_dir(),
+                    &meta_settings,
+                )?;
                 let mut revision = input
                     .begin()
                     .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+                for (key, source) in dependents {
+                    revision
+                        .insert(key, Input::new(source, metadata.clone()))
+                        .map_err(|err| {
+                            PyRuntimeError::new_err(err.to_string())
+                        })?;
+                }
                 for change in changes {
-                    revision.emit(change).map_err(|err| {
-                        PyRuntimeError::new_err(err.to_string())
-                    })?;
+                    match change {
+                        Change::Insert(key, source) => revision
+                            .insert(key, Input::new(source, metadata.clone()))
+                            .map_err(|err| {
+                                PyRuntimeError::new_err(err.to_string())
+                            })?,
+                        Change::Remove(key) => {
+                            revision.remove(key).map_err(|err| {
+                                PyRuntimeError::new_err(err.to_string())
+                            })?;
+                        }
+                    }
                 }
                 input = revision
                     .seal()
@@ -280,6 +312,75 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
 
     // All good
     Ok(false)
+}
+
+/// Expands metadata-file changes into descendant Markdown updates.
+fn metadata_dependents(
+    changes: &[Change<Id, Source>], docs: &Path, settings: &meta::Settings,
+) -> PyResult<Vec<(Key<Id>, Source)>> {
+    if !settings.enabled {
+        return Ok(Vec::new());
+    }
+    let mut dependents = BTreeMap::new();
+    for change in changes {
+        let key = match change {
+            Change::Insert(key, _) | Change::Remove(key) => key,
+        };
+        let location = key[0].location();
+        if !meta::claims(&location, settings) {
+            continue;
+        }
+        let parent = Path::new(location.as_ref())
+            .parent()
+            .unwrap_or_else(|| Path::new(""));
+        let mut paths = Vec::new();
+        collect_markdown(&docs.join(parent), &mut paths)
+            .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+        for path in paths {
+            let relative = path
+                .strip_prefix(docs)
+                .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+            let location = relative.to_string_lossy().replace('\\', "/");
+            let id = key[0]
+                .to_builder()
+                .location(location)
+                .build()
+                .expect("invariant");
+            dependents.insert(
+                Key::from(id),
+                Source::from(path.to_string_lossy().into_owned()),
+            );
+        }
+    }
+
+    // A provider update for the page itself is authoritative. In particular,
+    // the initial snapshot contains both metadata files and every Markdown
+    // page, so retaining synthesized inserts here would admit each page twice.
+    for change in changes {
+        let key = match change {
+            Change::Insert(key, _) | Change::Remove(key) => key,
+        };
+        dependents.remove(key);
+    }
+    Ok(dependents.into_iter().collect())
+}
+
+/// Recursively collects Markdown files below one metadata directory.
+fn collect_markdown(
+    directory: &Path, paths: &mut Vec<PathBuf>,
+) -> io::Result<()> {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return Ok(());
+    };
+    for entry in entries {
+        let path = entry?.path();
+        if path.is_dir() {
+            collect_markdown(&path, paths)?;
+        } else if path.extension().is_some_and(|extension| extension == "md") {
+            paths.push(path);
+        }
+    }
+    Ok(())
 }
 
 /// Returns the first action failure reported by one settled run.
@@ -440,5 +541,80 @@ mod tests {
         clear_dir(dir.path()).unwrap();
 
         assert!(dir.path().exists());
+    }
+
+    #[test]
+    fn metadata_change_selects_only_descendant_markdown() {
+        let dir = tempdir().unwrap();
+        let docs = dir.path();
+        fs::create_dir_all(docs.join("guide/nested")).unwrap();
+        fs::create_dir_all(docs.join("guidelines")).unwrap();
+        fs::write(docs.join("guide/page.md"), "# Page").unwrap();
+        fs::write(docs.join("guide/nested/page.md"), "# Nested").unwrap();
+        fs::write(docs.join("guidelines/page.md"), "# Other").unwrap();
+
+        let id = Id::builder()
+            .provider("file")
+            .context("docs")
+            .location("guide/.meta.yml")
+            .build()
+            .unwrap();
+        let changes = vec![Change::Insert(
+            Key::from(id),
+            Source::from(docs.join("guide/.meta.yml").display().to_string()),
+        )];
+        let settings = meta::Settings {
+            enabled: true,
+            meta_file: ".meta.yml".into(),
+        };
+        let dependents =
+            metadata_dependents(&changes, docs, &settings).unwrap();
+        let locations = dependents
+            .iter()
+            .map(|(key, _)| key[0].location().into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(locations, vec!["guide/nested/page.md", "guide/page.md"]);
+    }
+
+    #[test]
+    fn provider_page_change_supersedes_metadata_dependent() {
+        let dir = tempdir().unwrap();
+        let docs = dir.path();
+        fs::create_dir_all(docs.join("guide")).unwrap();
+        let page = docs.join("guide/page.md");
+        fs::write(&page, "# Page").unwrap();
+
+        let meta_id = Id::builder()
+            .provider("file")
+            .context("docs")
+            .location("guide/.meta.yml")
+            .build()
+            .unwrap();
+        let page_id = Id::builder()
+            .provider("file")
+            .context("docs")
+            .location("guide/page.md")
+            .build()
+            .unwrap();
+        let changes = vec![
+            Change::Insert(
+                Key::from(meta_id),
+                Source::from(
+                    docs.join("guide/.meta.yml").display().to_string(),
+                ),
+            ),
+            Change::Insert(
+                Key::from(page_id),
+                Source::from(page.display().to_string()),
+            ),
+        ];
+        let settings = meta::Settings {
+            enabled: true,
+            meta_file: ".meta.yml".into(),
+        };
+
+        assert!(metadata_dependents(&changes, docs, &settings)
+            .unwrap()
+            .is_empty());
     }
 }

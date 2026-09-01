@@ -32,8 +32,7 @@ use std::io::{BufWriter, Write};
 use std::sync::Arc;
 use zrx::id::Id;
 use zrx::scheduler::Value;
-use zrx::stream::function::Collection;
-use zrx::stream::{Key, Signal, Stream};
+use zrx::stream::{Key, Signal};
 
 use crate::config::plugins::SearchPluginConfig;
 use crate::config::Config;
@@ -89,6 +88,15 @@ pub(crate) struct Document {
     facts: Arc<Facts>,
 }
 
+/// Revision-aligned search inputs from the site settlement boundary.
+#[derive(Clone, Debug)]
+pub(crate) struct Snapshot {
+    /// Compact page documents.
+    documents: Arc<Vec<(Key<Id>, Document)>>,
+    /// Navigation from the same page revision.
+    nav: Navigation,
+}
+
 // ----------------------------------------------------------------------------
 // Implementations
 // ----------------------------------------------------------------------------
@@ -113,6 +121,20 @@ impl Document {
             title: page.title.clone(),
             tags: page.tags().into_iter().map(|tag| tag.name).collect(),
             facts,
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+
+impl Snapshot {
+    /// Creates a search snapshot without another site-wide reduction.
+    pub(crate) fn new(
+        documents: Vec<(Key<Id>, Document)>, nav: Navigation,
+    ) -> Self {
+        Self {
+            documents: Arc::new(documents),
+            nav,
         }
     }
 }
@@ -190,51 +212,29 @@ impl SearchIndex {
 // ----------------------------------------------------------------------------
 
 impl Value for Document {}
+impl Value for Snapshot {}
 
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
 
 /// Attach MkDocs-compatible search artifact generation to the build graph.
-pub(crate) fn attach(
-    config: &Config, documents: &Stream<Id, Document>,
-    nav: &Signal<Id, Navigation>,
-) {
-    if !config.project.plugins.search.config.enabled {
-        let config = config.clone();
-        let _ = nav.map(move |nav: &Navigation| {
-            let search = SearchIndex::new(
-                Vec::new(),
-                nav,
-                config.project.plugins.search.config.clone(),
-                &config.project.theme.language,
-            );
-            write(&config, &search)
-        });
-        return;
-    }
-
-    let documents =
-        documents.reduce(|documents: &dyn Collection<Key<Id>, Document>| {
-            Some(
-                documents
-                    .iter()
-                    .map(|(key, document)| (key.clone(), document.clone()))
-                    .collect::<Vec<_>>(),
-            )
-        });
+pub(crate) fn attach(config: &Config, snapshot: &Signal<Id, Snapshot>) {
     let config = config.clone();
-    let _ = documents.product(nav).map(
-        move |documents: &Vec<(Key<Id>, Document)>, nav: &Navigation| {
-            let search = SearchIndex::new(
-                documents.clone(),
-                nav,
-                config.project.plugins.search.config.clone(),
-                &config.project.theme.language,
-            );
-            write(&config, &search)
-        },
-    );
+    let _ = snapshot.map(move |snapshot: &Snapshot| {
+        let documents = if config.project.plugins.search.config.enabled {
+            snapshot.documents.as_ref().clone()
+        } else {
+            Vec::new()
+        };
+        let search = SearchIndex::new(
+            documents,
+            &snapshot.nav,
+            config.project.plugins.search.config.clone(),
+            &config.project.theme.language,
+        );
+        write(&config, &search)
+    });
 }
 
 /// Creates the page-local search visitor.

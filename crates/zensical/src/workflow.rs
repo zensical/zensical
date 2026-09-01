@@ -28,6 +28,7 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock, OnceLock};
@@ -40,7 +41,9 @@ use zrx::stream::{
     concurrent, Key, Signal, Stream, StreamTupleExt, Value, Workflow,
 };
 
-use super::compat::mkdocs::plugin::{self, autorefs, mkdocstrings, search};
+use super::compat::mkdocs::plugin::{
+    self, autorefs, meta, mkdocstrings, search,
+};
 use super::config::Config;
 use super::structure::markdown::Markdown;
 use super::structure::nav::Navigation;
@@ -86,6 +89,32 @@ pub struct Main {
     strict: bool,
 }
 
+/// File input enriched with immutable facts for the current revision.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Input {
+    /// Source supplied by the file provider.
+    source: Source,
+    /// Metadata files parsed once and shared by every page in the revision.
+    metadata: Arc<meta::Index>,
+}
+
+impl Value for Input {}
+
+impl Input {
+    /// Enriches one provider source with revision-local metadata facts.
+    pub(crate) fn new(source: Source, metadata: Arc<meta::Index>) -> Self {
+        Self { source, metadata }
+    }
+}
+
+impl Deref for Input {
+    type Target = Source;
+
+    fn deref(&self) -> &Self::Target {
+        &self.source
+    }
+}
+
 /// Revision-settled site batch derived from the current page relation.
 #[derive(Clone, Debug)]
 struct Site {
@@ -95,6 +124,8 @@ struct Site {
     nav: Navigation,
     /// Autoref registry derived from the same settled page snapshot.
     autorefs: autorefs::Registry,
+    /// Search inputs derived from the same settled page snapshot.
+    search: search::Snapshot,
 }
 
 impl Value for Site {}
@@ -123,6 +154,8 @@ struct RenderedMarkdown {
     registrations: Arc<autorefs::Facts>,
     /// Facts extracted by the shared MkDocs-compatible HTML pass.
     html: plugin::HtmlFacts,
+    /// Resolved metadata and source mappings for later compatibility modules.
+    pub(crate) meta: Arc<meta::Resolved>,
 }
 
 impl Value for RenderedMarkdown {}
@@ -138,22 +171,26 @@ struct RenderedPage {
     registrations: Arc<autorefs::Facts>,
     /// HTML compatibility facts revision-aligned with the page.
     html: plugin::HtmlFacts,
+    /// Resolved metadata and source mappings for later compatibility modules.
+    pub(crate) meta: Arc<meta::Resolved>,
 }
 
 impl Value for RenderedPage {}
 
 // ----------------------------------------------------------------------------
+
 // Implementations
 // ----------------------------------------------------------------------------
 
 impl Main {
     /// Initializes the module.
     fn setup(&self, ctx: &mut Builder<Id>) {
-        let files = ctx.input::<Source>();
+        let files = ctx.input::<Input>();
+        let meta = meta::Settings::new(&self.config);
 
         // Set up workflow to process static assets and Markdown files.
         process_theme_assets(&self.config, &files);
-        process_assets(&self.config, &files);
+        process_assets(&self.config, &files, &meta);
         let rendered = process_markdown(&self.config, &files);
 
         // Cross the one global settlement boundary, derive all site-wide
@@ -161,17 +198,10 @@ impl Main {
         let rendered_page = generate_page(&self.config, &rendered);
         let page =
             rendered_page.map(|rendered: &RenderedPage| rendered.page.clone());
-        let document = rendered_page
-            .filter(|rendered: &RenderedPage| !rendered.html.search.is_empty())
-            .map(|rendered: &RenderedPage| {
-                search::Document::new(
-                    &rendered.page,
-                    rendered.html.search.clone(),
-                )
-            });
         let site = generate_site(&self.config, &rendered_page);
         let nav = generate_nav(&site);
-        search::attach(&self.config, &document, &nav);
+        let search = site.map(|site: &Site| site.search.clone());
+        search::attach(&self.config, &search);
         mkdocstrings::attach(&self.config, &nav);
         let _ = render_templates(&self.config, &files, &nav);
         let unresolved = render_pages(&self.config, &site);
@@ -208,7 +238,7 @@ pub fn wait_for_markdown(config: &Config) -> (Key<Id>, Barrier<Id>) {
 
 /// Create a stream to collect references from all Markdown files.
 pub fn collect_references(
-    config: &Config, files: &Stream<Id, Source>,
+    config: &Config, files: &Stream<Id, Input>,
 ) -> Stream<Id, SharedReferences> {
     let matcher = Arc::new(
         Matcher::from_str(&format!(
@@ -221,7 +251,7 @@ pub fn collect_references(
     // Create pipeline to collect references
     files
         .filter(move |id: &Id| matcher.is_match(id).expect("invariant"))
-        .map(|source: &Source| {
+        .map(|source: &Input| {
             let references: References =
                 fs::read_to_string(&*source.path)?.parse()?;
             Ok::<_, anyhow::Error>(SharedReferences::from(references))
@@ -230,7 +260,7 @@ pub fn collect_references(
 
 /// Validate references and autorefs after every current page has rendered.
 fn validate(
-    config: &Config, strict: bool, files: &Stream<Id, Source>,
+    config: &Config, strict: bool, files: &Stream<Id, Input>,
     pages: &Stream<Id, Page>, unresolved: &Stream<Id, UnresolvedAutorefs>,
 ) {
     let validation = config.project.validation.clone();
@@ -272,7 +302,9 @@ fn page_hash(page: &Page, autorefs: &autorefs::References) -> u64 {
 }
 
 /// Create a stream to process static assets.
-pub fn process_assets(config: &Config, files: &Stream<Id, Source>) {
+pub fn process_assets(
+    config: &Config, files: &Stream<Id, Input>, meta: &meta::Settings,
+) {
     let extra_templates = config.project.extra_templates.clone();
     let docs_dir = config.project.docs_dir.clone();
     let matcher = Arc::new(
@@ -282,13 +314,19 @@ pub fn process_assets(config: &Config, files: &Stream<Id, Source>) {
     // Create pipeline to copy static assets
     let site_dir = config.project.site_dir.clone();
     let root_dir = config.get_root_dir();
-    let _ = files.map(move |id: &Id, from: &Source| {
+    let meta = meta.clone();
+    let _ = files.map(move |id: &Id, from: &Input| {
         if !matcher.is_match(id).expect("invariant") {
             return Ok(());
         }
 
         // Don't copy Markdown files
         if id.location().ends_with(".md") {
+            return Ok(());
+        }
+
+        // Metadata files are inputs, not site assets.
+        if meta::claims(&id.location(), &meta) {
             return Ok(());
         }
 
@@ -305,20 +343,20 @@ pub fn process_assets(config: &Config, files: &Stream<Id, Source>) {
         // Compute parent path, create intermediate directories and copy files
         let to = root_dir.join(id.to_path());
         fs::create_dir_all(to.parent().expect("invariant"))?;
-        copy_file(&**from, to)?;
+        copy_file(&from.path, to)?;
         Ok::<(), anyhow::Error>(())
     });
 }
 
 /// Create a stream to process static assets in theme.
-pub fn process_theme_assets(config: &Config, files: &Stream<Id, Source>) {
+pub fn process_theme_assets(config: &Config, files: &Stream<Id, Input>) {
     let matcher =
         Arc::new(Matcher::from_str("zrs::::templates/*::").expect("invariant"));
 
     // Create pipeline to copy static assets
     let site_dir = config.project.site_dir.clone();
     let root_dir = config.get_root_dir();
-    let _ = files.map(move |id: &Id, from: &Source| {
+    let _ = files.map(move |id: &Id, from: &Input| {
         if !matcher.is_match(id).expect("invariant") {
             return Ok(());
         }
@@ -336,7 +374,7 @@ pub fn process_theme_assets(config: &Config, files: &Stream<Id, Source>) {
         // Compute parent path, create intermediate directories and copy files
         let to = root_dir.join(id.to_path());
         fs::create_dir_all(to.parent().expect("invariant"))?;
-        copy_file(&**from, to)?;
+        copy_file(&from.path, to)?;
         Ok::<_, anyhow::Error>(())
     });
 }
@@ -352,7 +390,7 @@ fn copy_file(
 
 /// Create a stream to process Markdown files.
 fn process_markdown(
-    config: &Config, files: &Stream<Id, Source>,
+    config: &Config, files: &Stream<Id, Input>,
 ) -> Stream<Id, RenderedMarkdown> {
     let matcher = Arc::new(
         Matcher::from_str(&format!(
@@ -371,12 +409,12 @@ fn process_markdown(
         // disposal. Otherwise, just return that if the content did not change.
         // Note that we need to limit concurrency here, or we'll overwhelm the
         // Python interpreter with all tasks competing for the GIL.
-        .map(concurrent(1, move |id: &Id, path: &Source| {
-            let data = fs::read_to_string(&**path)?;
+        .map(concurrent(1, move |id: &Id, source: &Input| {
+            let location = id.location().into_owned();
+            let data = fs::read_to_string(&*source.path)?;
 
-            // Remove Byte-Order-Mark (BOM)
-            let data = data.strip_prefix('\u{FEFF}').unwrap_or(&data);
-            let data = data.to_owned();
+            let (data, page_meta) = meta::front_matter(&location, &data)?;
+            let resolved = source.metadata.resolve(&location, page_meta)?;
 
             // Compute URL using same logic as Page::new()
             let site_dir = config.project.site_dir.clone();
@@ -417,13 +455,21 @@ fn process_markdown(
             // This is a hack while waiting for CommonMark (AST) and components,
             // as well as topic-based authoring functionality.
             if SNIPPET_RE.is_match(&data) {
-                render_markdown(id, url, data, plugins)
+                render_markdown(id, url, data, plugins, resolved)
             } else {
                 cached(
                     &config,
                     id.as_str(),
-                    (config.hash, data.clone(), url.clone()),
-                    |(_, data, url)| render_markdown(id, url, data, plugins),
+                    (
+                        1_u8,
+                        config.hash,
+                        data.clone(),
+                        url.clone(),
+                        resolved.clone(),
+                    ),
+                    |(_, _, data, url, resolved)| {
+                        render_markdown(id, url, data, plugins, resolved)
+                    },
                 )
             }
         }))
@@ -432,15 +478,22 @@ fn process_markdown(
 /// Render Markdown and collect the page-local facts produced alongside it.
 fn render_markdown(
     id: &Id, url: String, content: String, plugins: plugin::Settings,
+    meta: meta::Resolved,
 ) -> anyhow::Result<RenderedMarkdown> {
-    let mut markdown = Markdown::new(id, url.clone(), content)?;
+    let mut markdown = Markdown::new(id, url.clone(), content, meta.values())?;
     let html = plugin::prepare(&mut markdown, plugins);
     let registrations = if plugins.autorefs {
         autorefs::take_page(&url)
     } else {
         Arc::default()
     };
-    Ok(RenderedMarkdown { markdown, registrations, html })
+    let meta = Arc::new(meta.reconcile(markdown.meta.clone()));
+    Ok(RenderedMarkdown {
+        markdown,
+        registrations,
+        html,
+        meta,
+    })
 }
 
 /// Generate pages from Markdown files.
@@ -452,6 +505,7 @@ fn generate_page(
         page: Page::new(&config, id, markdown.markdown.clone()),
         registrations: markdown.registrations.clone(),
         html: markdown.html.clone(),
+        meta: markdown.meta.clone(),
     })
 }
 
@@ -464,6 +518,7 @@ fn generate_site(
         let mut nav_pages = Vec::new();
         let mut site_pages = Vec::new();
         let mut facts = Vec::new();
+        let mut documents = Vec::new();
         for (key, rendered) in pages.iter() {
             nav_pages.push((key.clone(), rendered.page.clone()));
             site_pages.push((
@@ -474,14 +529,25 @@ fn generate_site(
                 },
             ));
             facts.push((key.clone(), rendered.registrations.clone()));
+            if !rendered.html.search.is_empty() {
+                documents.push((
+                    key.clone(),
+                    search::Document::new(
+                        &rendered.page,
+                        rendered.html.search.clone(),
+                    ),
+                ));
+            }
         }
 
         let nav = Navigation::new(config.project.nav.clone(), nav_pages);
         let autorefs = autorefs::assemble(&config, facts);
+        let search = search::Snapshot::new(documents, nav.clone());
         Some(Site {
             pages: Arc::new(site_pages),
             nav,
             autorefs,
+            search,
         })
     })
 }
@@ -493,7 +559,7 @@ fn generate_nav(site: &Signal<Id, Site>) -> Signal<Id, Navigation> {
 
 /// Render static and extra templates.
 pub fn render_templates(
-    config: &Config, files: &Stream<Id, Source>, nav: &Signal<Id, Navigation>,
+    config: &Config, files: &Stream<Id, Input>, nav: &Signal<Id, Navigation>,
 ) -> Stream<Id, ()> {
     let docs_dir = config.project.docs_dir.clone();
 
@@ -527,8 +593,9 @@ pub fn render_templates(
     let config = config.clone();
     templates
         .product(nav)
-        .map(move |template: &Source, nav: &Navigation| {
-            let name = Path::new(&**template).file_name().expect("invariant");
+        .map(move |template: &Input, nav: &Navigation| {
+            let name =
+                Path::new(&template.path).file_name().expect("invariant");
             let site_dir = config.get_site_dir();
 
             // Render template and write to disk

@@ -199,8 +199,10 @@ impl Page {
     pub fn render_template(
         &mut self, template: &Template, config: &Config, nav: Navigation,
     ) -> Result<Output, Error> {
-        let name = self.meta.get("template").map(ToString::to_string);
-        let name = name.as_deref().unwrap_or("main.html");
+        let name = match self.meta.get("template") {
+            Some(Dynamic::String(value)) => value.clone(),
+            _ => "main.html".into(),
+        };
 
         // Compute page relations from the immutable navigation.
         self.ancestors = nav.ancestors(self);
@@ -210,7 +212,7 @@ impl Page {
         // Add the page-local active overlay without cloning the navigation tree.
         let nav = NavigationView::new(nav, Some(&self.url));
         let output = template.render_with_context(
-            name,
+            &name,
             context! {
                 generator => GENERATOR,
                 nav => TemplateValue::from_object(nav),

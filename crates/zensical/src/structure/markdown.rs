@@ -89,12 +89,15 @@ struct RenderedMarkdown {
 impl Markdown {
     /// Renders Markdown using Python Markdown.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
-    pub fn new(id: &Id, url: String, content: String) -> Result<Markdown> {
+    pub fn new(
+        id: &Id, url: String, content: String, meta: BTreeMap<String, Dynamic>,
+    ) -> Result<Markdown> {
         let id = id.clone();
+        let meta = serde_json::to_string(&meta)?;
         let res = Python::attach(|py| {
             let module = py.import("zensical.markdown.render")?;
             module
-                .call_method1("render", (content, id.location(), url))?
+                .call_method1("render", (content, id.location(), url, meta))?
                 .extract::<RenderedMarkdown>()
         })
         .map_err(|err| {
@@ -168,7 +171,9 @@ impl Eq for Markdown {}
 /// We'll fix this in our modular navigation proposal that will make title
 /// handling much more flexible in the near future.
 fn extract_title(id: &Id, markdown: &MarkdownData) -> String {
-    if let Some(value) = markdown.meta.get("title") {
+    if let Some(value) = markdown.meta.get("title")
+        && !matches!(value, Dynamic::Null)
+    {
         return value.to_string();
     }
 

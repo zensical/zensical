@@ -1270,6 +1270,18 @@ def _convert_plugins(value: Any, config: dict) -> dict:
         search, "separator", '[\\s\\-_,:!=\\[\\]()\\\\"`/]+|\\.(?!\\d)', str
     )
 
+    # Normalize Material's meta plugin to an identifier that can be extracted
+    # into the typed Rust configuration. Keep the original entry intact for
+    # compatibility with consumers of the MkDocs plugin mapping.
+    material_meta = plugins.get("material/meta")
+    if material_meta is None:
+        meta = {"enabled": False, "meta_file": ".meta.yml"}
+    else:
+        meta = dict(material_meta or {})
+        set_default(meta, "enabled", True, bool)
+        set_default(meta, "meta_file", ".meta.yml", str)
+    plugins["meta"] = meta
+
     # Define defaults for offline plugin
     offline = set_default(plugins, "offline", {"enabled": False}, dict)
     set_default(offline, "enabled", True, bool)

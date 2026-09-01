@@ -13,6 +13,7 @@ use crate::config::Config;
 use crate::structure::markdown::Markdown;
 
 pub mod autorefs;
+pub mod meta;
 pub mod mkdocstrings;
 pub mod search;
 
