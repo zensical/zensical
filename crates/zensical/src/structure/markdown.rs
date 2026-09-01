@@ -27,7 +27,7 @@
 
 use anyhow::Result;
 use pyo3::types::{PyAnyMethods, PyTracebackMethods};
-use pyo3::{FromPyObject, Python};
+use pyo3::{FromPyObject, PyErr, Python};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::ops::Deref;
@@ -102,15 +102,7 @@ impl Markdown {
                 .call_method1("render", (content, id.location(), url, meta))?
                 .extract::<RenderedMarkdown>()
         })
-        .map_err(|err| {
-            Python::attach(|py| {
-                let traceback = err
-                    .traceback(py)
-                    .and_then(|tb| tb.format().ok())
-                    .unwrap_or_default();
-                anyhow::anyhow!("Python error: {err}\n{traceback}")
-            })
-        });
+        .map_err(python_error);
 
         res.map(|data| {
             let mut data = MarkdownData {
@@ -144,6 +136,30 @@ impl Markdown {
             data.toc = toc;
         }
     }
+}
+
+// ----------------------------------------------------------------------------
+
+/// Extracts literate navigation with its plugin-local Markdown configuration.
+#[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
+pub fn render_literate_nav(content: &str) -> Result<String> {
+    Python::attach(|py| {
+        py.import("zensical.compat.literate_nav")?
+            .call_method1("render", (content,))?
+            .extract::<String>()
+    })
+    .map_err(python_error)
+}
+
+/// Adds the formatted Python traceback to one boundary error.
+fn python_error(err: PyErr) -> anyhow::Error {
+    Python::attach(|py| {
+        let traceback = err
+            .traceback(py)
+            .and_then(|tb| tb.format().ok())
+            .unwrap_or_default();
+        anyhow::anyhow!("Python error: {err}\n{traceback}")
+    })
 }
 
 // ----------------------------------------------------------------------------

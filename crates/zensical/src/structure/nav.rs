@@ -40,10 +40,12 @@ use super::page::Page;
 
 mod item;
 mod iter;
+mod plan;
 mod view;
 
 pub use item::NavigationItem;
 use iter::Iter;
+pub use plan::{Plan, PlanItem};
 pub use view::NavigationView;
 
 // ----------------------------------------------------------------------------
@@ -76,11 +78,15 @@ pub struct Navigation {
 
 impl Navigation {
     /// Creates a navigation from the given items.
-    pub fn new(mut items: Vec<NavigationItem>, pages: Vec<Page>) -> Self {
+    pub fn new(items: Vec<NavigationItem>, pages: Vec<Page>) -> Self {
         if items.is_empty() {
             return Self::from(pages);
         }
+        Self::from_plan(items, pages)
+    }
 
+    /// Creates navigation from an explicit plan, including an empty one.
+    fn from_plan(mut items: Vec<NavigationItem>, pages: Vec<Page>) -> Self {
         // Create a map of pages for easy lookup, so we can resolve titles and
         // icons from the file location of the respective page.
         let pages = pages

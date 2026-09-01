@@ -62,8 +62,34 @@ pub struct Plugins {
     pub minify: MinifyPlugin,
     /// Material tags plugin instances.
     pub tags: TagsPlugin,
+    /// Literate navigation plugin.
+    pub literate_nav: LiterateNavPlugin,
     /// Offline plugin.
     pub offline: OfflinePlugin,
+}
+
+// ----------------------------------------------------------------------------
+
+/// Literate navigation plugin.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct LiterateNavPlugin {
+    /// Plugin configuration.
+    pub config: LiterateNavPluginConfig,
+}
+
+/// Literate navigation plugin configuration.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct LiterateNavPluginConfig {
+    /// Whether literate navigation is enabled.
+    pub enabled: bool,
+    /// Folder-relative navigation file name or path.
+    pub nav_file: String,
+    /// Whether an omitted index is inserted first.
+    pub implicit_index: bool,
+    /// Markdown indentation width used for navigation lists.
+    pub tab_length: usize,
 }
 
 // ----------------------------------------------------------------------------

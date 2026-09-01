@@ -202,6 +202,54 @@ class TestPluginShimming:
             "redirect_maps": {},
         }
 
+    @pytest.mark.parametrize("entry", ["literate-nav", {"literate-nav": None}])
+    def test_literate_nav_presence_enables_defaults(
+        self, tmp_path: Path, entry: object
+    ) -> None:
+        config = self._parse_yaml(tmp_path, plugins=[entry])
+        plugin = config["plugins"]["literate_nav"]["config"]
+        assert plugin == {
+            "enabled": True,
+            "nav_file": "SUMMARY.md",
+            "implicit_index": False,
+            "tab_length": 4,
+            "markdown_extensions": [],
+            "mdx_configs": {},
+        }
+
+    def test_literate_nav_is_disabled_when_absent(
+        self, tmp_path: Path
+    ) -> None:
+        config = self._parse_yaml(tmp_path, plugins=[])
+        assert config["plugins"]["literate_nav"]["config"]["enabled"] is False
+
+    def test_literate_nav_normalizes_local_markdown_extensions(
+        self, tmp_path: Path
+    ) -> None:
+        config = self._parse_yaml(
+            tmp_path,
+            plugins={
+                "literate-nav": {
+                    "nav_file": "NAV.md",
+                    "implicit_index": True,
+                    "tab_length": 2,
+                    "markdown_extensions": [
+                        "abbr",
+                        {"toc": {"permalink": False}},
+                    ],
+                }
+            },
+        )
+        plugin = config["plugins"]["literate_nav"]["config"]
+        assert plugin["nav_file"] == "NAV.md"
+        assert plugin["implicit_index"] is True
+        assert plugin["tab_length"] == 2
+        assert plugin["markdown_extensions"] == ["abbr", "toc"]
+        assert plugin["mdx_configs"] == {
+            "abbr": {},
+            "toc": {"permalink": False},
+        }
+
     def test_minify_plugin_is_normalized(self, tmp_path: Path) -> None:
         config = self._parse_yaml(
             tmp_path,

@@ -44,7 +44,8 @@ use zrx::stream::{
 use crate::compat::mkdocs::plugin::autorefs::UnresolvedAutorefs;
 use crate::compat::mkdocs::{
     plugin::{
-        self, autorefs, meta, minify, mkdocstrings, redirects, search, tags,
+        self, autorefs, literate_nav, meta, minify, mkdocstrings, redirects,
+        search, tags,
     },
     resource,
 };
@@ -275,7 +276,12 @@ impl Main {
                     )
                 })
             });
-        let nav = generate_nav(&self.config, &rendered_page);
+        let nav = literate_nav::LiterateNav::new(&self.config).setup(
+            literate_nav::Dependencies {
+                sources: &sources,
+                pages: &page,
+            },
+        );
         let autorefs_input =
             rendered_page.map(|rendered: &RenderedPage| autorefs::PageInput {
                 source: rendered.page.source().clone(),
@@ -504,22 +510,6 @@ fn generate_page(
         ),
         registrations: markdown.registrations.clone(),
         html: markdown.html.clone(),
-    })
-}
-
-/// Derive navigation from the complete current page relation.
-fn generate_nav(
-    config: &Config, pages: &Stream<Id, RenderedPage>,
-) -> Signal<Id, Navigation> {
-    let config = config.clone();
-    pages.reduce(move |pages: &dyn Collection<Key<Id>, RenderedPage>| {
-        Some(Navigation::new(
-            config.project.nav.clone(),
-            pages
-                .values()
-                .map(|rendered| rendered.page.clone())
-                .collect(),
-        ))
     })
 }
 

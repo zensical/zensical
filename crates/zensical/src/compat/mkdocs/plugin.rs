@@ -35,6 +35,7 @@ use crate::structure::markdown::Markdown;
 use super::html::{self, Visitor};
 
 pub mod autorefs;
+pub mod literate_nav;
 pub mod meta;
 pub mod minify;
 pub mod mkdocstrings;

@@ -35,10 +35,6 @@ from zensical.extensions.autorefs import set_autorefs_page
 from zensical.extensions.context import ContextExtension, Page
 from zensical.extensions.links import LinksExtension
 
-# ----------------------------------------------------------------------------
-# Functions
-# ----------------------------------------------------------------------------
-
 
 def render(content: str, path: str, url: str, metadata: str = "{}") -> dict:
     """Render Markdown and return HTML.

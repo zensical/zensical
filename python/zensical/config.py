@@ -31,7 +31,7 @@ import pickle
 from importlib.metadata import EntryPoint, entry_points
 from importlib.util import find_spec
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any
+from typing import IO, TYPE_CHECKING, Any, cast
 from urllib.parse import urljoin, urlparse
 
 import yaml
@@ -1246,6 +1246,50 @@ def _convert_markdown_extensions(value: Any) -> tuple[list[str], dict]:
     return mdx_exts, mdx_configs
 
 
+def _convert_plugin_markdown_extensions(
+    value: Any,
+) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    """Normalize a plugin-local Python-Markdown configuration.
+
+    Unlike the site renderer, plugin-local Markdown parsers do not inherit
+    Zensical's default extensions. This mirrors MkDocs' MarkdownExtensions
+    configuration option while retaining extension names and configuration in
+    Python, where callable values remain usable.
+    """
+    markdown_extensions: list[str] = []
+    mdx_configs: dict[str, dict[str, Any]] = {}
+    if value is None:
+        return markdown_extensions, mdx_configs
+    items: Any = value.items() if isinstance(value, dict) else value
+    for item in items:
+        if isinstance(item, tuple):
+            extension, extension_config = item
+        elif isinstance(item, dict):
+            if len(item) != 1:
+                raise ConfigurationError(
+                    "Markdown extension mappings must contain one entry"
+                )
+            extension, extension_config = next(iter(item.items()))
+        elif isinstance(item, str):
+            extension, extension_config = item, {}
+        else:
+            raise ConfigurationError(
+                "Markdown extensions must be strings or mappings"
+            )
+        if not isinstance(extension, str):
+            raise ConfigurationError("Markdown extension names must be strings")
+        if extension_config is None:
+            extension_config = {}
+        if not isinstance(extension_config, dict):
+            raise ConfigurationError(
+                "Markdown extension configurations must be mappings"
+            )
+        normalized_config = cast("dict[str, Any]", extension_config)
+        markdown_extensions.append(extension)
+        mdx_configs[extension] = normalized_config
+    return markdown_extensions, mdx_configs
+
+
 def _convert_plugins(value: Any, config: dict) -> dict:
     """Convert plugins configuration to something we can work with."""
     plugins = {}
@@ -1353,6 +1397,26 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     set_default(htmlmin_opts, "pre_attr", "pre", str)
     minify["htmlmin_opts"] = htmlmin_opts
     plugins["minify"] = minify
+
+    # Normalize mkdocs-literate-nav without importing or executing the plugin.
+    # Python retains extension objects and callables for the narrow Markdown
+    # rendering boundary; Rust owns discovery and navigation resolution.
+    literate_nav: dict[str, Any]
+    if "literate-nav" not in plugins:
+        literate_nav = {"enabled": False}
+    else:
+        literate_nav_config = plugins.pop("literate-nav")
+        literate_nav = dict(literate_nav_config or {})
+        set_default(literate_nav, "enabled", True, bool)
+    set_default(literate_nav, "nav_file", "SUMMARY.md", str)
+    set_default(literate_nav, "implicit_index", False, bool)
+    set_default(literate_nav, "tab_length", 4, int)
+    extensions, extension_configs = _convert_plugin_markdown_extensions(
+        literate_nav.get("markdown_extensions", [])
+    )
+    literate_nav["markdown_extensions"] = extensions
+    literate_nav["mdx_configs"] = extension_configs
+    plugins["literate_nav"] = literate_nav
 
     # Define defaults for offline plugin
     offline = set_default(plugins, "offline", {"enabled": False}, dict)
