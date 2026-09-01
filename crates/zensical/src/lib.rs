@@ -236,10 +236,10 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     let _configuration = revision
         .seal()
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
-    let run = runner
+    let _run = runner
         .settle()
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
-    report_failures(&run);
+    report_failures(&runner)?;
     // Create channel for reload notifications
     let (sender, receiver) = unbounded();
 
@@ -312,10 +312,10 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
                     .seal()
                     .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
 
-                let run = runner
+                let _run = runner
                     .settle()
                     .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
-                report_failures(&run);
+                report_failures(&runner)?;
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => match mode {
@@ -345,20 +345,20 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     Ok(false)
 }
 
-/// Prints action failures reported by one settled run.
-fn report_failures(run: &zrx::stream::Run<Id>) {
-    for failure in reported_failures(run) {
-        eprintln!("Error -  {failure}");
+/// Returns the first unresolved operator failure owned by the workflow.
+fn report_failures(runner: &zrx::stream::Runner<Id>) -> PyResult<()> {
+    if let Some(failure) = unresolved_failures(runner).first() {
+        return Err(PyRuntimeError::new_err(failure.clone()));
     }
+    Ok(())
 }
 
-/// Formats action failures reported by one settled run.
-fn reported_failures(run: &zrx::stream::Run<Id>) -> Vec<String> {
-    run.report()
-        .invocations()
+/// Formats unresolved operator failures owned by the workflow.
+fn unresolved_failures(runner: &zrx::stream::Runner<Id>) -> Vec<String> {
+    runner
+        .errors()
         .iter()
-        .flat_map(|invocation| invocation.outcomes.failures())
-        .map(|failure| format!("{failure:#}"))
+        .map(|failure| format!("{:#}", failure.error()))
         .collect()
 }
 
@@ -420,10 +420,10 @@ mod tests {
     use zrx::id::Id;
     use zrx::stream::{Key, Workflow};
 
-    use super::{clear_dir, reported_failures};
+    use super::{clear_dir, unresolved_failures};
 
     #[test]
-    fn operator_failures_are_formatted_for_cli_reporting() {
+    fn unresolved_operator_failures_are_returned_to_python() {
         let workflow = Workflow::<Id>::build(|workflow| {
             let input = workflow.input::<u64>();
             let output = input.map(|_: &u64| -> anyhow::Result<u64> {
@@ -438,10 +438,10 @@ mod tests {
             .insert(Key::from_iter(std::iter::empty()), 1)
             .unwrap();
         let _input = revision.seal().unwrap();
-        let run = runner.settle().unwrap();
+        let _run = runner.settle().unwrap();
 
-        assert_eq!(reported_failures(&run), ["broken callback"]);
         assert_eq!(runner.errors().len(), 1);
+        assert_eq!(unresolved_failures(&runner), ["broken callback"]);
     }
 
     #[test]
