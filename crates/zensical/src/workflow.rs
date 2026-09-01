@@ -25,8 +25,6 @@
 
 //! Workflow definitions
 
-use pyo3::types::PyAnyMethods;
-use pyo3::Python;
 use regex::Regex;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -41,7 +39,7 @@ use zrx::stream::{
     concurrent, Key, Signal, Stream, StreamTupleExt, Value, Workflow,
 };
 
-use super::compat::mkdocs::search;
+use super::compat::mkdocs::{mkdocstrings, search};
 use super::config::Config;
 use super::structure::markdown::Markdown;
 use super::structure::nav::Navigation;
@@ -120,7 +118,7 @@ impl Main {
         let site = generate_site(&self.config, &page);
         let nav = generate_nav(&site);
         search::attach(&self.config, &page, &nav);
-        generate_object_inventory(&self.config, &nav);
+        mkdocstrings::attach(&self.config, &nav);
         let _ = render_templates(&self.config, &files, &nav);
         let unresolved = render_pages(&self.config, &site);
         validate(&self.config, self.strict, &files, &page, &unresolved);
@@ -407,38 +405,6 @@ fn generate_site(
 /// Project navigation from the current site batch.
 fn generate_nav(site: &Signal<Id, Site>) -> Signal<Id, Navigation> {
     site.map(|site: &Site| site.nav.clone())
-}
-
-/// Generate object inventory
-pub fn generate_object_inventory(
-    config: &Config, nav: &Stream<Id, Navigation>,
-) {
-    // Retrieve inventory from Python interpreter using pyo3
-    let config = config.clone();
-    let _ = nav.map(move |_: &Navigation| {
-        let cache_dir = config.get_cache_dir();
-        let cache_path = cache_dir.join("objects.inv");
-
-        // Load previously cached inventory, if any
-        let cached = fs::read(&cache_path).ok();
-
-        let data = Python::attach(|py| {
-            let module = py.import("zensical.compat.mkdocstrings")?;
-            module
-                .call_method1("get_inventory", (cached,))?
-                .extract::<Vec<u8>>()
-        });
-
-        // Write object inventory to disk and update cache
-        if let Ok(data) = data {
-            let site_dir = config.get_site_dir();
-            let path = site_dir.join("objects.inv");
-            let _ = fs::create_dir_all(path.parent().expect("invariant"));
-            let _ = fs::write(path, &data);
-            let _ = fs::create_dir_all(&cache_dir);
-            let _ = fs::write(&cache_path, &data);
-        }
-    });
 }
 
 /// Render static and extra templates.

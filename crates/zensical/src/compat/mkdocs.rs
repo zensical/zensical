@@ -5,4 +5,5 @@
 
 //! MkDocs compatibility modules.
 
+pub mod mkdocstrings;
 pub mod search;
