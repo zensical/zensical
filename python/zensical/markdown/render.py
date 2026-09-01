@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import yaml
 from markdown import Markdown
@@ -35,10 +35,6 @@ from zensical.config import get_config
 from zensical.extensions.autorefs import set_autorefs_page
 from zensical.extensions.context import ContextExtension, Page
 from zensical.extensions.links import LinksExtension
-from zensical.extensions.search import SearchExtension
-
-if TYPE_CHECKING:
-    from zensical.extensions.search import SearchProcessor
 
 # ----------------------------------------------------------------------------
 # Constants
@@ -110,14 +106,11 @@ def render(content: str, path: str, url: str) -> dict:
         extension_configs=config["mdx_configs"],
     )
 
-    # Note: mkdocstrings and markdown-exec do not need to propagate
-    # the links and search extensions to their inner Markdown instances:
-    # their postprocessors run last and can see inner layer contents.
-    # More importantly, inner layers *must not* run the links and search
-    # extensions: the inner links treeprocessor would transform links once,
-    # and the outer links postprocessor would transform them again.
-    # The search postprocessor would run twice for generated content,
-    # incurring a performance cost.
+    # Note: mkdocstrings and markdown-exec do not need to propagate the links
+    # extension to their inner Markdown instances. Its postprocessor runs last
+    # and can see inner layer contents. More importantly, inner layers *must
+    # not* run the extension: the inner treeprocessor would transform links
+    # once, and the outer postprocessor would transform them again.
 
     # Register links extension, which is equivalent to MkDocs' path resolution
     # Markdown extension. This is a bandaid, until we move this to Rust
@@ -125,10 +118,6 @@ def render(content: str, path: str, url: str) -> dict:
         use_directory_urls=config["use_directory_urls"], path=path
     )
     links.extendMarkdown(md)
-
-    # Register search extension, which extracts text for search indexing
-    search_extension = SearchExtension()
-    search_extension.extendMarkdown(md)
 
     # Inform markdown-exec that it runs through Zensical.
     try:
@@ -141,11 +130,6 @@ def render(content: str, path: str, url: str) -> dict:
     # Convert content to HTML
     content = md.convert(content)
 
-    # Obtain search index data, unless page is excluded
-    search_processor: SearchProcessor = md.postprocessors["search"]
-    if meta.get("search", {}).get("exclude", False):
-        search_processor.data = []
-
     # Sanitize metadata before passing it to Rust
     meta = {k: _sanitize(v) for k, v in meta.items()}
 
@@ -154,7 +138,6 @@ def render(content: str, path: str, url: str) -> dict:
         "meta": meta,
         "title": "",
         "content": content,
-        "search": search_processor.data,
         "toc": [_convert_toc(item) for item in getattr(md, "toc_tokens", [])],
     }
 

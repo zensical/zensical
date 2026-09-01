@@ -199,6 +199,11 @@ impl Navigation {
     /// Note that only the ancestors, not the page itself is returned, which
     /// again, mirrors MkDocs' behavior, and is necessary for breadcrumbs.
     pub fn ancestors(&self, page: &Page) -> Vec<NavigationItem> {
+        self.ancestors_for_url(&page.url)
+    }
+
+    /// Returns ancestors of a page URL without requiring the complete page.
+    pub(crate) fn ancestors_for_url(&self, url: &str) -> Vec<NavigationItem> {
         // Recursively find ancestors of the page with the given URL.
         fn recurse<'a>(
             items: &'a [NavigationItem], url: &str,
@@ -227,7 +232,7 @@ impl Navigation {
         // Clone the ancestors into owned items and reverse them, so we start
         // at the ancestor closest to the page, not the root itself
         let mut items: Vec<&NavigationItem> = Vec::new();
-        let _ = recurse(&self.items, &page.url, &mut items);
+        let _ = recurse(&self.items, url, &mut items);
         items.into_iter().rev().cloned().collect()
     }
 

@@ -40,6 +40,7 @@ use std::time::{Duration, Instant};
 use std::{fs, io, thread};
 use zrx::id::Id;
 
+mod compat;
 mod config;
 mod python;
 mod server;

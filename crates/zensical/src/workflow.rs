@@ -29,7 +29,6 @@ use pyo3::types::PyAnyMethods;
 use pyo3::Python;
 use regex::Regex;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock, OnceLock};
@@ -42,11 +41,11 @@ use zrx::stream::{
     concurrent, Key, Signal, Stream, StreamTupleExt, Value, Workflow,
 };
 
+use super::compat::mkdocs::search;
 use super::config::Config;
 use super::structure::markdown::Markdown;
 use super::structure::nav::Navigation;
 use super::structure::page::Page;
-use super::structure::search::SearchIndex;
 use super::template::Template;
 use super::watcher::Source;
 
@@ -120,7 +119,7 @@ impl Main {
         let page = generate_page(&self.config, &markdown);
         let site = generate_site(&self.config, &page);
         let nav = generate_nav(&site);
-        generate_search_index(&self.config, &site);
+        search::attach(&self.config, &page, &nav);
         generate_object_inventory(&self.config, &nav);
         let _ = render_templates(&self.config, &files, &nav);
         let unresolved = render_pages(&self.config, &site);
@@ -360,7 +359,6 @@ pub fn process_markdown(
             } else {
                 url
             };
-
             // Don't cache page if it inserts (pymdownx) snippets.
             // This is a hack while waiting for CommonMark (AST) and components,
             // as well as topic-based authoring functionality.
@@ -440,44 +438,6 @@ pub fn generate_object_inventory(
             let _ = fs::create_dir_all(&cache_dir);
             let _ = fs::write(&cache_path, &data);
         }
-    });
-}
-
-/// Generate search index
-fn generate_search_index(config: &Config, site: &Signal<Id, Site>) {
-    let config = config.clone();
-    let _ = site.map(move |site: &Site| {
-        // Derive search only in this terminal branch, so its complete item
-        // relation is released immediately after the files are written.
-        let search = SearchIndex::new(
-            site.pages.as_ref().clone(),
-            &site.nav,
-            config.project.plugins.search.config.clone(),
-            &config.project.theme.language,
-        );
-        let site_dir = config.get_site_dir();
-
-        // Stream the search index directly to disk without retaining an
-        // additional JSON string alongside the structured representation.
-        let path = site_dir.join("search.json");
-        fs::create_dir_all(path.parent().expect("invariant"))?;
-        let mut writer = BufWriter::new(fs::File::create(path)?);
-        serde_json::to_writer(&mut writer, &search)?;
-        writer.flush()?;
-
-        // If offline plugin is enabled, create search.js as well
-        if config.project.plugins.offline.config.enabled {
-            let path = site_dir.join("search.js");
-            fs::create_dir_all(path.parent().expect("invariant"))?;
-            let mut writer = BufWriter::new(fs::File::create(path)?);
-            writer.write_all(b"var __index = ")?;
-            serde_json::to_writer(&mut writer, &search)?;
-            writer.write_all(b";")?;
-            writer.flush()?;
-        }
-
-        // All files were written successfully
-        Ok::<_, anyhow::Error>(())
     });
 }
 

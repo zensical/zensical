@@ -256,7 +256,6 @@ impl PartialEq for PageData {
             && self.path == other.path
             && self.content == other.content
             && self.toc == other.toc
-            && self.search == other.search
     }
 }
 

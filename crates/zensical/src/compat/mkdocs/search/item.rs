@@ -23,18 +23,16 @@
 
 // ----------------------------------------------------------------------------
 
-//! Search item.
+//! MkDocs-compatible search item.
 
-use pyo3::FromPyObject;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 // ----------------------------------------------------------------------------
 // Structs
 // ----------------------------------------------------------------------------
 
 /// Search item.
-#[derive(Clone, Debug, PartialEq, Eq, FromPyObject, Serialize, Deserialize)]
-#[pyo3(from_item_all)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct SearchItem {
     /// Search location.
     pub location: Option<String>,
@@ -48,4 +46,19 @@ pub struct SearchItem {
     pub path: Vec<String>,
     /// Section tags.
     pub tags: Vec<String>,
+}
+
+// ----------------------------------------------------------------------------
+
+/// Page-local search section before site-wide facts are attached.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct SearchSection {
+    /// Heading fragment, if present.
+    pub location: Option<String>,
+    /// Section level.
+    pub level: u32,
+    /// Section title.
+    pub title: String,
+    /// Section text.
+    pub text: String,
 }

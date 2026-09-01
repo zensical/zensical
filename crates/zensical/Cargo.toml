@@ -50,6 +50,7 @@ anyhow.workspace = true
 ariadne.workspace = true
 crossbeam.workspace = true
 fluent-uri.workspace = true
+html5gum.workspace = true
 minijinja = { workspace = true, features = [
   "json", "loader", "builtins", "urlencode"
 ] }

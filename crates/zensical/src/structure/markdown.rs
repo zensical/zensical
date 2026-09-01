@@ -37,7 +37,6 @@ use zrx::stream::Value;
 
 use crate::structure::dynamic::Dynamic;
 use crate::structure::nav::to_title;
-use crate::structure::search::SearchItem;
 use crate::structure::toc::Section;
 
 mod autorefs;
@@ -61,19 +60,30 @@ pub struct Markdown {
 }
 
 /// Immutable rendered Markdown data.
-#[derive(Debug, FromPyObject, Serialize, Deserialize)]
-#[pyo3(from_item_all)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct MarkdownData {
     /// Markdown metadata.
     pub meta: BTreeMap<String, Dynamic>,
     /// Markdown content.
     pub content: String,
-    /// Search index.
-    pub search: Vec<SearchItem>,
     /// Page title extracted from Markdown.
     pub title: String,
     /// Table of contents.
     pub toc: Vec<Section>,
+}
+
+/// Markdown data returned by the Python renderer.
+#[derive(FromPyObject)]
+#[pyo3(from_item_all)]
+struct RenderedMarkdown {
+    /// Markdown metadata.
+    meta: BTreeMap<String, Dynamic>,
+    /// Markdown content.
+    content: String,
+    /// Page title extracted from Markdown.
+    title: String,
+    /// Table of contents.
+    toc: Vec<Section>,
 }
 
 // ----------------------------------------------------------------------------
@@ -89,7 +99,7 @@ impl Markdown {
             let module = py.import("zensical.markdown.render")?;
             module
                 .call_method1("render", (content, id.location(), url))?
-                .extract::<MarkdownData>()
+                .extract::<RenderedMarkdown>()
         })
         .map_err(|err| {
             Python::attach(|py| {
@@ -101,7 +111,13 @@ impl Markdown {
             })
         });
 
-        res.map(|mut data| {
+        res.map(|data| {
+            let mut data = MarkdownData {
+                meta: data.meta,
+                content: data.content,
+                title: data.title,
+                toc: data.toc,
+            };
             data.title = extract_title(&id, &data);
             Markdown { data: Arc::new(data) }
         })
@@ -173,7 +189,6 @@ fn extract_title(id: &Id, markdown: &MarkdownData) -> String {
     to_title(&file)
 }
 
-// ----------------------------------------------------------------------------
 // Tests
 // ----------------------------------------------------------------------------
 
@@ -186,7 +201,6 @@ mod tests {
             data: Arc::new(MarkdownData {
                 meta: BTreeMap::new(),
                 content: String::from("<h1>Home</h1>"),
-                search: Vec::new(),
                 title: String::from("Home"),
                 toc: Vec::new(),
             }),
@@ -208,6 +222,7 @@ mod tests {
         assert_eq!(value["content"], "<h1>Home</h1>");
         assert_eq!(value["title"], "Home");
         assert!(value.get("data").is_none());
+        assert!(value.get("search").is_none());
 
         let markdown: Markdown = serde_json::from_value(value).unwrap();
         assert_eq!(markdown.content, "<h1>Home</h1>");

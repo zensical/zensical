@@ -1,0 +1,275 @@
+// Copyright (c) 2025-2026 Zensical and contributors
+
+// SPDX-License-Identifier: MIT
+// All contributions are certified under the DCO
+
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
+//! MkDocs-compatible search index.
+
+use serde::Serialize;
+use std::collections::BTreeMap;
+use std::fs;
+use std::io::{BufWriter, Write};
+use zrx::id::Id;
+use zrx::scheduler::Value;
+use zrx::stream::function::Collection;
+use zrx::stream::{Key, Signal, Stream};
+
+use crate::config::plugins::SearchPluginConfig;
+use crate::config::Config;
+use crate::structure::dynamic::Dynamic;
+use crate::structure::nav::{file_sort_key, Navigation};
+use crate::structure::page::Page;
+
+mod item;
+mod parser;
+
+use item::{SearchItem, SearchSection};
+pub(crate) use parser::extract;
+
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
+
+/// Search configuration.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct SearchConfig {
+    /// Languages for tokenizer.
+    lang: Vec<String>,
+    /// Separator for tokenizer.
+    separator: String,
+}
+
+/// Complete search artifact.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct SearchIndex {
+    /// Search configuration.
+    config: SearchConfig,
+    /// Search items.
+    items: Vec<SearchItem>,
+}
+
+/// Compact page facts retained by the search branch.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SearchDocument {
+    /// Page target URL.
+    url: String,
+    /// Page title.
+    title: String,
+    /// Page tag names.
+    tags: Vec<String>,
+    /// Page-local search sections.
+    sections: Vec<SearchSection>,
+}
+
+// ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
+
+impl SearchConfig {
+    /// Creates search configuration for the configured theme language.
+    fn new(config: SearchPluginConfig, language: &str) -> Self {
+        Self {
+            lang: vec![language.to_string()],
+            separator: config.separator,
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+
+impl SearchDocument {
+    /// Extracts the facts search needs from a rendered page.
+    fn new(page: &Page) -> Self {
+        Self {
+            url: page.url.clone(),
+            title: page.title.clone(),
+            tags: page.tags().into_iter().map(|tag| tag.name).collect(),
+            sections: extract(&page.content),
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+
+impl SearchIndex {
+    /// Creates a search index from compact page facts.
+    #[allow(clippy::assigning_clones)]
+    fn new(
+        documents: Vec<(Key<Id>, SearchDocument)>, nav: &Navigation,
+        config: SearchPluginConfig, language: &str,
+    ) -> Self {
+        let mut items: Vec<SearchItem> = Vec::new();
+
+        let mut documents = Vec::from_iter(documents);
+        documents.sort_by_key(|(id, _)| file_sort_key(&id[0]));
+
+        // Attach site-wide navigation facts only while assembling the final
+        // artifact, keeping them out of each page-local stream value.
+        for (_id, document) in documents {
+            let iter = nav.ancestors_for_url(&document.url).into_iter().rev();
+            let mut path = iter
+                .filter_map(|item| {
+                    item.display_title().map(ToString::to_string)
+                })
+                .collect::<Vec<_>>();
+
+            // Add page title to path if not already present - this might be
+            // the true in case of index pages
+            if path.last() != Some(&document.title) {
+                path.push(document.title.clone());
+            }
+
+            for section in document.sections {
+                let location = match section.location {
+                    Some(id) => format!("{}#{}", document.url, id),
+                    _ => document.url.clone(),
+                };
+                let title = if section.title.is_empty() {
+                    document.title.clone()
+                } else {
+                    section.title
+                };
+                items.push(SearchItem {
+                    location: Some(location),
+                    level: section.level,
+                    title,
+                    text: section.text,
+                    path: path.clone(),
+                    tags: document.tags.clone(),
+                });
+            }
+        }
+
+        // Return search
+        Self {
+            config: SearchConfig::new(config, language),
+            items,
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Trait implementations
+// ----------------------------------------------------------------------------
+
+impl Value for SearchDocument {}
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
+/// Attach MkDocs-compatible search artifact generation to the build graph.
+pub(crate) fn attach(
+    config: &Config, pages: &Stream<Id, Page>, nav: &Signal<Id, Navigation>,
+) {
+    if !config.project.plugins.search.config.enabled {
+        let config = config.clone();
+        let _ = nav.map(move |nav: &Navigation| {
+            let search = SearchIndex::new(
+                Vec::new(),
+                nav,
+                config.project.plugins.search.config.clone(),
+                &config.project.theme.language,
+            );
+            write(&config, &search)
+        });
+        return;
+    }
+
+    let documents = pages
+        .filter(|page: &Page| !is_search_excluded(&page.meta))
+        .map(SearchDocument::new);
+    let documents = documents.reduce(
+        |documents: &dyn Collection<Key<Id>, SearchDocument>| {
+            Some(
+                documents
+                    .iter()
+                    .map(|(key, document)| (key.clone(), document.clone()))
+                    .collect::<Vec<_>>(),
+            )
+        },
+    );
+    let config = config.clone();
+    let _ = documents.product(nav).map(
+        move |documents: &Vec<(Key<Id>, SearchDocument)>, nav: &Navigation| {
+            let search = SearchIndex::new(
+                documents.clone(),
+                nav,
+                config.project.plugins.search.config.clone(),
+                &config.project.theme.language,
+            );
+            write(&config, &search)
+        },
+    );
+}
+
+/// Write search artifacts without retaining a second serialized copy.
+fn write(config: &Config, search: &SearchIndex) -> anyhow::Result<()> {
+    let site_dir = config.get_site_dir();
+    let path = site_dir.join("search.json");
+    fs::create_dir_all(path.parent().expect("invariant"))?;
+    let mut writer = BufWriter::new(fs::File::create(path)?);
+    serde_json::to_writer(&mut writer, search)?;
+    writer.flush()?;
+
+    if config.project.plugins.offline.config.enabled {
+        let path = site_dir.join("search.js");
+        fs::create_dir_all(path.parent().expect("invariant"))?;
+        let mut writer = BufWriter::new(fs::File::create(path)?);
+        writer.write_all(b"var __index = ")?;
+        serde_json::to_writer(&mut writer, search)?;
+        writer.write_all(b";")?;
+        writer.flush()?;
+    }
+    Ok(())
+}
+
+/// Returns whether a page is excluded from search through its metadata.
+fn is_search_excluded(meta: &BTreeMap<String, Dynamic>) -> bool {
+    let Some(Dynamic::Map(search)) = meta.get("search") else {
+        return false;
+    };
+    matches!(search.get("exclude"), Some(Dynamic::Bool(true)))
+}
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_exclusion_is_read_from_page_metadata() {
+        let mut search = BTreeMap::new();
+        search.insert(String::from("exclude"), Dynamic::Bool(true));
+        let mut meta = BTreeMap::new();
+        meta.insert(String::from("search"), Dynamic::Map(search));
+
+        assert!(is_search_excluded(&meta));
+
+        meta.clear();
+        assert!(!is_search_excluded(&meta));
+    }
+}
