@@ -32,7 +32,7 @@ use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 use std::slice::Iter;
 use zrx::id::Id;
-use zrx::scheduler::{Key, Value};
+use zrx::stream::Key;
 
 use crate::config::validation::Validation;
 use crate::structure::markdown::UnresolvedAutorefs;
@@ -120,9 +120,9 @@ pub enum Issue {
 
 /// Issues.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Issues {
+pub struct Issues<'a> {
     /// Markdown contents for printing errors.
-    contents: HashMap<String, String>,
+    contents: HashMap<String, &'a str>,
     /// Inner set of issues.
     inner: Vec<Issue>,
 }
@@ -165,13 +165,21 @@ impl Issue {
 // Implementations
 // ----------------------------------------------------------------------------
 
-impl Issues {
+impl<'a> Issues<'a> {
     /// Create a new set of issues.
+    ///
+    /// The settled validation relation outlives construction and printing, so
+    /// source text, anchors and unresolved autorefs remain borrowed. This
+    /// iterator boundary must not materialize owned values: doing so would
+    /// duplicate the largest validation payloads at peak.
     #[allow(clippy::too_many_lines)]
     pub fn new<T>(iter: T) -> Self
     where
         T: IntoIterator<
-            Item = (Key<Id>, (SharedReferences, Anchors, UnresolvedAutorefs)),
+            Item = (
+                &'a Key<Id>,
+                &'a (SharedReferences, Anchors, UnresolvedAutorefs),
+            ),
         >,
     {
         let mut issues = Vec::new();
@@ -185,10 +193,13 @@ impl Issues {
             let path = id.location().into_owned();
 
             // Associate anchors with their location for lookup
-            contents.insert(path.clone(), references.markdown().to_string());
+            contents.insert(path.clone(), references.markdown());
             anchor_map.insert(
                 to_slash(&path),
-                anchors.into_iter().cloned().collect::<HashSet<_>>(),
+                anchors
+                    .into_iter()
+                    .map(String::as_str)
+                    .collect::<HashSet<_>>(),
             );
 
             // Collect all links for each page for cross-page checking later
@@ -201,7 +212,7 @@ impl Issues {
                     if !href.starts_with("http://")
                         && !href.starts_with("https://")
                     {
-                        mappings.push((link.href, href.to_string()));
+                        mappings.push((link.href, href));
                     }
                 }
                 if let Reference::LinkDefinition(link) = reference {
@@ -210,7 +221,7 @@ impl Issues {
                     if !href.starts_with("http://")
                         && !href.starts_with("https://")
                     {
-                        mappings.push((link.href, href.to_string()));
+                        mappings.push((link.href, href));
                     }
                 }
             }
@@ -389,13 +400,13 @@ impl Issues {
                     // Check if the link exists, and if it does, whether the
                     // anchor exists on the target page
                     if let Some(anchors) = anchor_map.get(&link) {
-                        if !anchors.contains(&anchor) {
+                        if !anchors.contains(anchor.as_str()) {
                             issues.push(Issue::InvalidLinkAnchor {
                                 path: base.into(),
                                 span: Span::from(
                                     (span.start + offset + 1)..span.end - len,
                                 ),
-                                href: href.clone(),
+                                href: href.to_string(),
                                 anchor: anchor.clone(),
                             });
                         }
@@ -407,7 +418,7 @@ impl Issues {
                         });
                     }
                 } else {
-                    let href = decode_markdown_href(&href);
+                    let href = decode_markdown_href(href);
                     if !is_markdown_path(&href) {
                         if is_invalid_markdown_path(&href) {
                             issues.push(Issue::InvalidLink {
@@ -572,9 +583,9 @@ impl Issues {
 
             // Obtain Markdown source
             let source = self
-                .contents()
-                .get(&issue.path().to_string_lossy().to_string())
-                .cloned()
+                .contents
+                .get(path.as_ref())
+                .copied()
                 .unwrap_or_default();
 
             // Create and print report
@@ -598,11 +609,6 @@ impl Issues {
         Ok(())
     }
 
-    /// Returns the Markdown contents.
-    pub fn contents(&self) -> &HashMap<String, String> {
-        &self.contents
-    }
-
     /// Returns the number of issues.
     pub fn len(&self) -> usize {
         self.inner.len()
@@ -618,13 +624,9 @@ impl Issues {
 // Trait implementations
 // ----------------------------------------------------------------------------
 
-impl Value for Issues {}
-
-// ----------------------------------------------------------------------------
-
-impl<'a> IntoIterator for &'a Issues {
-    type Item = &'a Issue;
-    type IntoIter = Iter<'a, Issue>;
+impl<'b> IntoIterator for &'b Issues<'_> {
+    type Item = &'b Issue;
+    type IntoIter = Iter<'b, Issue>;
 
     /// Creates an iterator over the issues.
     #[inline]

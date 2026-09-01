@@ -28,7 +28,8 @@
 use pyo3::FromPyObject;
 use serde::Serialize;
 use zrx::id::Id;
-use zrx::scheduler::{Key, Value};
+use zrx::scheduler::Value;
+use zrx::stream::Key;
 
 use crate::config::plugins::SearchPluginConfig;
 

@@ -481,11 +481,15 @@ impl Autorefs {
 
     /// Replaces autorefs and collects unresolved identifiers.
     #[allow(clippy::single_match_else)]
-    pub fn replace_in(
-        &self, content: &str, from_url: &str,
-    ) -> (String, UnresolvedAutorefs) {
+    pub fn replace_in<S>(
+        &self, content: S, from_url: &str,
+    ) -> (String, UnresolvedAutorefs)
+    where
+        S: Into<String>,
+    {
+        let content = content.into();
         let mut unresolved = UnresolvedAutorefs::default();
-        let output = AUTOREF_RE.replace_all(content, |captures: &Captures| {
+        let output = AUTOREF_RE.replace_all(&content, |captures: &Captures| {
             let attrs_str =
                 captures.name("attrs").map_or("", |m| m.as_str());
             let title =
@@ -589,7 +593,11 @@ impl Autorefs {
             }
         });
 
-        (output.to_string(), unresolved)
+        let output = match output {
+            std::borrow::Cow::Borrowed(_) => content,
+            std::borrow::Cow::Owned(output) => output,
+        };
+        (output, unresolved)
     }
 }
 

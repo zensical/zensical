@@ -25,34 +25,41 @@
 
 //! Workflow definitions
 
-use ahash::HashMap;
 use pyo3::types::PyAnyMethods;
 use pyo3::Python;
 use regex::Regex;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, OnceLock};
 use std::{fs, io};
 use zrx::id::matcher::Matcher;
-use zrx::id::{id, Id};
-use zrx::module::{self, Context, Module};
-use zrx::scheduler::Key;
-use zrx::stream::{Barrier, Stream, Workflow};
+use zrx::id::Id;
+use zrx::stream::function::Collection;
+use zrx::stream::workflow::Builder;
+use zrx::stream::{
+    concurrent, Key, Signal, Stream, StreamTupleExt, Value, Workflow,
+};
 
 use super::config::Config;
-use super::python::{Anchors, Issues, References, SharedReferences};
-use super::structure::markdown::{Markdown, UnresolvedAutorefs};
+use super::structure::markdown::Markdown;
 use super::structure::nav::Navigation;
 use super::structure::page::Page;
 use super::structure::search::SearchIndex;
 use super::template::Template;
 use super::watcher::Source;
 
-mod aggregate;
+use super::{
+    python::{Anchors, Issues, References, SharedReferences},
+    structure::markdown::UnresolvedAutorefs,
+};
+
+// TODO: Migrate aggregation after the basic workflow runs on the new runtime.
+// mod aggregate;
 mod cached;
 
-use aggregate::aggregate;
+// use aggregate::aggregate;
 use cached::cached;
 
 // ----------------------------------------------------------------------------
@@ -83,102 +90,41 @@ pub struct Main {
     strict: bool,
 }
 
-/// Site snapshot generation a rendered page belongs to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct SiteGeneration(u64);
-
-impl zrx::scheduler::Value for SiteGeneration {}
-
-/// Site-wide validation pages shared across workflow products.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct SharedValidationPages(Arc<ValidationPages>);
-
-impl zrx::scheduler::Value for SharedValidationPages {}
-
-/// Validation state collected while pages are rendered.
-#[derive(Debug, Default)]
-struct ValidationState {
-    /// Last site generation for which issues were printed.
-    printed: u64,
-    /// Site snapshots by generation.
-    sites: HashMap<u64, Arc<ValidationPages>>,
-    /// Unresolved autorefs by generation and source page.
-    unresolved: HashMap<u64, HashMap<Id, UnresolvedAutorefs>>,
+/// Revision-settled site batch derived from the current page relation.
+#[derive(Clone, Debug)]
+struct Site {
+    /// Complete pages selected for this batch.
+    pages: Arc<Vec<(Key<Id>, Page)>>,
+    /// Navigation derived from the current pages.
+    nav: Navigation,
 }
 
-type ValidationPages = Vec<(Key<Id>, (SharedReferences, Anchors))>;
-type SitePages = Vec<(Key<Id>, ((Page, Anchors), SharedReferences))>;
+impl Value for Site {}
 
 // ----------------------------------------------------------------------------
 // Implementations
 // ----------------------------------------------------------------------------
 
-impl Module for Main {
+impl Main {
     /// Initializes the module.
-    fn setup(&self, ctx: &mut Context) -> module::Result {
-        let files = ctx.add::<Source>();
+    fn setup(&self, ctx: &mut Builder<Id>) {
+        let files = ctx.input::<Source>();
 
-        // Set up workflow to process static assets, as well as Markdown files,
-        // and create a barrier to wait for the completion of all Markdown files
+        // Set up workflow to process static assets and Markdown files.
         process_theme_assets(&self.config, &files);
         process_assets(&self.config, &files);
         let markdown = process_markdown(&self.config, &files);
 
-        // Generate pages, and use the barrier to ensure that all pages have been
-        // processed, in order to create the navigation and search index
+        // Cross the one global settlement boundary, derive all site-wide
+        // state, then expand the resulting batch into independent page work.
         let page = generate_page(&self.config, &markdown);
-        let (pages, validation_pages) =
-            if self.config.project.validation.is_enabled() {
-                // Parse anchors per page, so that serve rebuilds only redo
-                // this for pages that changed
-                let pages_and_anchors = page.map(|page: Page| {
-                    let anchors: Anchors = page.content.parse()?;
-                    Ok::<_, anyhow::Error>((page, anchors))
-                });
-
-                // Join in references and aggregate everything into site-wide
-                // snapshots, shared by navigation, search and validation
-                let references = collect_references(&self.config, &files);
-                let site = aggregate(
-                    &pages_and_anchors.join(&references),
-                    wait_for_markdown(&self.config),
-                );
-                let pages = site.map(|pages: SitePages| {
-                    pages
-                        .into_iter()
-                        .map(|(key, ((page, _), _))| (key, page))
-                        .collect::<Vec<_>>()
-                });
-                let validation = site.map(|pages: SitePages| {
-                    let pages = pages
-                        .into_iter()
-                        .map(|(key, ((_, anchors), references))| {
-                            (key, (references, anchors))
-                        })
-                        .collect::<ValidationPages>();
-                    SharedValidationPages(Arc::new(pages))
-                });
-                (pages, Some(validation))
-            } else {
-                (aggregate(&page, wait_for_markdown(&self.config)), None)
-            };
-
-        // Generate navigation and search index
-        let nav = generate_nav(&self.config, &pages);
-        generate_search_index(&self.config, &nav, &pages);
-
-        // Generate object inventory
-        generate_object_inventory(&self.config, &pages);
-
-        // Render static and extra templates, as well as pages.
-        render_templates(&self.config, &files, &nav);
-        let unresolved = render_pages(&self.config, &page, &nav);
-
-        // Validate and print issues after all pages have rendered.
-        if let Some(validation_pages) = validation_pages {
-            validate(&self.config, self.strict, validation_pages, unresolved);
-        }
-        Ok(())
+        let site = generate_site(&self.config, &page);
+        let nav = generate_nav(&site);
+        generate_search_index(&self.config, &site);
+        generate_object_inventory(&self.config, &nav);
+        let _ = render_templates(&self.config, &files, &nav);
+        let unresolved = render_pages(&self.config, &site);
+        validate(&self.config, self.strict, &files, &page, &unresolved);
     }
 }
 
@@ -186,7 +132,9 @@ impl Module for Main {
 // Functions
 // ----------------------------------------------------------------------------
 
+// TODO: Replace the legacy barrier with revision-settled aggregation.
 // Return condition waiting for all Markdown files
+#[cfg(any())]
 pub fn wait_for_markdown(config: &Config) -> (Key<Id>, Barrier<Id>) {
     let docs_dir = config.project.docs_dir.clone();
     let matcher = Matcher::from_str(&format!("zrs::::{docs_dir}:**/*.md:"))
@@ -222,104 +170,45 @@ pub fn collect_references(
     // Create pipeline to collect references
     files
         .filter(move |id: &Id| matcher.is_match(id).expect("invariant"))
-        .map(|Source { path }| {
-            let references: References = fs::read_to_string(&*path)?.parse()?;
+        .map(|source: &Source| {
+            let references: References =
+                fs::read_to_string(&*source.path)?.parse()?;
             Ok::<_, anyhow::Error>(SharedReferences::from(references))
         })
 }
 
-/// Create a stream to validate references and autorefs against anchors.
-///
-/// Source-based issues are derived from the site snapshot, while unresolved
-/// autorefs are collected from rendered pages. The snapshot generation ties
-/// both together, so one combined report is printed per settled build.
+/// Validate references and autorefs after every current page has rendered.
 fn validate(
-    config: &Config, strict: bool, pages: Stream<Id, SharedValidationPages>,
-    unresolved: Stream<Id, (Id, SiteGeneration, UnresolvedAutorefs)>,
+    config: &Config, strict: bool, files: &Stream<Id, Source>,
+    pages: &Stream<Id, Page>, unresolved: &Stream<Id, UnresolvedAutorefs>,
 ) {
     let validation = config.project.validation.clone();
-    let state = Arc::new(Mutex::new(ValidationState::default()));
+    if !validation.is_enabled() {
+        return;
+    }
 
-    let site_state = Arc::clone(&state);
-    let site_validation = validation.clone();
-    pages.map(move |id: &Id, pages: SharedValidationPages| {
-        let generation = id
-            .fragment()
-            .expect("invariant")
-            .parse()
-            .expect("invariant");
-        let issues = {
-            let mut state = site_state.lock().expect("invariant");
-            if generation > state.printed {
-                state.sites.insert(generation, pages.0);
-            }
-            validation_issues(&mut state, generation)
-        };
-        if let Some(issues) = issues {
-            issues.print(&site_validation, strict)?;
-        }
-        Ok::<_, anyhow::Error>(())
+    let references = collect_references(config, files);
+    let anchors = pages.map(|page: &Page| {
+        page.content.parse::<Anchors>().map_err(anyhow::Error::from)
     });
+    let pages = (references, anchors, unresolved.clone()).join();
 
-    unresolved.map(
-        move |source: Id,
-              SiteGeneration(generation): SiteGeneration,
-              unresolved: UnresolvedAutorefs| {
-            let issues = {
-                let mut state = state.lock().expect("invariant");
-                if generation > state.printed {
-                    state
-                        .unresolved
-                        .entry(generation)
-                        .or_default()
-                        .insert(source, unresolved);
-                }
-                validation_issues(&mut state, generation)
-            };
-            if let Some(issues) = issues {
-                issues.print(&validation, strict)?;
-            }
-            Ok::<_, anyhow::Error>(())
+    // This reduction is downstream of rendering, so its terminal is reached
+    // only after every page in the settled relation produced a result.
+    let _ = pages.reduce(
+        move |pages: &dyn Collection<
+            Key<Id>,
+            (SharedReferences, Anchors, UnresolvedAutorefs),
+        >| {
+            // Keep this as a borrowed iterator. Validation only needs the
+            // settled relation for the duration of this invocation, so
+            // materializing owned tuples would duplicate all anchor and
+            // unresolved-autoref data at peak.
+            let issues = Issues::new(pages.iter());
+            issues.print(&validation, strict)?;
+            Ok::<_, anyhow::Error>(Some(()))
         },
     );
-}
-
-/// Create issues once every page in a site snapshot has rendered.
-fn validation_issues(
-    state: &mut ValidationState, generation: u64,
-) -> Option<Issues> {
-    if generation <= state.printed {
-        return None;
-    }
-
-    // Check that every page in the snapshot has rendered for this generation
-    let complete = {
-        let site = state.sites.get(&generation)?;
-        let unresolved = state.unresolved.get(&generation);
-        site.iter().all(|(key, _)| {
-            let id = key.try_as_id().expect("invariant");
-            unresolved.is_some_and(|pages| pages.contains_key(id))
-        })
-    };
-    if !complete {
-        return None;
-    }
-
-    // Combine unresolved autorefs with references and anchors per page, and
-    // drop this and all previous generations from the validation state
-    let site = state.sites.remove(&generation).expect("invariant");
-    let mut unresolved =
-        state.unresolved.remove(&generation).unwrap_or_default();
-    let iter = site.iter().cloned().map(|(key, (references, anchors))| {
-        let id = key.try_as_id().expect("invariant");
-        let autorefs = unresolved.remove(id).expect("invariant");
-        (key, (references, anchors, autorefs))
-    });
-    let issues = Issues::new(iter);
-    state.printed = generation;
-    state.sites.retain(|current, _| *current > generation);
-    state.unresolved.retain(|current, _| *current > generation);
-    Some(issues)
 }
 
 /// Compute a hash of the page content relevant to template rendering.
@@ -341,7 +230,7 @@ pub fn process_assets(config: &Config, files: &Stream<Id, Source>) {
     // Create pipeline to copy static assets
     let site_dir = config.project.site_dir.clone();
     let root_dir = config.get_root_dir();
-    files.map(move |id: &Id, from: Source| {
+    let _ = files.map(move |id: &Id, from: &Source| {
         if !matcher.is_match(id).expect("invariant") {
             return Ok(());
         }
@@ -364,7 +253,7 @@ pub fn process_assets(config: &Config, files: &Stream<Id, Source>) {
         // Compute parent path, create intermediate directories and copy files
         let to = root_dir.join(id.to_path());
         fs::create_dir_all(to.parent().expect("invariant"))?;
-        copy_file(&*from, to)?;
+        copy_file(&**from, to)?;
         Ok::<(), anyhow::Error>(())
     });
 }
@@ -377,7 +266,7 @@ pub fn process_theme_assets(config: &Config, files: &Stream<Id, Source>) {
     // Create pipeline to copy static assets
     let site_dir = config.project.site_dir.clone();
     let root_dir = config.get_root_dir();
-    files.map(move |id: &Id, from: Source| {
+    let _ = files.map(move |id: &Id, from: &Source| {
         if !matcher.is_match(id).expect("invariant") {
             return Ok(());
         }
@@ -395,7 +284,7 @@ pub fn process_theme_assets(config: &Config, files: &Stream<Id, Source>) {
         // Compute parent path, create intermediate directories and copy files
         let to = root_dir.join(id.to_path());
         fs::create_dir_all(to.parent().expect("invariant"))?;
-        copy_file(&*from, to)?;
+        copy_file(&**from, to)?;
         Ok::<_, anyhow::Error>(())
     });
 }
@@ -429,8 +318,8 @@ pub fn process_markdown(
         // disposal. Otherwise, just return that if the content did not change.
         // Note that we need to limit concurrency here, or we'll overwhelm the
         // Python interpreter with all tasks competing for the GIL.
-        .map(move |id: &Id, path: Source| {
-            let data = fs::read_to_string(&*path)?;
+        .map(concurrent(1, move |id: &Id, path: &Source| {
+            let data = fs::read_to_string(&**path)?;
 
             // Remove Byte-Order-Mark (BOM)
             let data = data.strip_prefix('\u{FEFF}').unwrap_or(&data);
@@ -485,7 +374,7 @@ pub fn process_markdown(
                     |(_, data, url)| Markdown::new(id, url, data),
                 )
             }
-        })
+        }))
 }
 
 /// Generate pages from Markdown files.
@@ -493,39 +382,42 @@ pub fn generate_page(
     config: &Config, markdown: &Stream<Id, Markdown>,
 ) -> Stream<Id, Page> {
     let config = config.clone();
-    markdown.map(move |id: &Id, markdown| Page::new(&config, id, markdown))
+    markdown.map(move |id: &Id, markdown: &Markdown| {
+        Page::new(&config, id, markdown.clone())
+    })
 }
 
-/// Generate navigation from all pages.
-pub fn generate_nav(
-    config: &Config, pages: &Stream<Id, Vec<(Key<Id>, Page)>>,
-) -> Stream<Id, Navigation> {
+/// Derive one complete site batch at the page-relation terminal.
+fn generate_site(
+    config: &Config, pages: &Stream<Id, Page>,
+) -> Signal<Id, Site> {
     let config = config.clone();
-    pages.map(move |id: &Id, pages: Vec<(Key<Id>, Page)>| {
-        let mut nav = Navigation::new(
+    pages.reduce(move |pages: &dyn Collection<Key<Id>, Page>| {
+        let pages: Vec<_> = pages
+            .iter()
+            .map(|(key, page)| (key.clone(), page.clone()))
+            .collect();
+        let nav = Navigation::new(
             config.get_cache_dir(),
             config.project.nav.clone(),
-            pages,
+            pages.clone(),
         );
-
-        // Adopt the generation of the site snapshot, so that pages rendered
-        // with this navigation can be attributed to the snapshot
-        nav.generation = id
-            .fragment()
-            .expect("invariant")
-            .parse()
-            .expect("invariant");
-        nav
+        Some(Site { pages: Arc::new(pages), nav })
     })
+}
+
+/// Project navigation from the current site batch.
+fn generate_nav(site: &Signal<Id, Site>) -> Signal<Id, Navigation> {
+    site.map(|site: &Site| site.nav.clone())
 }
 
 /// Generate object inventory
 pub fn generate_object_inventory(
-    config: &Config, pages: &Stream<Id, Vec<(Key<Id>, Page)>>,
+    config: &Config, nav: &Stream<Id, Navigation>,
 ) {
     // Retrieve inventory from Python interpreter using pyo3
     let config = config.clone();
-    pages.map(move |_| {
+    let _ = nav.map(move |_: &Navigation| {
         let cache_dir = config.get_cache_dir();
         let cache_path = cache_dir.join("objects.inv");
 
@@ -552,30 +444,36 @@ pub fn generate_object_inventory(
 }
 
 /// Generate search index
-pub fn generate_search_index(
-    config: &Config, nav: &Stream<Id, Navigation>,
-    pages: &Stream<Id, Vec<(Key<Id>, Page)>>,
-) {
+fn generate_search_index(config: &Config, site: &Signal<Id, Site>) {
     let config = config.clone();
-    pages.product(nav).map(move |pages, nav| {
-        let plugin = config.project.plugins.search.config.clone();
-        let language = &config.project.theme.language;
-        let search = SearchIndex::new(pages, &nav, plugin, language);
-
-        // Serialize search index to json, and obtain site directory
-        let data = serde_json::to_string(&search).expect("invariant");
+    let _ = site.map(move |site: &Site| {
+        // Derive search only in this terminal branch, so its complete item
+        // relation is released immediately after the files are written.
+        let search = SearchIndex::new(
+            site.pages.as_ref().clone(),
+            &site.nav,
+            config.project.plugins.search.config.clone(),
+            &config.project.theme.language,
+        );
         let site_dir = config.get_site_dir();
 
-        // Write search index to disk
+        // Stream the search index directly to disk without retaining an
+        // additional JSON string alongside the structured representation.
         let path = site_dir.join("search.json");
         fs::create_dir_all(path.parent().expect("invariant"))?;
-        fs::write(path, &data)?;
+        let mut writer = BufWriter::new(fs::File::create(path)?);
+        serde_json::to_writer(&mut writer, &search)?;
+        writer.flush()?;
 
         // If offline plugin is enabled, create search.js as well
         if config.project.plugins.offline.config.enabled {
             let path = site_dir.join("search.js");
             fs::create_dir_all(path.parent().expect("invariant"))?;
-            fs::write(path, format!("var __index = {data};").as_str())?;
+            let mut writer = BufWriter::new(fs::File::create(path)?);
+            writer.write_all(b"var __index = ")?;
+            serde_json::to_writer(&mut writer, &search)?;
+            writer.write_all(b";")?;
+            writer.flush()?;
         }
 
         // All files were written successfully
@@ -585,7 +483,7 @@ pub fn generate_search_index(
 
 /// Render static and extra templates.
 pub fn render_templates(
-    config: &Config, files: &Stream<Id, Source>, nav: &Stream<Id, Navigation>,
+    config: &Config, files: &Stream<Id, Source>, nav: &Signal<Id, Navigation>,
 ) -> Stream<Id, ()> {
     let docs_dir = config.project.docs_dir.clone();
 
@@ -615,62 +513,66 @@ pub fn render_templates(
     theme_dirs.push(config.get_docs_dir());
 
     // Create pipeline to render templates
+    let renderer = Template::new(theme_dirs);
     let config = config.clone();
-    templates.product(nav).map(move |template: Source, nav| {
-        let name = Path::new(&*template).file_name().expect("invariant");
-        let site_dir = config.get_site_dir();
+    templates
+        .product(nav)
+        .map(move |template: &Source, nav: &Navigation| {
+            let name = Path::new(&**template).file_name().expect("invariant");
+            let site_dir = config.get_site_dir();
 
-        // Obtain template
-        let template =
-            Template::new(name.to_string_lossy(), theme_dirs.clone());
-
-        // Render template and write to disk
-        let data = template.render(&config, &nav)?;
-        let path = site_dir.join(name);
-        fs::create_dir_all(path.parent().expect("invariant"))?;
-        fs::write(path, &data)?;
-        Ok::<_, anyhow::Error>(())
-    })
+            // Render template and write to disk
+            let data =
+                renderer.render(&name.to_string_lossy(), &config, nav)?;
+            let path = site_dir.join(name);
+            fs::create_dir_all(path.parent().expect("invariant"))?;
+            fs::write(path, &data)?;
+            Ok::<_, anyhow::Error>(())
+        })
 }
 
 /// Render pages.
-pub fn render_pages(
-    config: &Config, page: &Stream<Id, Page>, nav: &Stream<Id, Navigation>,
-) -> Stream<Id, (Id, SiteGeneration, UnresolvedAutorefs)> {
+fn render_pages(
+    config: &Config, site: &Signal<Id, Site>,
+) -> Stream<Id, UnresolvedAutorefs> {
+    let pages = site.flat_map(|site: &Site| {
+        site.pages
+            .iter()
+            .map(|(key, page)| (key.clone(), (page.clone(), site.nav.clone())))
+            .collect::<Vec<_>>()
+    });
+
+    let template = OnceLock::new();
+    let theme_dirs = config.theme_dirs.clone();
     let config = config.clone();
-    let pages = page.map(|id: &Id, page: Page| (id.clone(), page));
-    pages.product(nav).map(
-        move |(source, mut page): (Id, Page), nav: Navigation| {
-            let id = page.url.clone();
+    pages.map(move |page: &Page, nav: &Navigation| {
+        let mut page = page.clone();
+        let id = page.url.clone();
 
-            // Cache template rendering independently of autorefs, which are
-            // substituted below on every pass. Deriving a cache key for the
-            // substitution would require the same resolution scan that the
-            // substitution itself performs, so caching it can't pay off.
-            let args = (config.hash, nav.hash, page_hash(&page));
-            let rendered =
-                cached(&config, ("template", id), args, |(_, _, _)| {
-                    Ok(page.render_template(&config, nav.clone())?)
-                })?;
+        // Cache template rendering independently of autorefs, which are
+        // substituted below on every pass. Deriving a cache key for the
+        // substitution would require the same resolution scan that the
+        // substitution itself performs, so caching it can't pay off.
+        let args = (config.hash, nav.hash, page_hash(&page));
+        let rendered = cached(&config, ("template", id), args, |(_, _, _)| {
+            let template =
+                template.get_or_init(|| Template::new(theme_dirs.clone()));
+            Ok(page.render_template(template, &config, nav.clone())?)
+        })?;
 
-            // Replace autorefs and retain unresolved identifiers
-            let (data, unresolved) =
-                nav.autorefs.replace_in(&rendered, &page.url);
+        // Replace autorefs and retain unresolved identifiers
+        let (data, unresolved) = nav.autorefs.replace_in(rendered, &page.url);
 
-            let path = Path::new(&page.path);
-            fs::create_dir_all(path.parent().expect("invariant"))?;
-            fs::write(path, &data)?;
-            let generation = SiteGeneration(nav.generation);
-            Ok::<_, anyhow::Error>((source, generation, unresolved))
-        },
-    )
+        let path = Path::new(&page.path);
+        fs::create_dir_all(path.parent().expect("invariant"))?;
+        fs::write(path, &data)?;
+        Ok::<_, anyhow::Error>(unresolved)
+    })
 }
 
 /// Creates a workflow for the given config.
 pub fn create_workflow(config: &Config, strict: bool) -> Workflow<Id> {
-    let mut context = Context::default();
-    Main { config: config.clone(), strict }
-        .setup(&mut context)
-        .expect("invariant");
-    context.into()
+    Workflow::build(|workflow| {
+        Main { config: config.clone(), strict }.setup(workflow);
+    })
 }

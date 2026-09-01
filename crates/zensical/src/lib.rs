@@ -30,7 +30,8 @@
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::needless_pass_by_value)]
 
-use crossbeam::channel::unbounded;
+use crossbeam::channel::{unbounded, RecvTimeoutError};
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::Python;
 use std::path::{Path, PathBuf};
@@ -38,7 +39,6 @@ use std::process;
 use std::time::{Duration, Instant};
 use std::{fs, io, thread};
 use zrx::id::Id;
-use zrx::scheduler::Scheduler;
 
 mod config;
 mod python;
@@ -191,19 +191,17 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         Mode::Serve(_, _) => false,
     };
 
-    // Create workspace and scheduler
+    // Create workflow runner and acquire its source input
     let workflow = create_workflow(&config, strict);
-    let mut scheduler = Scheduler::<Id>::default();
-    scheduler.attach(workflow);
+    let mut runner = workflow
+        .runner()
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    let mut input = runner
+        .input::<watcher::Source>()
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
 
     // Create channel for reload notifications
     let (sender, receiver) = unbounded();
-
-    // Create session to connect file agent and scheduler - note that we must
-    // assign the agent to a variable right now, or it is dropped, and will
-    // automatically terminate. This is a temporary workaround until we could
-    // better integrate the scheduler with the agent.
-    let session = scheduler.session();
 
     // If site should be served, create HTTP server - note that we must assign
     // the agent to a variable right now or it's dropped and will automatically
@@ -229,58 +227,47 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     };
 
     let serve = matches!(mode, Mode::Serve(_, _));
-    let watcher = Watcher::new(&config, serve, session, sender, waker.clone())?;
+    let watcher = Watcher::new(&config, serve, sender, waker.clone())?;
 
-    // Hack: the scheduler and file agent are currently not synchronized, which
-    // can lead to cases where the file agent is still busy reading the contents
-    // of the docs directory before starting to emit anything, and the scheduler
-    // starting off while having nothing to do. We need to improve communication
-    // between both parts of the system. In the meantime, we wait until the
-    // scheduler has something to do, before kicking off work.
-    while scheduler.is_empty() {
-        thread::sleep(Duration::from_millis(10));
-    }
-
-    // Start event loop after a short delay - once we tightly integrated the
-    // file agent with the scheduler, the sleep can be removed
+    // Start the event loop. Each debounced watcher batch is admitted as one
+    // source revision and fully settled before the next batch is accepted.
     println!("Build started");
     let time = Instant::now();
-    let mut maybe_err = None;
     loop {
-        match mode {
-            // Build mode - just exit when we're done
-            Mode::Build(..) => {
-                if let Err(err) =
-                    scheduler.tick_timeout(Duration::from_millis(100))
-                {
-                    maybe_err = Some(err);
-                    break;
+        match watcher.receive(Duration::from_millis(100)) {
+            Ok(changes) => {
+                let mut revision = input
+                    .begin()
+                    .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+                for change in changes {
+                    revision.emit(change).map_err(|err| {
+                        PyRuntimeError::new_err(err.to_string())
+                    })?;
                 }
-                if scheduler.is_empty() {
+                input = revision
+                    .seal()
+                    .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+
+                let run = runner
+                    .settle()
+                    .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+                report_failures(&run)?;
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => match mode {
+                Mode::Build(..) => {
                     let elapsed = time.elapsed().as_secs_f32();
                     println!("Build finished in {elapsed:.2}s");
                     break;
                 }
-            }
-            // Serve mode - keep watching, until the watcher terminates, which
-            // happens if the configuration file changed. After we've integrated
-            // the scheduler with the agent, we can remove this temporary hack
-            // and have immediate reloading.
-            Mode::Serve(..) => {
-                if let Err(err) =
-                    scheduler.tick_timeout(Duration::from_millis(100))
-                {
-                    maybe_err = Some(err);
-                    break;
-                }
-                if watcher.is_terminated() {
+                Mode::Serve(..) => {
                     // Wake the server
                     if let Some(waker) = &waker {
                         waker.wake()?;
                     }
                     return Ok(true);
                 }
-            }
+            },
         }
 
         // Allow Python to handle signals (e.g., Ctrl+C)
@@ -290,21 +277,18 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         }
     }
 
-    // Exit with error, if any
-    if let Some(err) = maybe_err {
-        println!("{err}");
-        // Walk the error source chain so the root cause (e.g. a missing icon
-        // name) is visible instead of only the outermost template error.
-        let mut cause: &dyn std::error::Error = &err;
-        while let Some(source) = cause.source() {
-            println!("  caused by: {source}");
-            cause = source;
-        }
-        std::process::exit(1);
-    }
-
     // All good
     Ok(false)
+}
+
+/// Returns the first action failure reported by one settled run.
+fn report_failures(run: &zrx::stream::Run<Id>) -> PyResult<()> {
+    for invocation in run.report().invocations() {
+        if let Some(failure) = invocation.outcomes.failures().first() {
+            return Err(PyRuntimeError::new_err(format!("{failure:#}")));
+        }
+    }
+    Ok(())
 }
 
 // ----------------------------------------------------------------------------

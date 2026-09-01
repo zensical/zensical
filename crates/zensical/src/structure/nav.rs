@@ -35,7 +35,8 @@ use pyo3::types::{PyAny, PyAnyMethods};
 use pyo3::{Bound, FromPyObject, PyResult, Python};
 use serde::Serialize;
 use zrx::id::Id;
-use zrx::scheduler::{Key, Value};
+use zrx::scheduler::Value;
+use zrx::stream::Key;
 
 use crate::structure::markdown::Autorefs;
 
@@ -43,9 +44,11 @@ use super::page::Page;
 
 mod item;
 mod iter;
+mod view;
 
 pub use item::NavigationItem;
 use iter::Iter;
+pub(crate) use view::NavigationView;
 
 // ----------------------------------------------------------------------------
 // Constants
@@ -188,44 +191,6 @@ impl Navigation {
             autorefs: Arc::new(autorefs),
             hash,
             generation: 0,
-        }
-    }
-
-    /// Returns a copy of the navigation with the active item set based on the
-    /// current URL. This mirrors MkDocs' behavior of setting the "active"
-    /// state on navigation items, which is then used for styling.
-    ///
-    /// Note that this does not modify the navigation in place, but returns a
-    /// new instance with the active state set. This is important, as we need
-    /// to keep the original navigation structure intact for other pages.
-    pub fn with_active(self, page: &Page) -> Self {
-        /// Recursively set active state on navigation items.
-        fn recurse(items: &mut [NavigationItem], url: &str) -> bool {
-            for item in items.iter_mut() {
-                if item.url.as_deref() == Some(url) {
-                    item.active = true;
-                    return true;
-                }
-
-                // If we haven't found the item yet, recurse into children
-                if recurse(&mut item.children, url) {
-                    item.active = true;
-                    return true;
-                }
-            }
-            false
-        }
-
-        // Set active state starting from the root
-        let mut items = self.items;
-        let items_mut = Arc::<Vec<NavigationItem>>::make_mut(&mut items);
-        recurse(items_mut, &page.url);
-        Self {
-            items,
-            homepage: self.homepage,
-            autorefs: self.autorefs,
-            hash: self.hash,
-            generation: self.generation,
         }
     }
 

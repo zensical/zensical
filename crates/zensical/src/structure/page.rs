@@ -25,7 +25,7 @@
 
 //! Page.
 
-use minijinja::{context, Error};
+use minijinja::{context, Error, Value as TemplateValue};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::ops::Deref;
@@ -40,10 +40,8 @@ use crate::template::{Output, Template, GENERATOR};
 
 use super::dynamic::Dynamic;
 use super::markdown::Markdown;
-use super::nav::{Navigation, NavigationItem};
-use super::search::SearchItem;
+use super::nav::{Navigation, NavigationItem, NavigationView};
 use super::tag::Tag;
-use super::toc::Section;
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -54,7 +52,7 @@ use super::toc::Section;
 /// Page values are cloned by the scheduler as they fan out into navigation,
 /// search, validation, and rendering branches. Keeping the immutable payload
 /// behind an [`Arc`] makes those clones constant-sized.
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, Serialize)]
 pub struct PageData {
     /// Page target URL.
     pub url: String,
@@ -62,18 +60,11 @@ pub struct PageData {
     pub canonical_url: Option<String>,
     /// Page edit URL.
     pub edit_url: Option<String>,
-    /// Page title.
-    pub title: String,
-    /// Page metadata.
-    pub meta: PageMeta,
     /// Page file system path.
     pub path: String,
-    /// Page content.
-    pub content: String,
-    /// Table of contents.
-    pub toc: Vec<Section>,
-    /// Search index.
-    pub search: Vec<SearchItem>,
+    /// Rendered Markdown shared with the upstream value.
+    #[serde(flatten)]
+    markdown: Markdown,
 }
 
 /// Page.
@@ -189,14 +180,10 @@ impl Page {
         Page {
             data: Arc::new(PageData {
                 url,
-                title: markdown.title,
-                meta: markdown.meta,
                 canonical_url,
                 edit_url,
-                content: markdown.content,
-                toc: markdown.toc,
-                search: markdown.search,
                 path: path.to_string_lossy().into_owned(),
+                markdown,
             }),
             ancestors: Vec::new(),
             previous_page: None,
@@ -210,32 +197,31 @@ impl Page {
         tracing::instrument(skip_all, fields(url = %self.url))
     )]
     pub fn render_template(
-        &mut self, config: &Config, nav: Navigation,
+        &mut self, template: &Template, config: &Config, nav: Navigation,
     ) -> Result<Output, Error> {
         let name = self.meta.get("template").map(ToString::to_string);
-        let template = Template::new(
-            name.unwrap_or(String::from("main.html")),
-            config.theme_dirs.clone(),
-        );
+        let name = name.as_deref().unwrap_or("main.html");
 
-        // Set active page in navigation and compute ancestors, as well as next
-        // and previous page, all of which we need for rendering navigation
-        let nav = nav.with_active(self);
+        // Compute page relations from the immutable navigation.
         self.ancestors = nav.ancestors(self);
         self.previous_page = nav.previous_page(self);
         self.next_page = nav.next_page(self);
 
-        // Create context and render template
-        let output = template.render_with_context(context! {
-            generator => GENERATOR,
-            nav => nav,
-            base_url => config.get_base_url(&self.url),
-            extra_css => config.project.extra_css.clone(),
-            extra_javascript => config.project.extra_javascript.clone(),
-            config => config.project.clone(),
-            tags => self.tags(),
-            page => self,
-        })?;
+        // Add the page-local active overlay without cloning the navigation tree.
+        let nav = NavigationView::new(nav, Some(&self.url));
+        let output = template.render_with_context(
+            name,
+            context! {
+                generator => GENERATOR,
+                nav => TemplateValue::from_object(nav),
+                base_url => config.get_base_url(&self.url),
+                extra_css => config.project.extra_css.clone(),
+                extra_javascript => config.project.extra_javascript.clone(),
+                config => config.project.clone(),
+                tags => self.tags(),
+                page => self,
+            },
+        )?;
 
         Ok(Output::from(output))
     }
@@ -257,6 +243,36 @@ impl Page {
 // ----------------------------------------------------------------------------
 
 impl Value for Page {}
+
+// ----------------------------------------------------------------------------
+
+impl PartialEq for PageData {
+    fn eq(&self, other: &Self) -> bool {
+        self.url == other.url
+            && self.canonical_url == other.canonical_url
+            && self.edit_url == other.edit_url
+            && self.title == other.title
+            && self.meta == other.meta
+            && self.path == other.path
+            && self.content == other.content
+            && self.toc == other.toc
+            && self.search == other.search
+    }
+}
+
+impl Eq for PageData {}
+
+// ----------------------------------------------------------------------------
+
+impl Deref for PageData {
+    type Target = Markdown;
+
+    /// Dereferences to rendered Markdown data.
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.markdown
+    }
+}
 
 // ----------------------------------------------------------------------------
 
@@ -284,19 +300,24 @@ pub type PageMeta = BTreeMap<String, Dynamic>;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn page() -> Page {
+        let markdown = serde_json::from_value(json!({
+            "title": "Home",
+            "meta": {},
+            "content": "<h1>Home</h1>",
+            "toc": [],
+            "search": [],
+        }))
+        .unwrap();
         Page {
             data: Arc::new(PageData {
                 url: String::from("/"),
                 canonical_url: None,
                 edit_url: None,
-                title: String::from("Home"),
-                meta: PageMeta::new(),
                 path: String::from("site/index.html"),
-                content: String::from("<h1>Home</h1>"),
-                toc: Vec::new(),
-                search: Vec::new(),
+                markdown,
             }),
             ancestors: Vec::new(),
             previous_page: None,

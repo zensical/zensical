@@ -46,7 +46,6 @@ pyo3.workspace = true
 thiserror.workspace = true
 tracing = { workspace = true, optional = true }
 walkdir.workspace = true
-zrx.workspace = true
 
 [features]
 default = []

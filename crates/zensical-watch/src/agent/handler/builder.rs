@@ -27,7 +27,7 @@
 
 use crossbeam::channel::Receiver;
 
-use super::{Action, Event, Handler, Manager, Monitor, Result};
+use super::{Action, Event, EventHandler, Handler, Manager, Monitor, Result};
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -38,7 +38,7 @@ pub struct Builder {
     /// Action receiver.
     receiver: Option<Receiver<Action>>,
     /// Event handler.
-    handler: Option<Box<dyn FnMut(Result<Event>) -> Result>>,
+    handler: Option<EventHandler>,
     /// File monitor.
     monitor: Option<Monitor>,
     /// File manager.
@@ -85,7 +85,7 @@ impl Builder {
     pub fn handler<F>(mut self, handler: F) -> Self
     where
         F: 'static + Send,
-        F: FnMut(Result<Event>) -> Result,
+        F: FnMut(Vec<Result<Event>>) -> Result,
     {
         self.handler = Some(Box::new(handler));
         self

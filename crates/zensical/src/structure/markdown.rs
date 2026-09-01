@@ -30,7 +30,8 @@ use pyo3::types::{PyAnyMethods, PyTracebackMethods};
 use pyo3::{FromPyObject, Python};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::sync::{Mutex, OnceLock};
+use std::ops::Deref;
+use std::sync::Arc;
 use zrx::id::Id;
 use zrx::stream::Value;
 
@@ -44,20 +45,25 @@ mod autorefs;
 pub use autorefs::{Autorefs, UnresolvedAutorefs};
 
 // ----------------------------------------------------------------------------
-// Constants
-// ----------------------------------------------------------------------------
-
-/// Global lock for rendering Markdown, to ensure thread safety of the Python
-static RENDER_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-// ----------------------------------------------------------------------------
 // Structs
 // ----------------------------------------------------------------------------
 
 /// Markdown.
-#[derive(Clone, Debug, FromPyObject, Serialize, Deserialize)]
-#[pyo3(from_item_all)]
+///
+/// The rendered payload is shared with the page derived from it. This keeps
+/// the stream callback borrowed while making the Markdown-to-page handoff a
+/// constant-sized clone.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Markdown {
+    /// Immutable rendered Markdown data.
+    #[serde(flatten)]
+    data: Arc<MarkdownData>,
+}
+
+/// Immutable rendered Markdown data.
+#[derive(Debug, FromPyObject, Serialize, Deserialize)]
+#[pyo3(from_item_all)]
+pub struct MarkdownData {
     /// Markdown metadata.
     pub meta: BTreeMap<String, Dynamic>,
     /// Markdown content.
@@ -79,12 +85,11 @@ impl Markdown {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
     pub fn new(id: &Id, url: String, content: String) -> Result<Markdown> {
         let id = id.clone();
-        let guard = RENDER_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
         let res = Python::attach(|py| {
             let module = py.import("zensical.markdown.render")?;
             module
                 .call_method1("render", (content, id.location(), url))?
-                .extract::<Markdown>()
+                .extract::<MarkdownData>()
         })
         .map_err(|err| {
             Python::attach(|py| {
@@ -96,15 +101,9 @@ impl Markdown {
             })
         });
 
-        // Explicitly drop the lock guard here, so we're sure to hold it just
-        // until after Python finished executing the rendering logic
-        drop(guard);
-        res.map(|markdown| Markdown {
-            title: extract_title(&id, &markdown),
-            meta: markdown.meta,
-            content: markdown.content,
-            search: markdown.search,
-            toc: markdown.toc,
+        res.map(|mut data| {
+            data.title = extract_title(&id, &data);
+            Markdown { data: Arc::new(data) }
         })
     }
 }
@@ -114,6 +113,18 @@ impl Markdown {
 // ----------------------------------------------------------------------------
 
 impl Value for Markdown {}
+
+// ----------------------------------------------------------------------------
+
+impl Deref for Markdown {
+    type Target = MarkdownData;
+
+    /// Dereferences to immutable rendered Markdown data.
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
 
 // ----------------------------------------------------------------------------
 
@@ -137,7 +148,7 @@ impl Eq for Markdown {}
 ///
 /// We'll fix this in our modular navigation proposal that will make title
 /// handling much more flexible in the near future.
-fn extract_title(id: &Id, markdown: &Markdown) -> String {
+fn extract_title(id: &Id, markdown: &MarkdownData) -> String {
     if let Some(value) = markdown.meta.get("title") {
         return value.to_string();
     }
@@ -160,4 +171,46 @@ fn extract_title(id: &Id, markdown: &Markdown) -> String {
     // Extract file, and return title
     let file = components.pop().expect("invariant");
     to_title(&file)
+}
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn markdown() -> Markdown {
+        Markdown {
+            data: Arc::new(MarkdownData {
+                meta: BTreeMap::new(),
+                content: String::from("<h1>Home</h1>"),
+                search: Vec::new(),
+                title: String::from("Home"),
+                toc: Vec::new(),
+            }),
+        }
+    }
+
+    #[test]
+    fn clone_shares_immutable_data() {
+        let markdown = markdown();
+        let clone = markdown.clone();
+
+        assert!(Arc::ptr_eq(&markdown.data, &clone.data));
+    }
+
+    #[test]
+    fn serialization_keeps_flat_markdown_shape() {
+        let value = serde_json::to_value(markdown()).unwrap();
+
+        assert_eq!(value["content"], "<h1>Home</h1>");
+        assert_eq!(value["title"], "Home");
+        assert!(value.get("data").is_none());
+
+        let markdown: Markdown = serde_json::from_value(value).unwrap();
+        assert_eq!(markdown.content, "<h1>Home</h1>");
+        assert_eq!(markdown.title, "Home");
+    }
 }

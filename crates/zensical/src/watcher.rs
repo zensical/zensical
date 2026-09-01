@@ -25,7 +25,7 @@
 
 //! File watcher.
 
-use crossbeam::channel::Sender;
+use crossbeam::channel::{unbounded, Receiver, RecvTimeoutError, Sender};
 use mio::Waker;
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
@@ -36,7 +36,7 @@ use std::time::Duration;
 use zensical_watch::event::{Event, Kind};
 use zensical_watch::{Agent, Error, Result};
 use zrx::id::Id;
-use zrx::scheduler::Session;
+use zrx::stream::Change;
 
 use super::config::Config;
 
@@ -54,7 +54,9 @@ pub use source::Source;
 /// logic into a provider architecture that will make things more flexible.
 pub struct Watcher {
     /// File agent.
-    agent: Agent,
+    _agent: Agent,
+    /// Debounced source changes.
+    changes: Receiver<Vec<Change<Id, Source>>>,
 }
 
 // ----------------------------------------------------------------------------
@@ -65,9 +67,10 @@ impl Watcher {
     /// Creates a file watcher.
     #[allow(clippy::too_many_lines)]
     pub fn new(
-        config: &Config, serve: bool, session: Session<Id, Source>,
-        reload: Sender<String>, waker: Option<Arc<Waker>>,
+        config: &Config, serve: bool, reload: Sender<String>,
+        waker: Option<Arc<Waker>>,
     ) -> Result<Self> {
+        let (changes, receiver) = unbounded();
         let mut sources = Vec::default();
 
         // Add docs directory and theme directories
@@ -107,14 +110,19 @@ impl Watcher {
         // should be sufficient to correctly determine rename events
         let agent = Agent::new(Duration::from_millis(20), serve, {
             let config = config.clone();
-            move |res| {
-                // For now, we just swallow the event, as the file agent should
-                // Skip anything other than files and symbolic links.
-                // Link events allow assets provided via editable installs
-                // (e.g. symlinked theme directories) to enter the build.
-                if let Ok(event) = res {
+            move |results| {
+                let mut batch = Vec::new();
+                for res in results {
+                    // For now, we just swallow errors from the file agent.
+                    let Ok(event) = res else {
+                        continue;
+                    };
+
+                    // Skip anything other than files and symbolic links.
+                    // Link events allow assets provided via editable installs
+                    // (e.g. symlinked theme directories) to enter the build.
                     if !matches!(event.kind(), Kind::File | Kind::Link) {
-                        return Ok(());
+                        continue;
                     }
 
                     // Ignore symbolic links that don't resolve to files.
@@ -125,7 +133,7 @@ impl Watcher {
                         && !fs::metadata(event.path().as_path())
                             .is_ok_and(|meta| meta.is_file())
                     {
-                        return Ok(());
+                        continue;
                     }
 
                     // Canonicalize once to compare against configured paths,
@@ -194,32 +202,44 @@ impl Watcher {
                         }
 
                         // We don't trigger rebuilds for the site directory
-                        return Ok(());
+                        continue;
                     }
 
-                    // Compute an identifier from the path and known contexts -
-                    // in case the session is disconnected, the agent terminates
+                    // Compute an identifier from the path and known contexts.
                     match event {
                         // File was created or modified
                         Event::Create { path, .. }
                         | Event::Modify { path, .. } => {
                             let data = path.to_string_lossy().into_owned();
-                            session
-                                .insert(to_id(path, &sources), data.into())?;
+                            batch.push(Change::Insert(
+                                to_id(path, &sources).into(),
+                                data.into(),
+                            ));
                         }
 
                         // File was renamed
                         Event::Rename { from, to, .. } => {
                             let data = to.to_string_lossy().into_owned();
-                            session.remove(to_id(from, &sources))?;
-                            session.insert(to_id(to, &sources), data.into())?;
+                            batch.push(Change::Remove(
+                                to_id(from, &sources).into(),
+                            ));
+                            batch.push(Change::Insert(
+                                to_id(to, &sources).into(),
+                                data.into(),
+                            ));
                         }
 
                         // File was removed
                         Event::Remove { path, .. } => {
-                            session.remove(to_id(path, &sources))?;
+                            batch.push(Change::Remove(
+                                to_id(path, &sources).into(),
+                            ));
                         }
                     }
+                }
+
+                if !batch.is_empty() {
+                    changes.send(batch)?;
                 }
                 Ok(())
             }
@@ -260,12 +280,17 @@ impl Watcher {
 
         // Return file watcher
         agent.watch(config.get_docs_dir())?;
-        Ok(Self { agent })
+        Ok(Self {
+            _agent: agent,
+            changes: receiver,
+        })
     }
 
-    /// Returns whether the watcher is terminated.
-    pub fn is_terminated(&self) -> bool {
-        self.agent.is_terminated()
+    /// Receives the next debounced source-change batch.
+    pub fn receive(
+        &self, timeout: Duration,
+    ) -> std::result::Result<Vec<Change<Id, Source>>, RecvTimeoutError> {
+        self.changes.recv_timeout(timeout)
     }
 }
 

@@ -30,7 +30,6 @@ use pyo3::exceptions::{PyIOError, PyRuntimeError};
 use pyo3::PyErr;
 use std::{io, result};
 use thiserror::Error;
-use zrx::scheduler::session;
 
 // ----------------------------------------------------------------------------
 // Enums
@@ -75,16 +74,6 @@ impl From<RecvError> for Error {
         Error::Disconnected
     }
 }
-
-impl From<session::Error> for Error {
-    /// Creates an error from a session error.
-    #[inline]
-    fn from(_: session::Error) -> Self {
-        Error::Disconnected
-    }
-}
-
-// ----------------------------------------------------------------------------
 
 impl From<Error> for PyErr {
     /// Converts a file agent error to a Python error.

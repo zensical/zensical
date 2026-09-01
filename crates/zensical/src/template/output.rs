@@ -56,6 +56,16 @@ impl From<String> for Output {
 
 // ----------------------------------------------------------------------------
 
+impl From<Output> for String {
+    /// Returns the output as a string.
+    #[inline]
+    fn from(value: Output) -> Self {
+        value.0
+    }
+}
+
+// ----------------------------------------------------------------------------
+
 impl Deref for Output {
     type Target = String;
 
