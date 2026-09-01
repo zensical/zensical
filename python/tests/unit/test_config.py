@@ -171,6 +171,18 @@ class TestPluginShimming:
         config = self._parse_yaml(tmp_path, plugins={"glightbox": {}})
         assert GlightboxExtension.name in config["markdown_extensions"]
 
+    @pytest.mark.parametrize(
+        "entry", ["material/meta", {"material/meta": None}]
+    )
+    def test_material_meta_presence_enables_defaults(
+        self, tmp_path: Path, entry: object
+    ) -> None:
+        config = self._parse_yaml(tmp_path, plugins=[entry])
+        assert config["plugins"]["meta"]["config"] == {
+            "enabled": True,
+            "meta_file": ".meta.yml",
+        }
+
     def test_material_meta_plugin_is_normalized(self, tmp_path: Path) -> None:
         config = self._parse_yaml(
             tmp_path,
@@ -182,6 +194,25 @@ class TestPluginShimming:
             "meta_file": "defaults.yml",
         }
         assert config["plugins_hash"] == cfg_module._hash(config["plugins"])
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "material/meta",
+            "redirects",
+            "minify",
+            "literate-nav",
+            "awesome-nav",
+        ],
+    )
+    def test_native_plugin_configuration_must_be_a_mapping(
+        self, tmp_path: Path, name: str
+    ) -> None:
+        with pytest.raises(
+            cfg_module.ConfigurationError,
+            match=rf"{name} configuration must be a mapping",
+        ):
+            self._parse_yaml(tmp_path, plugins={name: []})
 
     def test_redirects_plugin_is_normalized(self, tmp_path: Path) -> None:
         config = self._parse_yaml(
@@ -292,7 +323,6 @@ class TestPluginShimming:
     @pytest.mark.parametrize(
         ("plugin", "message"),
         [
-            ([], "configuration must be a mapping"),
             ({"unknown": True}, "unknown awesome-nav option"),
             ({"filename": 42}, "filename must be a string"),
             ({"filename": ""}, "filename must not be empty"),

@@ -336,7 +336,7 @@ impl Value for Manifest {}
 
 /// Transforms selected resources, writes every effective asset, and publishes
 /// the project view whose configured asset paths name the emitted files.
-pub(super) fn setup(
+pub fn setup(
     plugin: &Minify, resources: &Stream<Id, Resource>,
 ) -> Signal<Id, Manifest> {
     let settings = Settings::new(plugin.config());

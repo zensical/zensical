@@ -1292,8 +1292,8 @@ def _convert_plugin_markdown_extensions(
 
 def _convert_plugins(value: Any, config: dict) -> dict:
     """Convert plugins configuration to something we can work with."""
-    plugins = {}
-    tags = []
+    plugins: dict[str, Any] = {}
+    tags: list[dict[str, Any]] = []
 
     def add(name: str, data: Any) -> None:
         """Preserve tags instances while retaining legacy map semantics."""
@@ -1334,35 +1334,23 @@ def _convert_plugins(value: Any, config: dict) -> dict:
 
     # Consume Material's public plugin name and normalize it to the internal
     # identifier extracted into typed Rust configuration.
-    material_meta = plugins.pop("material/meta", None)
-    if material_meta is None:
-        meta = {"enabled": False, "meta_file": ".meta.yml"}
-    else:
-        meta = dict(material_meta or {})
-        set_default(meta, "enabled", True, bool)
-        set_default(meta, "meta_file", ".meta.yml", str)
+    present, meta = _pop_plugin_config(plugins, "material/meta")
+    set_default(meta, "enabled", present, bool)
+    set_default(meta, "meta_file", ".meta.yml", str)
     plugins["meta"] = meta
 
     # Normalize redirects into typed native configuration. The enabled flag is
     # internal; plugin presence retains MkDocs' activation semantics.
-    if "redirects" not in plugins:
-        redirects = {"enabled": False, "redirect_maps": {}}
-    else:
-        redirects = dict(plugins["redirects"] or {})
-        set_default(redirects, "enabled", True, bool)
-        set_default(redirects, "redirect_maps", {}, dict)
+    present, redirects = _pop_plugin_config(plugins, "redirects")
+    set_default(redirects, "enabled", present, bool)
+    set_default(redirects, "redirect_maps", {}, dict)
     plugins["redirects"] = redirects
 
     # Normalize the complete mkdocs-minify-plugin configuration surface. Asset
     # settings are retained for the dedicated copy/output stage; the inline
     # switches are Zensical extensions handled by the final HTML pass.
-    minify: dict[str, Any]
-    if "minify" not in plugins:
-        minify = {"enabled": False}
-    else:
-        minify = dict(plugins["minify"] or {})
-        set_default(minify, "enabled", True, bool)
-
+    present, minify = _pop_plugin_config(plugins, "minify")
+    set_default(minify, "enabled", present, bool)
     set_default(minify, "minify_html", False, bool)
     set_default(minify, "minify_js", False, bool)
     set_default(minify, "minify_css", False, bool)
@@ -1401,13 +1389,8 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     # Normalize mkdocs-literate-nav without importing or executing the plugin.
     # Python retains extension objects and callables for the narrow Markdown
     # rendering boundary; Rust owns discovery and navigation resolution.
-    literate_nav: dict[str, Any]
-    if "literate-nav" not in plugins:
-        literate_nav = {"enabled": False}
-    else:
-        literate_nav_config = plugins.pop("literate-nav")
-        literate_nav = dict(literate_nav_config or {})
-        set_default(literate_nav, "enabled", True, bool)
+    present, literate_nav = _pop_plugin_config(plugins, "literate-nav")
+    set_default(literate_nav, "enabled", present, bool)
     set_default(literate_nav, "nav_file", "SUMMARY.md", str)
     set_default(literate_nav, "implicit_index", False, bool)
     set_default(literate_nav, "tab_length", 4, int)
@@ -1420,19 +1403,8 @@ def _convert_plugins(value: Any, config: dict) -> dict:
 
     # Normalize mkdocs-awesome-nav without importing or executing the plugin.
     # Rust owns discovery, YAML parsing, matching and navigation resolution.
-    awesome_nav: dict[str, Any]
-    if "awesome-nav" not in plugins:
-        awesome_nav = {"enabled": False}
-    else:
-        awesome_nav_config = plugins.pop("awesome-nav")
-        if awesome_nav_config is not None and not isinstance(
-            awesome_nav_config, dict
-        ):
-            raise ConfigurationError(
-                "awesome-nav configuration must be a mapping"
-            )
-        awesome_nav = dict(awesome_nav_config or {})
-        set_default(awesome_nav, "enabled", True, bool)
+    present, awesome_nav = _pop_plugin_config(plugins, "awesome-nav")
+    set_default(awesome_nav, "enabled", present, bool)
     unknown = set(awesome_nav) - {"enabled", "filename", "logs"}
     if unknown:
         option = sorted(unknown)[0]
@@ -1516,3 +1488,17 @@ def _convert_plugins(value: Any, config: dict) -> dict:
 
     # Return plugins
     return plugins
+
+
+def _pop_plugin_config(
+    plugins: dict[str, Any], name: str
+) -> tuple[bool, dict[str, Any]]:
+    """Consume one optional mapping while preserving presence semantics."""
+    if name not in plugins:
+        return False, {}
+    value = plugins.pop(name)
+    if value is None:
+        return True, {}
+    if not isinstance(value, dict):
+        raise ConfigurationError(f"{name} configuration must be a mapping")
+    return True, dict(value)

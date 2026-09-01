@@ -89,12 +89,16 @@ impl Resources {
     }
 
     /// Classifies sources and resolves docs-over-theme precedence.
-    pub fn setup(&self, deps: Dependencies<'_>) -> Stream<Id, Resource> {
+    pub fn setup(
+        &self, dependencies: Dependencies<'_>,
+    ) -> Stream<Id, Resource> {
         let classifier = self.classifier.clone();
         let resources =
-            deps.sources.filter_map(move |id: &Id, source: &Source| {
-                classifier.classify(id, source)
-            });
+            dependencies
+                .sources
+                .filter_map(move |id: &Id, source: &Source| {
+                    classifier.classify(id, source)
+                });
 
         // Settle precedence before consumers transform or write a resource.
         // Removing a docs override therefore reveals its theme fallback in

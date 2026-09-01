@@ -83,19 +83,16 @@ impl Mkdocstrings {
                 module
                     .call_method1("get_inventory", (cached,))?
                     .extract::<Vec<u8>>()
-            });
+            })?;
 
-            if let Ok(data) = data {
-                let path = pipeline.output.join(
-                    &"objects.inv"
-                        .parse::<SitePath>()
-                        .expect("static site path"),
-                );
-                let _ = fs::create_dir_all(path.parent().expect("invariant"));
-                let _ = fs::write(path, &data);
-                let _ = fs::create_dir_all(&pipeline.cache);
-                let _ = fs::write(&cache_path, &data);
-            }
+            let path = pipeline.output.join(
+                &"objects.inv".parse::<SitePath>().expect("static site path"),
+            );
+            fs::create_dir_all(path.parent().expect("invariant"))?;
+            fs::write(path, &data)?;
+            fs::create_dir_all(&pipeline.cache)?;
+            fs::write(&cache_path, &data)?;
+            Ok::<_, anyhow::Error>(())
         });
     }
 }

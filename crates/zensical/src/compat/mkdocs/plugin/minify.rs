@@ -89,17 +89,17 @@ impl Minify {
     }
 
     /// Returns the normalized plugin configuration for the asset stage.
-    pub(super) fn config(&self) -> &MinifyPluginConfig {
+    fn config(&self) -> &MinifyPluginConfig {
         &self.config
     }
 
     /// Returns the site output directory owned by this pipeline.
-    pub(super) fn output(&self) -> &OutputRoot {
+    fn output(&self) -> &OutputRoot {
         &self.output
     }
 
     /// Returns the template-visible project configuration.
-    pub(super) fn project(&self) -> &Arc<Project> {
+    fn project(&self) -> &Arc<Project> {
         &self.project
     }
 

@@ -239,7 +239,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     let run = runner
         .settle()
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
-    report_failures(&run)?;
+    report_failures(&run);
     // Create channel for reload notifications
     let (sender, receiver) = unbounded();
 
@@ -315,7 +315,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
                 let run = runner
                     .settle()
                     .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
-                report_failures(&run)?;
+                report_failures(&run);
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => match mode {
@@ -345,14 +345,21 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     Ok(false)
 }
 
-/// Returns the first action failure reported by one settled run.
-fn report_failures(run: &zrx::stream::Run<Id>) -> PyResult<()> {
-    for invocation in run.report().invocations() {
-        if let Some(failure) = invocation.outcomes.failures().first() {
-            return Err(PyRuntimeError::new_err(format!("{failure:#}")));
-        }
+/// Prints action failures reported by one settled run.
+fn report_failures(run: &zrx::stream::Run<Id>) {
+    for failure in reported_failures(run) {
+        eprintln!("Error -  {failure}");
     }
-    Ok(())
+}
+
+/// Formats action failures reported by one settled run.
+fn reported_failures(run: &zrx::stream::Run<Id>) -> Vec<String> {
+    run.report()
+        .invocations()
+        .iter()
+        .flat_map(|invocation| invocation.outcomes.failures())
+        .map(|failure| format!("{failure:#}"))
+        .collect()
 }
 
 // ----------------------------------------------------------------------------
@@ -410,8 +417,32 @@ fn zensical(m: &Bound<'_, PyModule>) -> PyResult<()> {
 mod tests {
     use std::fs;
     use tempfile::tempdir;
+    use zrx::id::Id;
+    use zrx::stream::{Key, Workflow};
 
-    use super::clear_dir;
+    use super::{clear_dir, reported_failures};
+
+    #[test]
+    fn operator_failures_are_formatted_for_cli_reporting() {
+        let workflow = Workflow::<Id>::build(|workflow| {
+            let input = workflow.input::<u64>();
+            let output = input.map(|_: &u64| -> anyhow::Result<u64> {
+                anyhow::bail!("broken callback")
+            });
+            workflow.output(&output);
+        });
+        let mut runner = workflow.runner().unwrap();
+        let input = runner.input::<u64>().unwrap();
+        let mut revision = input.begin().unwrap();
+        revision
+            .insert(Key::from_iter(std::iter::empty()), 1)
+            .unwrap();
+        let _input = revision.seal().unwrap();
+        let run = runner.settle().unwrap();
+
+        assert_eq!(reported_failures(&run), ["broken callback"]);
+        assert_eq!(runner.errors().len(), 1);
+    }
 
     #[test]
     fn clear_dir_removes_non_hidden_file() {

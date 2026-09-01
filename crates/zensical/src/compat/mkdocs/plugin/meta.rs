@@ -173,7 +173,7 @@ impl Meta {
     }
 
     /// Returns the immutable settings shared with resource classification.
-    pub(crate) fn settings(&self) -> &Settings {
+    pub fn settings(&self) -> &Settings {
         &self.settings
     }
 }

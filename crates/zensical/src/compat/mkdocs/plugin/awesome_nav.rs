@@ -3,6 +3,26 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
 //! Native compatibility pipeline for filesystem-backed awesome navigation.
 
 use anyhow::{bail, Context, Result};
@@ -26,6 +46,21 @@ mod pattern;
 mod resolver;
 mod sort;
 
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Level {
+    Info,
+    Warning,
+    Error,
+}
+
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
+
 /// Native awesome-nav pipeline.
 #[derive(Clone, Debug)]
 pub struct AwesomeNav {
@@ -40,29 +75,22 @@ pub struct Dependencies<'a> {
     pub pages: &'a Stream<Id, Page>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Level {
-    Info,
-    Warning,
-    Error,
-}
-
 #[derive(Clone, Debug)]
-pub struct Diagnostic {
-    pub level: Level,
-    pub message: String,
+struct Diagnostic {
+    level: Level,
+    message: String,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct Logs {
-    pub nav_override: Level,
-    pub root_title: Level,
-    pub root_hide: Level,
-    pub no_matches: Level,
+struct Logs {
+    nav_override: Level,
+    root_title: Level,
+    root_hide: Level,
+    no_matches: Level,
 }
 
 #[derive(Clone, Debug)]
-pub struct Settings {
+struct Settings {
     enabled: bool,
     docs: String,
     filename: String,
@@ -88,6 +116,10 @@ impl Value for Documents {}
 struct Pages(Arc<Vec<Page>>);
 
 impl Value for Pages {}
+
+// ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
 
 impl AwesomeNav {
     /// Resolves immutable settings for one workflow lifetime.
@@ -183,6 +215,10 @@ impl Logs {
     }
 }
 
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
 fn level(value: Option<&str>, default: Level) -> Result<Level> {
     match value {
         None => Ok(default),
@@ -218,6 +254,10 @@ fn is_config_file(path: &SourcePath, filename: &str) -> bool {
             .strip_suffix(filename)
             .is_some_and(|prefix| prefix.ends_with('/'))
 }
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
