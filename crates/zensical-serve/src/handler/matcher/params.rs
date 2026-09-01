@@ -54,19 +54,6 @@ pub struct Params<'k, 'v> {
 // ----------------------------------------------------------------------------
 
 impl<'k, 'v> Params<'k, 'v> {
-    /// Creates matcher parameters.
-    ///
-    /// This method is used by the [`Matcher`][] to create matcher parameters
-    /// from the [`matchit::Params`] as returned by [`matchit`].
-    ///
-    /// [`Matcher`]: crate::handler::Matcher
-    #[inline]
-    pub(crate) fn new(inner: matchit::Params<'k, 'v>) -> Self {
-        Params { inner }
-    }
-}
-
-impl<'k, 'v> Params<'k, 'v> {
     /// Returns the value for the given key.
     ///
     /// # Examples
@@ -188,4 +175,14 @@ impl<'a, 'k, 'v> IntoIterator for &'a Params<'k, 'v> {
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
+}
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
+/// Wraps implementation parameters without exposing the implementation type.
+#[inline]
+pub fn new<'k, 'v>(inner: matchit::Params<'k, 'v>) -> Params<'k, 'v> {
+    Params { inner }
 }

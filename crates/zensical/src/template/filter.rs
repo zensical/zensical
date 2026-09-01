@@ -28,9 +28,9 @@
 use minijinja::{State, Value};
 use std::fmt::Write;
 use std::path::Path;
-use zrx::path::PathExt;
 
 use zensical_serve::http::Uri;
+use zrx::path::PathExt;
 
 // ----------------------------------------------------------------------------
 // Functions

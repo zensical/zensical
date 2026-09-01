@@ -26,6 +26,8 @@
 //! Source.
 
 use std::ops::Deref;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use zrx::stream::Value;
 
@@ -35,15 +37,11 @@ use zrx::stream::Value;
 
 /// Source.
 ///
-/// From ZRX 0.0.17 on, all ata emitted in streams must explicitly implement the
-/// `Value` trait. Right now, we just emit `String` representations of paths,
-/// but as we develop the provider architecture, we'll switch to a structured
-/// representation that includes the path as well as metadata.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Source {
-    /// Path as string.
-    pub path: String,
-}
+/// From ZRX 0.0.17 on, all data emitted in streams must explicitly implement
+/// the `Value` trait. Physical paths stay physical throughout the data plane;
+/// provider-relative identity is carried separately by the stream key.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Source(Arc<PathBuf>);
 
 // ----------------------------------------------------------------------------
 // Trait implementations
@@ -53,20 +51,35 @@ impl Value for Source {}
 
 // ----------------------------------------------------------------------------
 
-impl From<String> for Source {
-    /// Creates a source from a string.
+impl From<PathBuf> for Source {
+    /// Creates a source from an owned physical path.
     #[inline]
-    fn from(path: String) -> Self {
-        Self { path }
+    fn from(path: PathBuf) -> Self {
+        Self(Arc::new(path))
+    }
+}
+
+impl From<Arc<PathBuf>> for Source {
+    /// Creates a source while reusing a watcher-owned physical path.
+    #[inline]
+    fn from(path: Arc<PathBuf>) -> Self {
+        Self(path)
     }
 }
 
 impl Deref for Source {
-    type Target = String;
+    type Target = Path;
 
-    /// Dereferences the source to a string.
+    /// Dereferences the source to its physical path.
     #[inline]
     fn deref(&self) -> &Self::Target {
-        &self.path
+        self.0.as_path()
+    }
+}
+
+impl AsRef<Path> for Source {
+    #[inline]
+    fn as_ref(&self) -> &Path {
+        self
     }
 }

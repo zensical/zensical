@@ -1270,10 +1270,9 @@ def _convert_plugins(value: Any, config: dict) -> dict:
         search, "separator", '[\\s\\-_,:!=\\[\\]()\\\\"`/]+|\\.(?!\\d)', str
     )
 
-    # Normalize Material's meta plugin to an identifier that can be extracted
-    # into the typed Rust configuration. Keep the original entry intact for
-    # compatibility with consumers of the MkDocs plugin mapping.
-    material_meta = plugins.get("material/meta")
+    # Consume Material's public plugin name and normalize it to the internal
+    # identifier extracted into typed Rust configuration.
+    material_meta = plugins.pop("material/meta", None)
     if material_meta is None:
         meta = {"enabled": False, "meta_file": ".meta.yml"}
     else:
@@ -1295,6 +1294,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     # Normalize the complete mkdocs-minify-plugin configuration surface. Asset
     # settings are retained for the dedicated copy/output stage; the inline
     # switches are Zensical extensions handled by the final HTML pass.
+    minify: dict[str, Any]
     if "minify" not in plugins:
         minify = {"enabled": False}
     else:

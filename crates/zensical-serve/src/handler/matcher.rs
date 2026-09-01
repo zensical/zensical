@@ -130,7 +130,7 @@ impl<T> Matcher<T> {
     /// ```
     pub fn resolve<'v>(&self, path: &'v str) -> Option<Match<'_, 'v, &T>> {
         self.inner.at(path).ok().map(|route| Match {
-            params: Params::new(route.params),
+            params: params::new(route.params),
             data: route.value,
         })
     }

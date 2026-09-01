@@ -25,16 +25,16 @@
 
 //! Navigation.
 
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::sync::Arc;
-
 use ahash::HashMap;
 use pyo3::types::{PyAny, PyAnyMethods};
 use pyo3::{Bound, FromPyObject, PyResult};
 use serde::Serialize;
-use zrx::id::Id;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Arc;
+
 use zrx::scheduler::Value;
-use zrx::stream::Key;
+
+use crate::path::SourcePath;
 
 use super::page::Page;
 
@@ -44,7 +44,7 @@ mod view;
 
 pub use item::NavigationItem;
 use iter::Iter;
-pub(crate) use view::NavigationView;
+pub use view::NavigationView;
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -76,9 +76,7 @@ pub struct Navigation {
 
 impl Navigation {
     /// Creates a navigation from the given items.
-    pub fn new(
-        mut items: Vec<NavigationItem>, pages: Vec<(Key<Id>, Page)>,
-    ) -> Self {
+    pub fn new(mut items: Vec<NavigationItem>, pages: Vec<Page>) -> Self {
         if items.is_empty() {
             return Self::from(pages);
         }
@@ -87,10 +85,7 @@ impl Navigation {
         // icons from the file location of the respective page.
         let pages = pages
             .into_iter()
-            .map(|(id, page)| {
-                let id = id[0].location().to_string();
-                (id, page)
-            })
+            .map(|page| (page.source().to_string(), page))
             .collect::<HashMap<_, _>>();
 
         // Since a navigation structure is given, we just need to add titles and
@@ -176,7 +171,7 @@ impl Navigation {
     }
 
     /// Returns ancestors of a page URL without requiring the complete page.
-    pub(crate) fn ancestors_for_url(&self, url: &str) -> Vec<NavigationItem> {
+    pub fn ancestors_for_url(&self, url: &str) -> Vec<NavigationItem> {
         // Recursively find ancestors of the page with the given URL.
         fn recurse<'a>(
             items: &'a [NavigationItem], url: &str,
@@ -254,40 +249,33 @@ impl Value for Navigation {}
 
 // ----------------------------------------------------------------------------
 
-impl From<Vec<(Key<Id>, Page)>> for Navigation {
+impl From<Vec<Page>> for Navigation {
     /// Creates a navigation from pages.
     ///
     /// This mirrors the functionality of auto-populated navigation that MkDocs
     /// provides. In the future, we intend to refactor this into a more flexible
     /// system that allows for custom and modular navigation structures, but for
     /// now, compatibility is key.
-    fn from(pages: Vec<(Key<Id>, Page)>) -> Self {
+    fn from(pages: Vec<Page>) -> Self {
         let mut items: Vec<NavigationItem> = Vec::new();
 
-        // Convert chunk into a vector for easier processing, and sort pages by
-        // the exact same method that MkDocs uses
-        let mut pages = Vec::from_iter(pages);
-        pages.sort_by_key(|(id, _)| file_sort_key(&id[0]));
+        // Sort pages by the exact same method that MkDocs uses.
+        let mut pages = pages;
+        pages.sort_by_key(|page| source_sort_key(page.source()));
 
         // There can only be pages, no URLs, since we're auto-populating the
         // navigation from the files in the docs directory
-        for (id, page) in pages {
-            let location = id[0].location();
-
-            // Split location into components at slashes
-            let mut components = location
-                .split('/')
-                .map(ToString::to_string)
-                .collect::<Vec<_>>();
-
-            // Extract file, and check, whether it's an index file
-            let file = components.pop().expect("invariant");
+        for page in pages {
+            let source = page.source();
+            let file = source.file_name();
 
             // Now, first obtain the subsection in which we need to insert the
             // page. If there are no parents, we insert it at the top level.
             let mut section = &mut items;
-            for component in components {
-                let title = to_title(&component);
+            for component in
+                source.parent().iter().flat_map(SourcePath::components)
+            {
+                let title = to_title(component);
 
                 // Next, we try to find an existing section with the same title.
                 // If we find one, we descend into it, otherwise, we create.
@@ -320,7 +308,7 @@ impl From<Vec<(Key<Id>, Page)>> for Navigation {
                 canonical_url: page.canonical_url.clone(),
                 meta: Some(page.meta.clone()),
                 children: Vec::new(),
-                is_index: is_index(&file),
+                is_index: is_index(file),
                 active: false,
             });
         }
@@ -354,19 +342,15 @@ impl<'a> IntoIterator for &'a Navigation {
 // Functions
 // ----------------------------------------------------------------------------
 
-// Returns a key that replicates MkDocs' navigation sorting behavior, ordering
-// by parents, then putting the index page first, then sorting by name
-pub(crate) fn file_sort_key(id: &Id) -> (Vec<String>, bool, String) {
-    let location = id.location();
-
-    // Split location into components at slashes
-    let mut components = location
-        .split('/')
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
-
-    // Extract file, and check, whether it's an index file
-    let file = components.pop().expect("invariant");
+/// Returns the MkDocs navigation sort key for one validated source path.
+pub fn source_sort_key(source: &SourcePath) -> (Vec<String>, bool, String) {
+    let file = source.file_name().to_owned();
+    let components = source
+        .parent()
+        .iter()
+        .flat_map(SourcePath::components)
+        .map(ToOwned::to_owned)
+        .collect();
     (components, !is_index(&file), file)
 }
 
@@ -383,7 +367,7 @@ fn navigation_hash(items: &[NavigationItem]) -> u64 {
 }
 
 /// Computes a page title from a file name, replicating MkDocs' behavior.
-pub(crate) fn to_title(component: &str) -> String {
+pub fn to_title(component: &str) -> String {
     let title = component.trim_end_matches(".md").replace(['-', '_'], " ");
     let first = title.chars().next().unwrap_or_default();
 
@@ -408,7 +392,11 @@ fn extract_shared_items(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::sync::Arc;
+
+    use crate::path::SourcePath;
+
+    use super::{navigation_hash, source_sort_key, to_title, Navigation};
 
     #[test]
     fn test_clone_shares_immutable_data() {
@@ -443,5 +431,19 @@ mod tests {
     fn test_to_title() {
         assert_eq!(to_title("hello-world"), "Hello world");
         assert_eq!(to_title("编译器笔记"), "编译器笔记");
+    }
+
+    #[test]
+    fn source_sorting_places_index_before_siblings() {
+        let mut sources = [
+            "guide/zebra.md".parse::<SourcePath>().unwrap(),
+            "guide/index.md".parse().unwrap(),
+            "guide/café.md".parse().unwrap(),
+        ];
+        sources.sort_by_key(source_sort_key);
+
+        assert_eq!(sources[0].as_str(), "guide/index.md");
+        assert_eq!(sources[1].as_str(), "guide/café.md");
+        assert_eq!(sources[2].as_str(), "guide/zebra.md");
     }
 }

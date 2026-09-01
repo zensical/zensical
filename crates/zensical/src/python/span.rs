@@ -25,7 +25,7 @@
 
 //! Span of bytes.
 
-use pyo3::prelude::*;
+use pyo3::FromPyObject;
 use std::ops::Range;
 
 // ----------------------------------------------------------------------------

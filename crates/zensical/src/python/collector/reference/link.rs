@@ -26,7 +26,8 @@
 //! Link reference.
 
 use pyo3::exceptions::PyValueError;
-use pyo3::prelude::*;
+use pyo3::types::PyAny;
+use pyo3::{Borrowed, FromPyObject, PyErr, PyResult};
 use std::ops::Range;
 
 use crate::python::Span;

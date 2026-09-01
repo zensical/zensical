@@ -3,120 +3,135 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
 //! External asset processing for the MkDocs-compatible minify plugin.
 
 use anyhow::{anyhow, Context as _};
-use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use sha2::{Digest, Sha384};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
-use std::{fs, io};
-use zrx::id::Id;
-use zrx::scheduler::action::{Action, Concurrency, Context};
-use zrx::stream::function::Collection;
-use zrx::stream::operator::Operator;
-use zrx::stream::{Change, Key, Signal, Stream, Value};
 
+use zrx::id::Id;
+use zrx::stream::function::Collection;
+use zrx::stream::{Key, Signal, Stream, Value};
+
+use crate::compat::mkdocs::resource::Resource;
 use crate::config::plugins::MinifyPluginConfig;
 use crate::config::{Config, Project};
+use crate::path::SitePath;
+use crate::watcher::Source;
 
+use super::Settings as PluginSettings;
 use super::{script, style};
 
-// -----------------------------------------------------------------------------
-// Structs
-// -----------------------------------------------------------------------------
+mod selector;
+mod writer;
 
-/// One source that may become a site asset.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Resource {
-    /// Logical output path relative to the site directory.
-    pub(crate) path: String,
-    /// Physical source path.
-    pub(crate) source: PathBuf,
-    /// Override priority, with lower values taking precedence.
-    pub(crate) priority: usize,
+use selector::{normalize, Selector};
+
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
+
+/// Supported external asset kinds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Kind {
+    JavaScript,
+    Stylesheet,
 }
-
-impl Value for Resource {}
 
 /// Final asset bytes or a source file that can be copied without reading it.
 #[derive(Clone, Debug)]
 enum Contents {
-    Copy(PathBuf),
+    Copy(Source),
     Bytes(Arc<[u8]>),
 }
+
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
 
 /// One fully resolved output asset.
 #[derive(Clone, Debug)]
 struct Emission {
-    source_path: String,
-    output_path: String,
+    /// Original site-relative resource path.
+    source_path: SitePath,
+    /// Final site-relative path after hashing and minification.
+    output_path: SitePath,
+    /// Bytes to write or source file to copy.
     contents: Contents,
+    /// Whether this plugin transformed and owns the resource.
     claimed: bool,
 }
-
-impl Value for Emission {}
 
 /// Path rewrite produced by one claimed asset.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Mapping {
-    source_path: String,
-    output_path: String,
+    /// Original configured asset path.
+    source_path: SitePath,
+    /// Final emitted asset path.
+    output_path: SitePath,
 }
-
-impl Value for Mapping {}
 
 /// Asset-derived project view consumed by template rendering.
 #[derive(Clone, Debug)]
-pub(crate) struct Manifest {
+pub struct Manifest {
     /// Project with configured asset paths rewritten to their emitted names.
-    pub(crate) project: Arc<Project>,
+    pub project: Arc<Project>,
     /// Stable hash of the current path mapping.
-    pub(crate) hash: u64,
+    pub hash: u64,
 }
-
-impl Value for Manifest {}
 
 /// Compiled settings for external asset selection and transformation.
 #[derive(Clone, Debug)]
 struct Settings {
+    /// Whether the compatibility plugin is enabled.
     enabled: bool,
-    javascript: Selectors,
-    stylesheet: Selectors,
-    minify: BTreeSet<AssetKind>,
+    /// JavaScript resources claimed by the plugin.
+    javascript: Selector,
+    /// Stylesheet resources claimed by the plugin.
+    stylesheet: Selector,
+    /// Asset kinds whose contents should be minified.
+    minify: BTreeSet<Kind>,
+    /// Whether transformed names include a content digest.
     cache_safe: bool,
 }
 
-/// Exact and glob selectors for one kind of asset.
-#[derive(Clone, Debug)]
-struct Selectors {
-    exact: BTreeSet<String>,
-    globs: GlobSet,
-    error: Option<String>,
-}
-
-/// Writes insertions and removes retracted output paths.
-#[derive(Clone)]
-struct Writer {
-    root_dir: PathBuf,
-    site_dir: String,
-}
-
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // Implementations
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 impl Settings {
+    /// Compiles asset settings once for the workflow.
     fn new(config: &MinifyPluginConfig) -> Self {
         Self {
             enabled: config.enabled,
-            javascript: Selectors::new(&config.js_files),
-            stylesheet: Selectors::new(&config.css_files),
+            javascript: Selector::new(&config.js_files),
+            stylesheet: Selector::new(&config.css_files),
             minify: [
-                config.minify_js.then_some(AssetKind::JavaScript),
-                config.minify_css.then_some(AssetKind::Stylesheet),
+                config.minify_js.then_some(Kind::JavaScript),
+                config.minify_css.then_some(Kind::Stylesheet),
             ]
             .into_iter()
             .flatten()
@@ -125,30 +140,32 @@ impl Settings {
         }
     }
 
-    fn claim(&self, path: &str) -> anyhow::Result<Option<AssetKind>> {
+    /// Classifies one resource, rejecting conflicting selectors.
+    fn claim(&self, path: &SitePath) -> anyhow::Result<Option<Kind>> {
         if !self.active() {
             return Ok(None);
         }
-        let javascript = self.active_kind(AssetKind::JavaScript)
-            && self.javascript.matches(path)?;
-        let stylesheet = self.active_kind(AssetKind::Stylesheet)
-            && self.stylesheet.matches(path)?;
+        let javascript = self.active_kind(Kind::JavaScript)
+            && self.javascript.matches(path.as_str())?;
+        let stylesheet = self.active_kind(Kind::Stylesheet)
+            && self.stylesheet.matches(path.as_str())?;
         match (javascript, stylesheet) {
             (true, true) => Err(anyhow!(
                 "asset is selected as both JavaScript and CSS: {path}"
             )),
             (true, false) => {
                 ensure_extension(path, "js")?;
-                Ok(Some(AssetKind::JavaScript))
+                Ok(Some(Kind::JavaScript))
             }
             (false, true) => {
                 ensure_extension(path, "css")?;
-                Ok(Some(AssetKind::Stylesheet))
+                Ok(Some(Kind::Stylesheet))
             }
             (false, false) => Ok(None),
         }
     }
 
+    /// Produces the effective output for one resource.
     fn transform(&self, resource: &Resource) -> anyhow::Result<Emission> {
         let Some(kind) = self.claim(&resource.path)? else {
             return Ok(Emission {
@@ -166,8 +183,8 @@ impl Settings {
         let minify = self.minify.contains(&kind);
         let transformed = if minify {
             match kind {
-                AssetKind::JavaScript => script::minify(&source, false),
-                AssetKind::Stylesheet => style::minify(&source),
+                Kind::JavaScript => script::minify(&source, false),
+                Kind::Stylesheet => style::minify(&source),
             }
             .filter(|output| output.len() < source.len())
             .unwrap_or(source)
@@ -188,6 +205,7 @@ impl Settings {
         })
     }
 
+    /// Validates exact selectors against the settled claimed relation.
     fn validate<'a>(
         &self, mappings: impl Iterator<Item = &'a Mapping>,
     ) -> anyhow::Result<()> {
@@ -195,13 +213,13 @@ impl Settings {
             return Ok(());
         }
         for (kind, selectors) in [
-            (AssetKind::JavaScript, &self.javascript),
-            (AssetKind::Stylesheet, &self.stylesheet),
+            (Kind::JavaScript, &self.javascript),
+            (Kind::Stylesheet, &self.stylesheet),
         ] {
             if !self.active_kind(kind) {
                 continue;
             }
-            if let Some(error) = &selectors.error {
+            if let Some(error) = selectors.error() {
                 return Err(anyhow!("invalid minify asset selector: {error}"));
             }
         }
@@ -209,12 +227,12 @@ impl Settings {
             .map(|mapping| mapping.source_path.as_str())
             .collect::<BTreeSet<_>>();
         let missing = [
-            (AssetKind::JavaScript, &self.javascript),
-            (AssetKind::Stylesheet, &self.stylesheet),
+            (Kind::JavaScript, &self.javascript),
+            (Kind::Stylesheet, &self.stylesheet),
         ]
         .into_iter()
         .filter(|(kind, _)| self.active_kind(*kind))
-        .flat_map(|(_, selectors)| &selectors.exact)
+        .flat_map(|(_, selector)| selector.exact())
         .filter(|path| !found.contains(path.as_str()))
         .collect::<Vec<_>>();
         if missing.is_empty() {
@@ -231,81 +249,34 @@ impl Settings {
         }
     }
 
+    /// Returns whether any transformation mode is active.
     fn active(&self) -> bool {
-        self.active_kind(AssetKind::JavaScript)
-            || self.active_kind(AssetKind::Stylesheet)
+        self.active_kind(Kind::JavaScript) || self.active_kind(Kind::Stylesheet)
     }
 
-    fn active_kind(&self, kind: AssetKind) -> bool {
+    /// Returns whether one asset kind participates in this build.
+    fn active_kind(&self, kind: Kind) -> bool {
         if !self.enabled || (!self.minify.contains(&kind) && !self.cache_safe) {
             return false;
         }
         match kind {
-            AssetKind::JavaScript => !self.javascript.is_empty(),
-            AssetKind::Stylesheet => !self.stylesheet.is_empty(),
+            Kind::JavaScript => !self.javascript.is_empty(),
+            Kind::Stylesheet => !self.stylesheet.is_empty(),
         }
-    }
-}
-
-impl Selectors {
-    fn new(patterns: &[String]) -> Self {
-        let mut exact = BTreeSet::new();
-        let mut builder = GlobSetBuilder::new();
-        let mut error = None;
-        for pattern in patterns {
-            let pattern = normalize(pattern);
-            if let Err(reason) = validate_relative(&pattern) {
-                error.get_or_insert_with(|| reason.to_string());
-                continue;
-            }
-            if contains_glob(&pattern) {
-                match GlobBuilder::new(&pattern)
-                    .literal_separator(true)
-                    .backslash_escape(false)
-                    .build()
-                {
-                    Ok(pattern) => {
-                        builder.add(pattern);
-                    }
-                    Err(reason) => {
-                        error.get_or_insert_with(|| reason.to_string());
-                    }
-                }
-            } else {
-                exact.insert(pattern);
-            }
-        }
-        let globs = builder.build().unwrap_or_else(|reason| {
-            error.get_or_insert_with(|| reason.to_string());
-            GlobSetBuilder::new().build().expect("empty glob set")
-        });
-        Self { exact, globs, error }
-    }
-
-    fn matches(&self, path: &str) -> anyhow::Result<bool> {
-        if let Some(error) = &self.error {
-            return Err(anyhow!("invalid minify asset selector: {error}"));
-        }
-        let path = normalize(path);
-        Ok(self.exact.contains(&path) || self.globs.is_match(path))
-    }
-
-    fn is_empty(&self) -> bool {
-        self.error.is_none() && self.exact.is_empty() && self.globs.is_empty()
     }
 }
 
 impl Manifest {
-    pub(crate) fn base(project: Arc<Project>) -> Self {
-        Self { project, hash: 0 }
-    }
-
+    /// Projects emitted asset names into template-visible project settings.
     fn new<'a>(
         project: Arc<Project>, mappings: impl Iterator<Item = &'a Mapping>,
     ) -> Self {
         let paths = mappings
             .map(|mapping| {
-                (mapping.source_path.clone(), mapping.output_path.clone())
+                (
+                    mapping.source_path.to_string(),
+                    mapping.output_path.to_string(),
+                )
             })
             .collect::<BTreeMap<_, _>>();
         if paths.is_empty() {
@@ -346,93 +317,39 @@ impl Manifest {
     }
 }
 
-impl Writer {
-    fn output_path(&self, key: &Key<Id>) -> anyhow::Result<PathBuf> {
-        let id = key.try_as_id()?;
-        if id.context() != self.site_dir {
-            return Err(anyhow!("asset output escaped the site directory"));
-        }
-        let location = id.location();
-        validate_relative(&location)?;
-        Ok(self.root_dir.join(id.to_path()))
-    }
+// ----------------------------------------------------------------------------
+// Trait implementations
+// ----------------------------------------------------------------------------
 
-    fn insert(&self, key: &Key<Id>, emission: &Emission) -> anyhow::Result<()> {
-        let path = self.output_path(key)?;
-        fs::create_dir_all(path.parent().expect("site asset has parent"))?;
-        match &emission.contents {
-            Contents::Copy(source) => copy_file(source, path)?,
-            Contents::Bytes(bytes) => fs::write(path, bytes)?,
-        }
-        Ok(())
-    }
+impl Value for Emission {}
 
-    fn remove(&self, key: &Key<Id>) -> anyhow::Result<()> {
-        let path = self.output_path(key)?;
-        match fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error.into()),
-        }
-    }
-}
+// ----------------------------------------------------------------------------
 
-impl Action<Key<Id>> for Writer {
-    type Inputs = (Emission,);
-    type Output = ();
+impl Value for Mapping {}
 
-    fn concurrency(&self) -> Concurrency<Self> {
-        Concurrency::adaptive()
-    }
+// ----------------------------------------------------------------------------
 
-    fn execute(&mut self, context: Context<'_, Key<Id>, Self>) {
-        let Context { inputs: input, output, .. } = context;
-        input.for_each(output, |change, emit| {
-            match change {
-                Change::Insert(key, emission) => {
-                    self.insert(&key, emission.as_ref())?;
-                    emit.insert(key, ());
-                }
-                Change::Remove(key) => {
-                    self.remove(&key)?;
-                    emit.remove(key);
-                }
-            }
-            Ok(())
-        });
-    }
-}
+impl Value for Manifest {}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum AssetKind {
-    JavaScript,
-    Stylesheet,
-}
-
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // Functions
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 /// Transforms selected resources, writes every effective asset, and publishes
 /// the project view whose configured asset paths name the emitted files.
-pub(crate) fn attach(
-    config: &Config, resources: &Stream<Id, Resource>,
+pub fn attach(
+    config: &Config, plugin: &PluginSettings, resources: &Stream<Id, Resource>,
 ) -> Signal<Id, Manifest> {
-    let settings = Settings::new(&config.project.plugins.minify.config);
+    let settings = Settings::new(plugin.config());
     let settings_for_transform = settings.clone();
     let emissions = resources.map(move |resource: &Resource| {
         settings_for_transform.transform(resource)
     });
 
-    let site_dir = config.project.site_dir.clone();
-    let site_dir_for_key = site_dir.clone();
     let outputs = emissions.unique_by_key(move |emission: &Emission| {
-        output_key(&site_dir_for_key, &emission.output_path)
+        output_key(&emission.output_path)
     });
-    let _ = outputs.subscribe(Writer {
-        root_dir: config.get_root_dir(),
-        site_dir,
-    });
+    writer::attach(config.output_root().clone(), &outputs);
 
     let project = config.project.clone();
     let settings_for_manifest = settings;
@@ -452,50 +369,22 @@ pub(crate) fn attach(
         })
 }
 
-/// Returns whether configuration claims any external asset resources.
-pub(crate) fn is_enabled(config: &Config) -> bool {
-    Settings::new(&config.project.plugins.minify.config).active()
-}
-
-/// Creates the group key used to resolve theme and project overrides before
-/// any asset is transformed or written.
-pub(crate) fn resource_key(path: &str) -> anyhow::Result<Key<Id>> {
-    validate_relative(path)?;
-    let id = Id::builder()
-        .provider("asset")
-        .context(".")
-        .location(path)
-        .build()?;
-    Ok(Key::from(id))
-}
-
-fn output_key(site_dir: &str, path: &str) -> anyhow::Result<Key<Id>> {
-    validate_relative(path)?;
+fn output_key(path: &SitePath) -> anyhow::Result<Key<Id>> {
     let id = Id::builder()
         .provider("file")
-        .context(site_dir)
-        .location(path)
+        .context(".")
+        .location(path.as_str())
         .build()?;
     Ok(Key::from(id))
 }
 
 fn output_path(
-    path: &str, minify: bool, digest: Option<String>,
-) -> anyhow::Result<String> {
-    let path = Path::new(path);
+    path: &SitePath, minify: bool, digest: Option<String>,
+) -> anyhow::Result<SitePath> {
     let extension = path
         .extension()
-        .and_then(|value| value.to_str())
-        .ok_or_else(|| {
-            anyhow!("selected asset has no extension: {}", path.display())
-        })?;
-    let stem = path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .ok_or_else(|| {
-            anyhow!("selected asset has no file name: {}", path.display())
-        })?;
-    let mut name = stem.to_owned();
+        .ok_or_else(|| anyhow!("selected asset has no extension: {path}"))?;
+    let mut name = path.file_stem().to_owned();
     if let Some(digest) = digest {
         name.push('.');
         name.push_str(&digest[..6]);
@@ -505,10 +394,7 @@ fn output_path(
     }
     name.push('.');
     name.push_str(extension);
-    Ok(path
-        .with_file_name(name)
-        .to_string_lossy()
-        .replace('\\', "/"))
+    Ok(path.with_file_name(&name)?)
 }
 
 fn digest(bytes: &[u8]) -> String {
@@ -523,35 +409,9 @@ fn rewrite(path: &str, mappings: &BTreeMap<String, String>) -> String {
         .unwrap_or_else(|| path.to_owned())
 }
 
-fn normalize(path: &str) -> String {
-    path.replace('\\', "/")
-        .trim_start_matches("./")
-        .trim_start_matches('/')
-        .to_owned()
-}
-
-fn contains_glob(pattern: &str) -> bool {
-    pattern
-        .bytes()
-        .any(|byte| matches!(byte, b'*' | b'?' | b'[' | b']'))
-}
-
-fn validate_relative(path: &str) -> anyhow::Result<()> {
-    if path.is_empty()
-        || Path::new(path).is_absolute()
-        || Path::new(path)
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
-    {
-        return Err(anyhow!("asset path must be relative to the site: {path}"));
-    }
-    Ok(())
-}
-
-fn ensure_extension(path: &str, expected: &str) -> anyhow::Result<()> {
-    if Path::new(path)
+fn ensure_extension(path: &SitePath, expected: &str) -> anyhow::Result<()> {
+    if path
         .extension()
-        .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case(expected))
     {
         Ok(())
@@ -562,45 +422,52 @@ fn ensure_extension(path: &str, expected: &str) -> anyhow::Result<()> {
     }
 }
 
-fn copy_file(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<()> {
-    let mut from = fs::File::open(from)?;
-    let mut to = fs::File::create(to)?;
-    io::copy(&mut from, &mut to).map(|_| ())
-}
-
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // Tests
-// -----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::collections::BTreeMap;
 
-    #[test]
-    fn selectors_support_exact_paths_and_recursive_globs() {
-        let selectors =
-            Selectors::new(&["scripts/app.js".into(), "vendor/**/*.js".into()]);
-        assert!(selectors.matches("./scripts/app.js").unwrap());
-        assert!(selectors.matches("vendor/lib/tool.js").unwrap());
-        assert!(!selectors.matches("scripts/other.js").unwrap());
-    }
+    use crate::path::SitePath;
+
+    use super::{digest, output_key, output_path, rewrite};
 
     #[test]
     fn output_names_follow_minify_and_cache_safe_modes() {
         assert_eq!(
-            output_path("assets/app.js", true, None).unwrap(),
-            "assets/app.min.js"
+            output_path(&"assets/app.js".parse().unwrap(), true, None).unwrap(),
+            "assets/app.min.js".parse::<SitePath>().unwrap()
         );
         assert_eq!(
-            output_path("assets/app.js", false, Some("abcdef12".into()))
-                .unwrap(),
-            "assets/app.abcdef.js"
+            output_path(
+                &"assets/app.js".parse().unwrap(),
+                false,
+                Some("abcdef12".into())
+            )
+            .unwrap(),
+            "assets/app.abcdef.js".parse::<SitePath>().unwrap()
         );
         assert_eq!(
-            output_path("assets/app.js", true, Some("abcdef12".into()))
-                .unwrap(),
-            "assets/app.abcdef.min.js"
+            output_path(
+                &"assets/app.js".parse().unwrap(),
+                true,
+                Some("abcdef12".into())
+            )
+            .unwrap(),
+            "assets/app.abcdef.min.js".parse::<SitePath>().unwrap()
         );
+    }
+
+    #[test]
+    fn output_keys_contain_only_site_relative_identity() {
+        let key = output_key(&"assets/café.js".parse().unwrap()).unwrap();
+        let id = key.try_as_id().unwrap();
+
+        assert_eq!(id.context(), ".");
+        assert_eq!(id.location(), "assets/café.js");
+        assert!("../outside.js".parse::<SitePath>().is_err());
     }
 
     #[test]

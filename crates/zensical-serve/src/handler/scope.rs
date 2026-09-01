@@ -34,7 +34,7 @@ use super::matcher::Route;
 /// Scope.
 #[derive(Clone, Debug, Default)]
 pub struct Scope {
-    // Base path for routes, optional.
+    /// Optional base path for routes.
     pub route: Option<Route>,
 }
 
@@ -57,31 +57,10 @@ impl Scope {
     pub fn new() -> Self {
         Self { route: None }
     }
-
-    /// Joins the scope with another scope.
-    #[must_use]
-    pub(crate) fn join<S>(&self, scope: S) -> Self
-    where
-        S: Into<Scope>,
-    {
-        let scope = scope.into();
-
-        // If both scopes define a route, append the route of the given scope
-        // to the route of the current scope. Otherwise, select the route.
-        let route = match (self.route.as_ref(), scope.route) {
-            (Some(head), Some(tail)) => Some(head.append(tail)),
-            (Some(head), None) => Some(head.clone()),
-            (None, Some(tail)) => Some(tail),
-            (None, None) => None,
-        };
-
-        // Return scope
-        Scope { route }
-    }
 }
 
 // ----------------------------------------------------------------------------
-// Implementations
+// Trait implementations
 // ----------------------------------------------------------------------------
 
 impl From<Route> for Scope {

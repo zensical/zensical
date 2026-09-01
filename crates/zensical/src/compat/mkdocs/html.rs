@@ -3,6 +3,26 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
 //! Shared HTML processing for MkDocs-compatible plugins.
 
 use html5gum::emitters::callback::{CallbackEmitter, CallbackEvent};
@@ -15,7 +35,7 @@ use std::ops::Range;
 // ----------------------------------------------------------------------------
 
 /// Page-local observer participating in the shared HTML pass.
-pub(crate) trait Visitor {
+pub trait Visitor {
     /// Observes one tokenizer event and optionally records an output edit.
     fn visit(
         &mut self, event: &CallbackEvent<'_>, span: Span<usize>,
@@ -28,7 +48,7 @@ pub(crate) trait Visitor {
 // ----------------------------------------------------------------------------
 
 /// Deferred edits to the HTML currently being scanned.
-pub(crate) struct Editor<'a> {
+pub struct Editor<'a> {
     /// Original HTML input.
     input: &'a str,
     /// Edits recorded by visitors.
@@ -55,12 +75,12 @@ impl<'a> Editor<'a> {
     }
 
     /// Returns original HTML covered by a tokenizer span.
-    pub(crate) fn text(&self, range: Range<usize>) -> &str {
+    pub fn text(&self, range: Range<usize>) -> &str {
         &self.input[range]
     }
 
     /// Replaces a byte range after all visitors have observed the input.
-    pub(crate) fn replace(
+    pub fn replace(
         &mut self, range: Range<usize>, replacement: impl Into<Box<str>>,
     ) {
         assert!(range.start <= range.end && range.end <= self.input.len());
@@ -71,7 +91,7 @@ impl<'a> Editor<'a> {
     }
 
     /// Removes the complete attribute whose name occupies `span`.
-    pub(crate) fn remove_attribute(&mut self, name: &[u8], span: Span<usize>) {
+    pub fn remove_attribute(&mut self, name: &[u8], span: Span<usize>) {
         let bytes = self.input.as_bytes();
         assert!(span.start <= span.end && span.end <= bytes.len());
 
@@ -185,9 +205,7 @@ impl<'a> Editor<'a> {
 ///
 /// Returns modified HTML only when a visitor recorded an edit, allowing the
 /// caller to retain the original allocation for observational passes.
-pub(crate) fn scan(
-    input: &str, visitors: &mut [&mut dyn Visitor],
-) -> Option<String> {
+pub fn scan(input: &str, visitors: &mut [&mut dyn Visitor]) -> Option<String> {
     let mut editor = Editor::new(input);
     {
         let mut emitter = CallbackEmitter::new(
@@ -225,7 +243,10 @@ fn skip_whitespace(bytes: &[u8], offset: &mut usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use html5gum::emitters::callback::CallbackEvent;
+    use html5gum::Span;
+
+    use super::{scan, Editor, Visitor};
 
     #[derive(Default)]
     struct RemoveDataAttribute;

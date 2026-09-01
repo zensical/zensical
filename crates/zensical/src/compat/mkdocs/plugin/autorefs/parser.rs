@@ -3,6 +3,26 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
 //! Streaming extraction of MkDocs-compatible autoref placeholders.
 
 use html5gum::emitters::callback::CallbackEvent;
@@ -11,15 +31,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::compat::mkdocs::html::{Editor, Visitor};
 
-// ----------------------------------------------------------------------------
-// Constants
-// ----------------------------------------------------------------------------
-
 /// Prefix of an internal page-local autoref slot.
-pub(super) const SLOT_PREFIX: &str = "<!-- zensical:autoref:";
+pub const SLOT_PREFIX: &str = "<!-- zensical:autoref:";
 
 /// Suffix of an internal page-local autoref slot.
-pub(super) const SLOT_SUFFIX: &str = " -->";
+pub const SLOT_SUFFIX: &str = " -->";
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -29,14 +45,14 @@ pub(super) const SLOT_SUFFIX: &str = " -->";
 #[derive(
     Clone, Debug, Default, Deserialize, Hash, PartialEq, Eq, Serialize,
 )]
-pub(crate) struct References {
+pub struct References {
     /// References in document order; their positions are stable slot IDs.
     references: Vec<Reference>,
 }
 
 /// One unresolved autoref placeholder.
 #[derive(Clone, Debug, Deserialize, Hash, PartialEq, Eq, Serialize)]
-pub(super) struct Reference {
+pub struct Reference {
     /// Attributes in their source order.
     attributes: Vec<Attribute>,
     /// Raw inner HTML used as link content.
@@ -45,7 +61,7 @@ pub(super) struct Reference {
 
 /// One parsed HTML attribute.
 #[derive(Clone, Debug, Deserialize, Hash, PartialEq, Eq, Serialize)]
-pub(super) struct Attribute {
+struct Attribute {
     /// Decoded attribute name.
     name: String,
     /// Decoded attribute value, or an empty string for boolean attributes.
@@ -54,7 +70,7 @@ pub(super) struct Attribute {
 
 /// Page-local autoref visitor.
 #[derive(Default)]
-pub(crate) struct Parser {
+pub struct Parser {
     /// Autoref start tag currently being assembled.
     pending: Option<Pending>,
     /// Completed page-local references.
@@ -81,12 +97,12 @@ struct Pending {
 
 impl References {
     /// Returns the reference at a page-local slot index.
-    pub(super) fn get(&self, index: usize) -> Option<&Reference> {
+    pub fn get(&self, index: usize) -> Option<&Reference> {
         self.references.get(index)
     }
 
     /// Returns whether no page-local autorefs were extracted.
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.references.is_empty()
     }
 }
@@ -95,7 +111,7 @@ impl References {
 
 impl Reference {
     /// Returns the last value for an attribute, matching the old map parser.
-    pub(super) fn get(&self, name: &str) -> Option<&str> {
+    pub fn get(&self, name: &str) -> Option<&str> {
         self.attributes
             .iter()
             .rev()
@@ -104,21 +120,21 @@ impl Reference {
     }
 
     /// Returns whether an attribute is present.
-    pub(super) fn contains(&self, name: &str) -> bool {
+    pub fn contains(&self, name: &str) -> bool {
         self.attributes
             .iter()
             .any(|attribute| attribute.name == name)
     }
 
     /// Iterates over parsed attributes in source order.
-    pub(super) fn attributes(&self) -> impl Iterator<Item = (&str, &str)> {
+    pub fn attributes(&self) -> impl Iterator<Item = (&str, &str)> {
         self.attributes.iter().map(|attribute| {
             (attribute.name.as_str(), attribute.value.as_str())
         })
     }
 
     /// Returns raw inner HTML.
-    pub(super) fn title(&self) -> &str {
+    pub fn title(&self) -> &str {
         &self.title
     }
 }
@@ -127,7 +143,7 @@ impl Reference {
 
 impl Parser {
     /// Converts the visitor into cached page-local references.
-    pub(crate) fn finish(self) -> References {
+    pub fn finish(self) -> References {
         References { references: self.references }
     }
 
@@ -234,8 +250,9 @@ fn slot(index: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::compat::mkdocs::html;
+
+    use super::{Parser, SLOT_PREFIX, SLOT_SUFFIX};
 
     #[test]
     fn extracts_attributes_and_raw_inner_html() {

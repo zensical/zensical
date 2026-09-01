@@ -39,7 +39,7 @@ mod float;
 use float::Float;
 
 // ----------------------------------------------------------------------------
-// Structs
+// Enums
 // ----------------------------------------------------------------------------
 
 /// Dynamic value.
@@ -47,8 +47,7 @@ use float::Float;
 /// This data type represents any valid value that can be used as part of the
 /// metadata of a page and the extra data of configuration, supporting strings,
 /// nulls, booleans, integers, floating point numbers, lists, and maps, so
-/// basically
-/// everything supported in YAML and TOML.
+/// basically everything supported in YAML and TOML.
 ///
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -67,6 +66,17 @@ pub enum Dynamic {
     List(Vec<Dynamic>),
     /// Map value.
     Map(BTreeMap<String, Dynamic>),
+}
+
+// ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
+
+impl Dynamic {
+    /// Creates a dynamic floating-point value.
+    pub fn from_float(value: f64) -> Self {
+        Self::Float(Float(value))
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -123,19 +133,12 @@ impl<'a, 'py> FromPyObject<'a, 'py> for Dynamic {
 }
 
 // ----------------------------------------------------------------------------
-
-impl Dynamic {
-    /// Creates a dynamic floating-point value.
-    pub(crate) fn from_float(value: f64) -> Self {
-        Self::Float(Float(value))
-    }
-}
-
+// Tests
 // ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::Dynamic;
 
     #[test]
     fn null_round_trips_through_json() {

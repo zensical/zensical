@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -14,6 +17,7 @@ import pytest
 import zensical
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 
@@ -163,3 +167,89 @@ def test_redirect_output_cannot_replace_a_static_template(
         file.write("use_directory_urls: false\n")
     with pytest.raises(RuntimeError, match="rendered template"):
         zensical.build(str(config), _BUILD_OPTIONS)
+
+
+def test_repeated_build_removes_and_restores_redirect_with_its_target(
+    tmp_path: Path,
+) -> None:
+    """An internal target controls ownership across non-clean builds."""
+    config = _write_project(tmp_path, "        old.md: new.md\n")
+    target = tmp_path / "docs" / "new.md"
+    output = tmp_path / "site" / "old" / "index.html"
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+    assert output.is_file()
+
+    target.unlink()
+    zensical.build(str(config), _BUILD_OPTIONS)
+    assert not output.exists()
+
+    target.write_text("# New again\n", encoding="utf-8")
+    zensical.build(str(config), _BUILD_OPTIONS)
+    assert output.is_file()
+
+
+def test_serve_removes_and_restores_redirect_with_its_target(
+    tmp_path: Path,
+) -> None:
+    """One retained workflow reconciles a disappearing internal target."""
+    config = _write_project(tmp_path, "        old.md: new.md\n")
+    with config.open("a", encoding="utf-8") as file:
+        file.write("dev_addr: 127.0.0.1:0\n")
+
+    log = (tmp_path / "serve.log").open("w+", encoding="utf-8")
+    process = subprocess.Popen(  # noqa: S603
+        [
+            sys.executable,
+            "-m",
+            "zensical",
+            "serve",
+            "--config-file",
+            str(config),
+        ],
+        cwd=tmp_path,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+    )
+    target = tmp_path / "docs" / "new.md"
+    output = tmp_path / "site" / "old" / "index.html"
+    target_output = tmp_path / "site" / "new" / "index.html"
+
+    def wait_for(condition: Callable[[], bool], timeout: float = 10.0) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            if process.poll() is not None:
+                log.flush()
+                log.seek(0)
+                raise AssertionError(
+                    f"serve exited with status {process.returncode}: "
+                    f"{log.read()}"
+                )
+            time.sleep(0.02)
+        log.flush()
+        log.seek(0)
+        raise AssertionError(
+            f"serve did not reconcile the redirect output: {log.read()}"
+        )
+
+    try:
+        wait_for(lambda: output.is_file() and target_output.is_file())
+        target.unlink()
+        wait_for(lambda: not output.exists())
+        target.write_text("# New again\n", encoding="utf-8")
+        wait_for(
+            lambda: output.is_file()
+            and target_output.is_file()
+            and "New again" in target_output.read_text(encoding="utf-8")
+        )
+        assert process.poll() is None
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        log.close()

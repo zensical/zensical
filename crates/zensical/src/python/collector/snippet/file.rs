@@ -25,7 +25,7 @@
 
 //! Snippet file.
 
-use pyo3::prelude::*;
+use pyo3::FromPyObject;
 
 use crate::python::Span;
 

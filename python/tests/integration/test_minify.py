@@ -211,6 +211,32 @@ def test_external_minification_can_keep_original_names(tmp_path: Path) -> None:
     assert "const value={answer:42};" in script.read_text()
 
 
+def test_assets_support_an_absolute_site_directory(tmp_path: Path) -> None:
+    """Physical output roots never enter logical asset identities."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text("# Absolute output\n", encoding="utf-8")
+    (docs / "app.js").write_text("const answer = 42;\n", encoding="utf-8")
+    output = tmp_path / "absolute-output"
+    config = tmp_path / "mkdocs.yml"
+    config.write_text(
+        f"""\
+site_name: Absolute output
+site_dir: {output}
+plugins:
+  - minify:
+      minify_js: true
+      js_files: app.js
+""",
+        encoding="utf-8",
+    )
+
+    zensical.build(str(config), {"clean": False, "strict": False})
+
+    assert (output / "index.html").is_file()
+    assert (output / "app.min.js").read_text() == "const answer=42;"
+
+
 def test_missing_explicit_asset_is_reported(tmp_path: Path) -> None:
     """An exact configured path remains an error as it is upstream."""
     docs = tmp_path / "docs"
@@ -258,6 +284,96 @@ plugins:
     assert (tmp_path / "site" / "site.min.css").read_text() == (
         ".card{color:red}"
     )
+
+
+def _unminified_asset_project(root: Path) -> Path:
+    """Create colliding project/theme assets without enabling minify."""
+    docs = root / "docs"
+    overrides = root / "overrides"
+    (docs / "assets").mkdir(parents=True)
+    (overrides / "assets").mkdir(parents=True)
+    (docs / "index.md").write_text("# Assets\n", encoding="utf-8")
+    (docs / "assets" / "shared.txt").write_text(
+        "project\n", encoding="utf-8"
+    )
+    (overrides / "assets" / "shared.txt").write_text(
+        "theme\n", encoding="utf-8"
+    )
+    config = root / "mkdocs.yml"
+    config.write_text(
+        """\
+site_name: Unminified assets
+theme:
+  name: material
+  custom_dir: overrides
+""",
+        encoding="utf-8",
+    )
+    return config
+
+
+def test_disabled_minify_uses_project_over_theme_precedence(
+    tmp_path: Path,
+) -> None:
+    """The copy path consumes the same effective-resource relation."""
+    config = _unminified_asset_project(tmp_path)
+    zensical.build(str(config), {"clean": False, "strict": False})
+    assert (tmp_path / "site" / "assets" / "shared.txt").read_text() == (
+        "project\n"
+    )
+
+
+def test_disabled_minify_reconciles_asset_handoffs_and_removals(
+    tmp_path: Path,
+) -> None:
+    """Serve reveals theme fallbacks and removes outputs without stale files."""
+    config = _unminified_asset_project(tmp_path)
+    with config.open("a", encoding="utf-8") as stream:
+        stream.write("dev_addr: 127.0.0.1:0\n")
+
+    process = subprocess.Popen(  # noqa: S603
+        [
+            sys.executable,
+            "-m",
+            "zensical",
+            "serve",
+            "--config-file",
+            str(config),
+        ],
+        cwd=tmp_path,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    output = tmp_path / "site" / "assets" / "shared.txt"
+
+    def wait_for(condition: Callable[[], bool], timeout: float = 10.0) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            if process.poll() is not None:
+                raise AssertionError(
+                    f"serve exited with status {process.returncode}"
+                )
+            time.sleep(0.02)
+        current = output.read_text() if output.is_file() else None
+        raise AssertionError(
+            f"serve did not reconcile the expected asset: {current!r}"
+        )
+
+    try:
+        wait_for(lambda: output.is_file() and output.read_text() == "project\n")
+        (tmp_path / "docs" / "assets" / "shared.txt").unlink()
+        wait_for(lambda: output.is_file() and output.read_text() == "theme\n")
+        (tmp_path / "overrides" / "assets" / "shared.txt").unlink()
+        wait_for(lambda: not output.exists())
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
 
 
 def test_serve_retracts_superseded_cache_safe_assets(tmp_path: Path) -> None:

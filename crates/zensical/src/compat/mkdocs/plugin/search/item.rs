@@ -52,7 +52,7 @@ pub struct SearchItem {
 
 /// Page-local search section before site-wide facts are attached.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-pub(crate) struct SearchSection {
+pub struct SearchSection {
     /// Heading fragment, if present.
     pub location: Option<String>,
     /// Section level.

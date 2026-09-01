@@ -32,9 +32,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::sync::Arc;
+
 use zrx::id::Id;
 use zrx::stream::Value;
 
+use crate::path::SourcePath;
 use crate::structure::dynamic::Dynamic;
 use crate::structure::nav::to_title;
 use crate::structure::toc::Section;
@@ -123,7 +125,7 @@ impl Markdown {
     }
 
     /// Replaces rendered HTML before the Markdown value enters the workflow.
-    pub(crate) fn replace_content(&mut self, content: String) {
+    pub fn replace_content(&mut self, content: String) {
         Arc::get_mut(&mut self.data)
             .expect("rendered Markdown is not shared yet")
             .content = content;
@@ -183,26 +185,24 @@ fn extract_title(id: &Id, markdown: &MarkdownData) -> String {
         return item.title.clone();
     }
 
-    // As a last resort, use the file name
-    let location = id.location();
-
-    // Split location into components at slashes
-    let mut components = location
-        .split('/')
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
-
-    // Extract file, and return title
-    let file = components.pop().expect("invariant");
-    to_title(&file)
+    // As a last resort, use the provider-relative file name.
+    let source = id
+        .location()
+        .parse::<SourcePath>()
+        .expect("Markdown source identity is canonical");
+    to_title(source.file_name())
 }
 
+// ----------------------------------------------------------------------------
 // Tests
 // ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    use super::{Markdown, MarkdownData};
 
     fn markdown() -> Markdown {
         Markdown {

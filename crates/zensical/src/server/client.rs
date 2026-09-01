@@ -30,7 +30,7 @@ use zensical_serve::http::{Header, Request, Response, Status};
 use zensical_serve::middleware::Middleware;
 
 // ----------------------------------------------------------------------------
-// Structs
+// Constants
 // ----------------------------------------------------------------------------
 
 /// Livereload client script.

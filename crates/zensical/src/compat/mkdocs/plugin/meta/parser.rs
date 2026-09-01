@@ -3,18 +3,44 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
 //! Source-aware YAML parsing for metadata.
 
 use anyhow::{bail, Result};
 use saphyr::{LoadableYamlNode, MarkedYaml, Scalar, YamlData};
 use std::collections::BTreeMap;
 
-use super::{Document, Node, Origin, SourceSpan, Value};
+use crate::path::SourcePath;
 use crate::structure::dynamic::Dynamic;
 
+use super::{Document, Node, Origin, SourceSpan, Value};
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
 /// Parses one YAML mapping and retains source ranges on every value.
-pub(super) fn parse(
-    path: &str, source: &str, offset: usize,
+pub fn parse(
+    path: SourcePath, source: &str, offset: usize,
 ) -> Result<Document> {
     let (source, offset) = source
         .strip_prefix('\u{FEFF}')
@@ -23,12 +49,12 @@ pub(super) fn parse(
     if documents.len() != 1 {
         bail!("metadata must contain exactly one YAML document")
     }
-    let root = convert(path, source, offset, &documents[0])?;
+    let root = convert(&path, source, offset, &documents[0])?;
     match root.value {
-        Value::Map(_) => Ok(Document { path: path.into(), root }),
+        Value::Map(_) => Ok(Document { path, root }),
         Value::Scalar(Dynamic::Null) if source.trim().is_empty() => {
             Ok(Document {
-                path: path.into(),
+                path,
                 root: Node {
                     origin: root.origin,
                     value: Value::Map(BTreeMap::new()),
@@ -40,8 +66,8 @@ pub(super) fn parse(
 }
 
 /// Extracts front matter using the same delimiters as Python Markdown.
-pub(super) fn front_matter(
-    path: &str, source: &str,
+pub fn front_matter(
+    path: &SourcePath, source: &str,
 ) -> Result<(String, Option<Document>)> {
     let (source, source_offset) = source
         .strip_prefix('\u{FEFF}')
@@ -62,7 +88,7 @@ pub(super) fn front_matter(
             let body = source[cursor + line.len()..]
                 .trim_start_matches('\n')
                 .to_owned();
-            return parse(path, yaml, yaml_start + source_offset)
+            return parse(path.clone(), yaml, yaml_start + source_offset)
                 .map(|document| (body, Some(document)));
         }
         cursor += line.len();
@@ -80,10 +106,10 @@ fn is_delimiter(line: &str, delimiter: &str) -> bool {
 
 /// Converts one Saphyr node into an owned source-aware node.
 fn convert(
-    path: &str, source: &str, offset: usize, node: &MarkedYaml<'_>,
+    path: &SourcePath, source: &str, offset: usize, node: &MarkedYaml<'_>,
 ) -> Result<Node> {
     let origin = Origin::Source(SourceSpan {
-        source: path.into(),
+        source: path.clone(),
         range: marker_to_byte(source, node.span.start.index()) + offset
             ..marker_to_byte(source, node.span.end.index()) + offset,
     });
@@ -177,13 +203,19 @@ fn marker_to_byte(source: &str, index: usize) -> usize {
     }
 }
 
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{front_matter, parse, Origin, Value};
 
     #[test]
     fn retains_unicode_byte_ranges() {
-        let document = parse("docs/.meta.yml", "title: Héllo\n", 0).unwrap();
+        let document =
+            parse("docs/.meta.yml".parse().unwrap(), "title: Héllo\n", 0)
+                .unwrap();
         let Value::Map(values) = document.root.value else {
             panic!("mapping")
         };
@@ -196,7 +228,8 @@ mod tests {
     #[test]
     fn extracts_front_matter_and_offsets_ranges() {
         let source = "---\ntitle: Home\n---\n\n# Home\n";
-        let (body, document) = front_matter("docs/index.md", source).unwrap();
+        let path = "docs/index.md".parse().unwrap();
+        let (body, document) = front_matter(&path, source).unwrap();
         assert_eq!(body, "# Home\n");
         let document = document.unwrap();
         let Value::Map(values) = document.root.value else {
@@ -211,7 +244,8 @@ mod tests {
     #[test]
     fn expands_alias_merge_keys() {
         let source = "base: &base\n  one: 1\nvalue:\n  <<: *base\n  two: 2\n";
-        let document = parse("docs/.meta.yml", source, 0).unwrap();
+        let document =
+            parse("docs/.meta.yml".parse().unwrap(), source, 0).unwrap();
         let Value::Map(root) = document.root.value else {
             panic!("mapping")
         };

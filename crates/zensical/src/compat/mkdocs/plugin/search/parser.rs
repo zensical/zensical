@@ -3,6 +3,26 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
 //! MkDocs-compatible search extraction from rendered HTML.
 
 use html5gum::emitters::callback::CallbackEvent;
@@ -13,12 +33,60 @@ use crate::compat::mkdocs::html::{Editor, Visitor};
 use super::SearchSection;
 
 // ----------------------------------------------------------------------------
-// Parser
+// Enums
+// ----------------------------------------------------------------------------
+
+/// Attributes relevant to extraction.
+#[derive(Clone, Copy, Default)]
+enum Attribute {
+    Id,
+    Class,
+    SearchExclude,
+    #[default]
+    Other,
+}
+
+/// HTML tags relevant to extraction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Tag {
+    A,
+    Area,
+    Base,
+    Br,
+    Code,
+    Col,
+    Embed,
+    H(u8),
+    Hr,
+    Img,
+    Input,
+    Li,
+    Link,
+    Meta,
+    Object,
+    Ol,
+    P,
+    Param,
+    Pre,
+    Script,
+    Small,
+    Source,
+    Style,
+    Sub,
+    Sup,
+    Track,
+    Ul,
+    Wbr,
+    Other(Box<str>),
+}
+
+// ----------------------------------------------------------------------------
+// Structs
 // ----------------------------------------------------------------------------
 
 /// Streaming search parser.
 #[derive(Default)]
-pub(crate) struct Parser {
+pub struct Parser {
     /// Whether extraction is disabled for a page excluded through metadata.
     discard: bool,
     /// Open HTML elements.
@@ -35,290 +103,6 @@ pub(crate) struct Parser {
     attribute: Attribute,
 }
 
-impl Parser {
-    /// Creates a parser that only applies search-related HTML cleanup.
-    pub(crate) fn discarding() -> Self {
-        Self {
-            discard: true,
-            ..Self::default()
-        }
-    }
-
-    /// Handles a tokenizer event.
-    fn handle(
-        &mut self, event: &CallbackEvent<'_>, span: Span<usize>,
-        editor: &mut Editor<'_>,
-    ) {
-        if let CallbackEvent::AttributeName { name } = event
-            && *name == b"data-search-exclude"
-        {
-            editor.remove_attribute(name, span);
-        }
-        if self.discard {
-            return;
-        }
-
-        match event {
-            CallbackEvent::OpenStartTag { name } => {
-                self.start = Some(StartTag::new(Tag::from_bytes(name)));
-                self.attribute = Attribute::Other;
-            }
-            CallbackEvent::AttributeName { name } => {
-                self.attribute = Attribute::from_bytes(name);
-                if let Some(start) = &mut self.start {
-                    start.observe_attribute(self.attribute, None);
-                }
-            }
-            CallbackEvent::AttributeValue { value } => {
-                if let Some(start) = &mut self.start {
-                    start.observe_attribute(self.attribute, Some(value));
-                }
-            }
-            CallbackEvent::CloseStartTag { self_closing } => {
-                if let Some(start) = self.start.take() {
-                    let tag = start.tag.clone();
-                    self.start(start);
-                    if *self_closing {
-                        self.end(&tag);
-                    }
-                }
-            }
-            CallbackEvent::EndTag { name } => {
-                self.end(&Tag::from_bytes(name));
-            }
-            CallbackEvent::String { value } => {
-                self.text(String::from_utf8_lossy(value).as_ref());
-            }
-            CallbackEvent::Comment { .. }
-            | CallbackEvent::Doctype { .. }
-            | CallbackEvent::Error(_) => {}
-        }
-    }
-
-    /// Handles a complete start tag.
-    fn start(&mut self, start: StartTag) {
-        if start.tag.is_void() {
-            return;
-        }
-
-        let heading = start.tag.heading_level();
-        let skipped = start.tag.is_skipped()
-            || start.excluded
-            || start.class.as_deref() == Some(b"linenodiv");
-        let headerlink = start.tag == Tag::A
-            && start.class.as_deref() == Some(b"headerlink");
-        let tag = start.tag.clone();
-
-        self.context.push(Element {
-            tag: start.tag,
-            skipped,
-            headerlink,
-            kept: None,
-        });
-
-        if let (Some(level), true) = (heading, start.id_present) {
-            let depth = self.context.len();
-
-            if level != 1 && self.sections.is_empty() {
-                self.push_preface();
-            }
-
-            let location = if self.sections.is_empty() {
-                None
-            } else {
-                start.id
-            };
-            let section = SectionState::new(
-                Some(level),
-                level.into(),
-                depth,
-                location,
-                start.excluded,
-            );
-            self.sections.push(section);
-            self.current = Some(self.sections.len() - 1);
-        }
-
-        self.ensure_section();
-
-        if skipped {
-            self.skip += 1;
-            return;
-        }
-
-        if self.skip == 0 && tag.is_kept() {
-            let (section, title) = self.output_target();
-            let data = self.sections[section].output_mut(title);
-            let start = data.value.len();
-            let previous_whitespace = data.last_whitespace;
-            data.value.push('<');
-            data.value.push_str(tag.name());
-            data.value.push('>');
-            data.last_whitespace = false;
-
-            self.context.last_mut().expect("context").kept =
-                Some(KeptElement {
-                    section,
-                    title,
-                    start,
-                    previous_whitespace,
-                });
-        }
-    }
-
-    /// Handles an end tag.
-    fn end(&mut self, tag: &Tag) {
-        if self.context.last().is_none_or(|el| el.tag != *tag) {
-            return;
-        }
-
-        let depth = self.context.len();
-        if let Some(index) = self.current
-            && self.sections[index].exited_or_deeper_than(depth)
-            && let Some(parent) = self
-                .sections
-                .iter()
-                .rposition(|section| !section.exited && section.depth <= depth)
-        {
-            self.sections[index].exited = true;
-            self.current = Some(parent);
-        }
-
-        let element = self.context.pop().expect("context");
-        if element.skipped {
-            self.skip -= 1;
-            return;
-        }
-
-        if self.skip == 0 && tag.is_kept() {
-            let (section, title) = self.output_target();
-            let data = self.sections[section].output_mut(title);
-            let opening = format!("<{}>", tag.name());
-
-            if let Some(start) = data.value.find(&opening) {
-                let following = &data.value[start + opening.len()..];
-                if following.chars().any(|char| !char.is_whitespace()) {
-                    data.value.push_str("</");
-                    data.value.push_str(tag.name());
-                    data.value.push('>');
-                    data.last_whitespace = false;
-                } else {
-                    data.value.truncate(start);
-                    data.last_whitespace = element.kept.map_or_else(
-                        || {
-                            data.value
-                                .chars()
-                                .last()
-                                .is_some_and(char::is_whitespace)
-                        },
-                        |kept| {
-                            debug_assert_eq!(kept.section, section);
-                            debug_assert_eq!(kept.title, title);
-                            debug_assert_eq!(kept.start, start);
-                            kept.previous_whitespace
-                        },
-                    );
-                }
-            }
-        }
-    }
-
-    /// Handles text content.
-    fn text(&mut self, value: &str) {
-        if self.skip > 0 {
-            return;
-        }
-
-        let preformatted = self.context.iter().any(|el| el.tag == Tag::Pre);
-        let whitespace = value.chars().all(char::is_whitespace);
-        let text;
-        let value = if preformatted {
-            value
-        } else if whitespace {
-            " "
-        } else if value.contains('\n') {
-            text = value.replace('\n', " ");
-            &text
-        } else {
-            value
-        };
-
-        self.ensure_section();
-        let (section, title) = self.output_target();
-
-        if title {
-            if self.context.iter().any(|el| el.headerlink) {
-                return;
-            }
-            escape(value, &mut self.sections[section].title.value);
-            self.sections[section].title.last_whitespace = whitespace;
-        } else {
-            let data = &mut self.sections[section].text;
-            if !whitespace || preformatted || !data.last_whitespace {
-                escape(value, &mut data.value);
-                data.last_whitespace = whitespace;
-            }
-        }
-    }
-
-    /// Returns the current section and whether its title receives output.
-    fn output_target(&self) -> (usize, bool) {
-        let section = self.current.expect("section");
-        let heading = self.sections[section].heading;
-        let title = heading.is_some_and(|level| {
-            self.context
-                .iter()
-                .any(|el| el.tag.heading_level() == Some(level))
-        });
-        (section, title)
-    }
-
-    /// Ensures a section exists for preface content.
-    fn ensure_section(&mut self) {
-        if self.current.is_none() {
-            self.push_preface();
-        }
-    }
-
-    /// Adds the implicit top-level preface section.
-    fn push_preface(&mut self) {
-        self.sections
-            .push(SectionState::new(None, 1, 0, None, false));
-        self.current = Some(self.sections.len() - 1);
-    }
-
-    /// Converts parser state into page-local search sections.
-    pub(crate) fn finish(self) -> Vec<SearchSection> {
-        self.sections
-            .into_iter()
-            .filter(|section| !section.excluded)
-            .map(|section| SearchSection {
-                location: section.location,
-                level: section.level,
-                title: trim(section.title.value),
-                text: trim(section.text.value),
-            })
-            .collect()
-    }
-}
-
-// ----------------------------------------------------------------------------
-// Trait implementations
-// ----------------------------------------------------------------------------
-
-impl Visitor for Parser {
-    fn visit(
-        &mut self, event: &CallbackEvent<'_>, span: Span<usize>,
-        editor: &mut Editor<'_>,
-    ) {
-        self.handle(event, span, editor);
-    }
-}
-
-// ----------------------------------------------------------------------------
-// State
-// ----------------------------------------------------------------------------
-
 /// Section being assembled.
 struct SectionState {
     heading: Option<u8>,
@@ -329,36 +113,6 @@ struct SectionState {
     location: Option<String>,
     title: Output,
     text: Output,
-}
-
-impl SectionState {
-    fn new(
-        heading: Option<u8>, level: u32, depth: usize,
-        location: Option<String>, excluded: bool,
-    ) -> Self {
-        Self {
-            heading,
-            level,
-            depth,
-            exited: false,
-            excluded,
-            location,
-            title: Output::default(),
-            text: Output::default(),
-        }
-    }
-
-    fn exited_or_deeper_than(&self, depth: usize) -> bool {
-        self.exited || self.depth > depth
-    }
-
-    fn output_mut(&mut self, title: bool) -> &mut Output {
-        if title {
-            &mut self.title
-        } else {
-            &mut self.text
-        }
-    }
 }
 
 /// Output buffer and whitespace state.
@@ -394,6 +148,342 @@ struct StartTag {
     class: Option<Vec<u8>>,
 }
 
+// ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
+
+impl Parser {
+    /// Creates a parser that only applies search-related HTML cleanup.
+    pub fn discarding() -> Self {
+        Self {
+            discard: true,
+            ..Self::default()
+        }
+    }
+
+    /// Handles a tokenizer event.
+    fn handle(
+        &mut self, event: &CallbackEvent<'_>, span: Span<usize>,
+        editor: &mut Editor<'_>,
+    ) {
+        // The attribute is an extraction directive, not rendered output. This
+        // cleanup still runs for pages excluded through front matter.
+        if let CallbackEvent::AttributeName { name } = event
+            && *name == b"data-search-exclude"
+        {
+            editor.remove_attribute(name, span);
+        }
+
+        // Page-level exclusion disables fact collection, but not HTML cleanup.
+        if self.discard {
+            return;
+        }
+
+        // html5gum emits a start tag and each of its attributes separately, so
+        // assemble the tag before applying section and exclusion semantics.
+        match event {
+            CallbackEvent::OpenStartTag { name } => {
+                self.start = Some(StartTag::new(Tag::from_bytes(name)));
+                self.attribute = Attribute::Other;
+            }
+            CallbackEvent::AttributeName { name } => {
+                self.attribute = Attribute::from_bytes(name);
+                if let Some(start) = &mut self.start {
+                    start.observe_attribute(self.attribute, None);
+                }
+            }
+            CallbackEvent::AttributeValue { value } => {
+                if let Some(start) = &mut self.start {
+                    start.observe_attribute(self.attribute, Some(value));
+                }
+            }
+            CallbackEvent::CloseStartTag { self_closing } => {
+                if let Some(start) = self.start.take() {
+                    let tag = start.tag.clone();
+                    self.start(start);
+
+                    // Self-closing non-void elements enter and leave the
+                    // context in the same tokenizer event.
+                    if *self_closing {
+                        self.end(&tag);
+                    }
+                }
+            }
+            CallbackEvent::EndTag { name } => {
+                self.end(&Tag::from_bytes(name));
+            }
+            CallbackEvent::String { value } => {
+                self.text(String::from_utf8_lossy(value).as_ref());
+            }
+            CallbackEvent::Comment { .. }
+            | CallbackEvent::Doctype { .. }
+            | CallbackEvent::Error(_) => {}
+        }
+    }
+
+    /// Handles a complete start tag.
+    fn start(&mut self, start: StartTag) {
+        // Void elements never contribute nesting state, even without an
+        // explicit self-closing slash in HTML.
+        if start.tag.is_void() {
+            return;
+        }
+
+        // Search directives suppress complete subtrees. Header links are
+        // tracked separately because their visible glyph is not title text.
+        let heading = start.tag.heading_level();
+        let skipped = start.tag.is_skipped()
+            || start.excluded
+            || start.class.as_deref() == Some(b"linenodiv");
+        let headerlink = start.tag == Tag::A
+            && start.class.as_deref() == Some(b"headerlink");
+        let tag = start.tag.clone();
+
+        self.context.push(Element {
+            tag: start.tag,
+            skipped,
+            headerlink,
+            kept: None,
+        });
+
+        // Only headings with an ID start sections, matching MkDocs search.
+        // Content before the first non-h1 heading belongs to an implicit
+        // top-level preface section.
+        if let (Some(level), true) = (heading, start.id_present) {
+            let depth = self.context.len();
+
+            if level != 1 && self.sections.is_empty() {
+                self.push_preface();
+            }
+
+            let location = if self.sections.is_empty() {
+                None
+            } else {
+                start.id
+            };
+            let section = SectionState::new(
+                Some(level),
+                level.into(),
+                depth,
+                location,
+                start.excluded,
+            );
+            self.sections.push(section);
+            self.current = Some(self.sections.len() - 1);
+        }
+
+        // Ordinary content before the first indexed heading also needs the
+        // implicit preface section.
+        self.ensure_section();
+
+        // Count skipped ancestors so descendants can be rejected in O(1).
+        if skipped {
+            self.skip += 1;
+            return;
+        }
+
+        // Retain only the small markup allowlist used by MkDocs search. Record
+        // the insertion point so an empty element can be removed on close.
+        if self.skip == 0 && tag.is_kept() {
+            let (section, title) = self.output_target();
+            let data = self.sections[section].output_mut(title);
+            let start = data.value.len();
+            let previous_whitespace = data.last_whitespace;
+            data.value.push('<');
+            data.value.push_str(tag.name());
+            data.value.push('>');
+            data.last_whitespace = false;
+
+            self.context.last_mut().expect("context").kept =
+                Some(KeptElement {
+                    section,
+                    title,
+                    start,
+                    previous_whitespace,
+                });
+        }
+    }
+
+    /// Handles an end tag.
+    fn end(&mut self, tag: &Tag) {
+        // Ignore mismatched tags rather than letting malformed HTML corrupt
+        // the element and exclusion stacks.
+        if self.context.last().is_none_or(|el| el.tag != *tag) {
+            return;
+        }
+
+        // A heading can be nested inside a container. When that container
+        // closes, resume the nearest still-open parent section and permanently
+        // retire the nested section.
+        let depth = self.context.len();
+        if let Some(index) = self.current
+            && self.sections[index].exited_or_deeper_than(depth)
+            && let Some(parent) = self
+                .sections
+                .iter()
+                .rposition(|section| !section.exited && section.depth <= depth)
+        {
+            self.sections[index].exited = true;
+            self.current = Some(parent);
+        }
+
+        // Closing the outermost skipped element re-enables extraction.
+        let element = self.context.pop().expect("context");
+        if element.skipped {
+            self.skip -= 1;
+            return;
+        }
+
+        // Keep a closing tag only when its opening tag encloses non-whitespace
+        // content. Otherwise remove the opening tag and restore whitespace
+        // state from before it was inserted.
+        if self.skip == 0 && tag.is_kept() {
+            let (section, title) = self.output_target();
+            let data = self.sections[section].output_mut(title);
+            let opening = format!("<{}>", tag.name());
+
+            if let Some(start) = data.value.find(&opening) {
+                let following = &data.value[start + opening.len()..];
+                if following.chars().any(|char| !char.is_whitespace()) {
+                    data.value.push_str("</");
+                    data.value.push_str(tag.name());
+                    data.value.push('>');
+                    data.last_whitespace = false;
+                } else {
+                    data.value.truncate(start);
+                    data.last_whitespace = element.kept.map_or_else(
+                        || {
+                            data.value
+                                .chars()
+                                .last()
+                                .is_some_and(char::is_whitespace)
+                        },
+                        |kept| {
+                            debug_assert_eq!(kept.section, section);
+                            debug_assert_eq!(kept.title, title);
+                            debug_assert_eq!(kept.start, start);
+                            kept.previous_whitespace
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    /// Handles text content.
+    fn text(&mut self, value: &str) {
+        // Excluded subtrees contribute neither title nor body text.
+        if self.skip > 0 {
+            return;
+        }
+
+        // Preserve preformatted input exactly. Elsewhere, mirror the Python
+        // implementation by converting line breaks and whitespace runs.
+        let preformatted = self.context.iter().any(|el| el.tag == Tag::Pre);
+        let whitespace = value.chars().all(char::is_whitespace);
+        let text;
+        let value = if preformatted {
+            value
+        } else if whitespace {
+            " "
+        } else if value.contains('\n') {
+            text = value.replace('\n', " ");
+            &text
+        } else {
+            value
+        };
+
+        self.ensure_section();
+        let (section, title) = self.output_target();
+
+        if title {
+            // Permalink anchors are presentation affordances, not title text.
+            if self.context.iter().any(|el| el.headerlink) {
+                return;
+            }
+            escape(value, &mut self.sections[section].title.value);
+            self.sections[section].title.last_whitespace = whitespace;
+        } else {
+            // Collapse adjacent whitespace outside preformatted content.
+            let data = &mut self.sections[section].text;
+            if !whitespace || preformatted || !data.last_whitespace {
+                escape(value, &mut data.value);
+                data.last_whitespace = whitespace;
+            }
+        }
+    }
+
+    /// Returns the current section and whether its title receives output.
+    fn output_target(&self) -> (usize, bool) {
+        let section = self.current.expect("section");
+        let heading = self.sections[section].heading;
+        let title = heading.is_some_and(|level| {
+            self.context
+                .iter()
+                .any(|el| el.tag.heading_level() == Some(level))
+        });
+        (section, title)
+    }
+
+    /// Ensures a section exists for preface content.
+    fn ensure_section(&mut self) {
+        if self.current.is_none() {
+            self.push_preface();
+        }
+    }
+
+    /// Adds the implicit top-level preface section.
+    fn push_preface(&mut self) {
+        self.sections
+            .push(SectionState::new(None, 1, 0, None, false));
+        self.current = Some(self.sections.len() - 1);
+    }
+
+    /// Converts parser state into page-local search sections.
+    pub fn finish(self) -> Vec<SearchSection> {
+        self.sections
+            .into_iter()
+            .filter(|section| !section.excluded)
+            .map(|section| SearchSection {
+                location: section.location,
+                level: section.level,
+                title: trim(section.title.value),
+                text: trim(section.text.value),
+            })
+            .collect()
+    }
+}
+
+impl SectionState {
+    fn new(
+        heading: Option<u8>, level: u32, depth: usize,
+        location: Option<String>, excluded: bool,
+    ) -> Self {
+        Self {
+            heading,
+            level,
+            depth,
+            exited: false,
+            excluded,
+            location,
+            title: Output::default(),
+            text: Output::default(),
+        }
+    }
+
+    fn exited_or_deeper_than(&self, depth: usize) -> bool {
+        self.exited || self.depth > depth
+    }
+
+    fn output_mut(&mut self, title: bool) -> &mut Output {
+        if title {
+            &mut self.title
+        } else {
+            &mut self.text
+        }
+    }
+}
+
 impl StartTag {
     fn new(tag: Tag) -> Self {
         Self {
@@ -423,16 +513,6 @@ impl StartTag {
     }
 }
 
-/// Attributes relevant to extraction.
-#[derive(Clone, Copy, Default)]
-enum Attribute {
-    Id,
-    Class,
-    SearchExclude,
-    #[default]
-    Other,
-}
-
 impl Attribute {
     fn from_bytes(value: &[u8]) -> Self {
         match value {
@@ -442,40 +522,6 @@ impl Attribute {
             _ => Self::Other,
         }
     }
-}
-
-/// HTML tags relevant to extraction.
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum Tag {
-    A,
-    Area,
-    Base,
-    Br,
-    Code,
-    Col,
-    Embed,
-    H(u8),
-    Hr,
-    Img,
-    Input,
-    Li,
-    Link,
-    Meta,
-    Object,
-    Ol,
-    P,
-    Param,
-    Pre,
-    Script,
-    Small,
-    Source,
-    Style,
-    Sub,
-    Sup,
-    Track,
-    Ul,
-    Wbr,
-    Other(Box<str>),
 }
 
 impl Tag {
@@ -609,7 +655,20 @@ impl Tag {
 }
 
 // ----------------------------------------------------------------------------
-// Helpers
+// Trait implementations
+// ----------------------------------------------------------------------------
+
+impl Visitor for Parser {
+    fn visit(
+        &mut self, event: &CallbackEvent<'_>, span: Span<usize>,
+        editor: &mut Editor<'_>,
+    ) {
+        self.handle(event, span, editor);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Functions
 // ----------------------------------------------------------------------------
 
 /// Escapes text like `html.escape(..., quote=False)`.
@@ -633,10 +692,15 @@ fn trim(mut value: String) -> String {
     value
 }
 
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::compat::mkdocs::html::scan;
+
+    use super::{Parser, SearchSection};
 
     fn extract(html: &str) -> Vec<SearchSection> {
         let mut parser = Parser::default();

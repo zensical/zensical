@@ -3,6 +3,26 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
 //! MkDocs Material metadata inheritance.
 
 use anyhow::{bail, Context, Result};
@@ -13,49 +33,28 @@ use std::ops::Range;
 use std::path::Path;
 
 use crate::config::Config;
+use crate::path::{SourcePath, SourceRoot};
 use crate::structure::dynamic::Dynamic;
 
+mod admission;
 mod parser;
 
-// ----------------------------------------------------------------------------
-// Structs
-// ----------------------------------------------------------------------------
+pub use admission::{Admission, Prepared};
 
-/// Metadata plugin settings used by the workflow.
-#[derive(Clone, Debug)]
-pub(crate) struct Settings {
-    /// Whether inheritance is enabled.
-    pub enabled: bool,
-    /// Exact basename of metadata files.
-    pub meta_file: String,
-}
-
-/// A source range expressed as UTF-8 byte offsets.
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct SourceSpan {
-    /// Source identifier.
-    pub source: String,
-    /// Half-open byte range within the complete source.
-    pub range: Range<usize>,
-}
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
 
 /// Origin of one metadata value.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) enum Origin {
+pub enum Origin {
     /// Value read from a source document.
     Source(SourceSpan),
     /// Value created or changed during rendering.
     Runtime,
 }
 
-/// A source-aware metadata value.
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct Node {
-    /// Origin of this node.
-    origin: Origin,
-    /// Value and source-aware children.
-    value: Value,
-}
+// ----------------------------------------------------------------------------
 
 /// Recursive metadata value.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,25 +67,66 @@ enum Value {
     Map(BTreeMap<String, Node>),
 }
 
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
+
+/// Metadata plugin settings used by the workflow.
+#[derive(Clone, Debug)]
+pub struct Settings {
+    /// Whether inheritance is enabled.
+    pub enabled: bool,
+    /// Exact basename of metadata files.
+    pub meta_file: String,
+}
+
+// ----------------------------------------------------------------------------
+
+/// A source range expressed as UTF-8 byte offsets.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceSpan {
+    /// Source identifier.
+    pub source: SourcePath,
+    /// Half-open byte range within the complete source.
+    pub range: Range<usize>,
+}
+
+// ----------------------------------------------------------------------------
+
+/// A source-aware metadata value.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Node {
+    /// Origin of this node.
+    origin: Origin,
+    /// Value and source-aware children.
+    value: Value,
+}
+
+// ----------------------------------------------------------------------------
+
 /// One parsed YAML metadata document.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct Document {
+pub struct Document {
     /// Source-relative path.
-    path: String,
+    path: SourcePath,
     /// Source-aware root mapping.
     root: Node,
 }
+
+// ----------------------------------------------------------------------------
 
 /// Metadata resolved for one Markdown page.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct Resolved {
+pub struct Resolved {
     /// Source-aware root mapping.
     root: Node,
 }
 
+// ----------------------------------------------------------------------------
+
 /// Immutable metadata documents available to one workflow revision.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Index {
+pub struct Index {
     /// Parsed metadata files, shared by every page in the revision.
     documents: Vec<Document>,
 }
@@ -97,7 +137,7 @@ pub(crate) struct Index {
 
 impl Settings {
     /// Extracts native meta settings from resolved configuration.
-    pub(crate) fn new(config: &Config) -> Self {
+    pub fn new(config: &Config) -> Self {
         let config = &config.project.plugins.meta.config;
         Self {
             enabled: config.enabled,
@@ -106,24 +146,9 @@ impl Settings {
     }
 }
 
-impl Node {
-    /// Creates a runtime-owned tree from a plain dynamic value.
-    fn runtime(value: Dynamic) -> Self {
-        let value = match value {
-            Dynamic::List(values) => {
-                Value::List(values.into_iter().map(Self::runtime).collect())
-            }
-            Dynamic::Map(values) => Value::Map(
-                values
-                    .into_iter()
-                    .map(|(key, value)| (key, Self::runtime(value)))
-                    .collect(),
-            ),
-            value => Value::Scalar(value),
-        };
-        Self { origin: Origin::Runtime, value }
-    }
+// ----------------------------------------------------------------------------
 
+impl Node {
     /// Projects a source-aware tree into template-visible metadata.
     fn dynamic(&self) -> Dynamic {
         match &self.value {
@@ -139,55 +164,13 @@ impl Node {
             ),
         }
     }
-
-    /// Retains origins for values unchanged by Python extensions.
-    fn reconcile(&self, value: Dynamic) -> Self {
-        if self.dynamic() == value {
-            return self.clone();
-        }
-        match (&self.value, value) {
-            (Value::Map(previous), Dynamic::Map(current)) => {
-                let values = current
-                    .into_iter()
-                    .map(|(key, value)| {
-                        let value = if let Some(previous) = previous.get(&key) {
-                            previous.reconcile(value)
-                        } else {
-                            Self::runtime(value)
-                        };
-                        (key, value)
-                    })
-                    .collect();
-                Self {
-                    origin: Origin::Runtime,
-                    value: Value::Map(values),
-                }
-            }
-            (Value::List(previous), Dynamic::List(current)) => {
-                let values = current
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, value)| {
-                        if let Some(previous) = previous.get(index) {
-                            previous.reconcile(value)
-                        } else {
-                            Self::runtime(value)
-                        }
-                    })
-                    .collect();
-                Self {
-                    origin: Origin::Runtime,
-                    value: Value::List(values),
-                }
-            }
-            (_, value) => Self::runtime(value),
-        }
-    }
 }
+
+// ----------------------------------------------------------------------------
 
 impl Resolved {
     /// Returns plain values for the Python Markdown boundary.
-    pub(crate) fn values(&self) -> BTreeMap<String, Dynamic> {
+    pub fn values(&self) -> BTreeMap<String, Dynamic> {
         let Value::Map(values) = &self.root.value else {
             unreachable!("metadata root is always a mapping")
         };
@@ -196,34 +179,30 @@ impl Resolved {
             .map(|(key, value)| (key.clone(), value.dynamic()))
             .collect()
     }
-
-    /// Reconciles source origins with metadata returned from Python.
-    pub(crate) fn reconcile(&self, values: BTreeMap<String, Dynamic>) -> Self {
-        let root = self.root.reconcile(Dynamic::Map(values));
-        Self { root }
-    }
 }
+
+// ----------------------------------------------------------------------------
 
 impl Index {
     /// Loads and parses every configured metadata file exactly once.
-    pub(crate) fn load(docs: &Path, settings: &Settings) -> Result<Self> {
+    pub fn load(docs: &SourceRoot, settings: &Settings) -> Result<Self> {
         if !settings.enabled {
             return Ok(Self::default());
         }
         let mut documents = Vec::new();
-        collect(docs, docs, settings, &mut documents)?;
+        collect(docs, docs.as_path(), settings, &mut documents)?;
+        sort_documents(&mut documents);
         Ok(Self { documents })
     }
 
     /// Resolves the metadata chain applicable to one page.
-    pub(crate) fn resolve(
-        &self, page: &str, front_matter: Option<Document>,
+    pub fn resolve(
+        &self, page: &SourcePath, front_matter: Option<Document>,
     ) -> Result<Resolved> {
-        resolve(
+        resolve_ordered(
             self.documents
                 .iter()
-                .filter(|document| applies(&document.path, page))
-                .cloned(),
+                .filter(|document| applies(&document.path, page)),
             front_matter,
         )
     }
@@ -234,29 +213,26 @@ impl Index {
 // ----------------------------------------------------------------------------
 
 /// Returns whether a source is claimed as a metadata file.
-pub(crate) fn claims(path: &str, settings: &Settings) -> bool {
+pub fn claims(path: &str, settings: &Settings) -> bool {
     settings.enabled
         && path.rsplit('/').next() == Some(settings.meta_file.as_str())
 }
 
 /// Returns whether a metadata file applies to a Markdown page.
-pub(crate) fn applies(meta: &str, page: &str) -> bool {
-    let parent = meta.rsplit_once('/').map_or("", |(parent, _)| parent);
-    parent.is_empty()
-        || page
-            .strip_prefix(parent)
-            .is_some_and(|suffix| suffix.starts_with('/'))
+pub fn applies(meta: &SourcePath, page: &SourcePath) -> bool {
+    meta.parent()
+        .is_none_or(|parent| page.is_descendant_of(&parent))
 }
 
 /// Parses one standalone metadata file.
-pub(crate) fn parse(path: &str, source: &str) -> Result<Document> {
-    parser::parse(path, source, 0)
+pub fn parse(path: SourcePath, source: &str) -> Result<Document> {
+    parser::parse(path.clone(), source, 0)
         .with_context(|| format!("error reading meta file '{path}'"))
 }
 
 /// Extracts and parses YAML front matter from a Markdown source.
-pub(crate) fn front_matter(
-    path: &str, source: &str,
+pub fn front_matter(
+    path: &SourcePath, source: &str,
 ) -> Result<(String, Option<Document>)> {
     parser::front_matter(path, source)
         .with_context(|| format!("error reading page metadata '{path}'"))
@@ -264,7 +240,7 @@ pub(crate) fn front_matter(
 
 /// Recursively loads metadata documents from the docs tree.
 fn collect(
-    root: &Path, directory: &Path, settings: &Settings,
+    root: &SourceRoot, directory: &Path, settings: &Settings,
     documents: &mut Vec<Document>,
 ) -> Result<()> {
     for entry in std::fs::read_dir(directory)? {
@@ -275,28 +251,30 @@ fn collect(
             .file_name()
             .is_some_and(|name| name == settings.meta_file.as_str())
         {
-            let relative = path.strip_prefix(root)?;
-            let location = relative.to_string_lossy().replace('\\', "/");
+            let relative = path.strip_prefix(root.as_path())?;
+            let location = SourcePath::from_path(relative)?;
             let source = std::fs::read_to_string(&path)?;
-            documents.push(parse(&location, &source)?);
+            documents.push(parse(location, &source)?);
         }
     }
     Ok(())
 }
 
-/// Resolves applicable meta files and page front matter.
-pub(crate) fn resolve(
-    documents: impl IntoIterator<Item = Document>, page: Option<Document>,
-) -> Result<Resolved> {
-    let mut documents = documents.into_iter().collect::<Vec<_>>();
+/// Sorts metadata from broad ancestors to specific descendants once.
+fn sort_documents(documents: &mut [Document]) {
     documents.sort_by(|left, right| {
-        let left_depth = left.path.matches('/').count();
-        let right_depth = right.path.matches('/').count();
+        let left_depth = left.path.depth();
+        let right_depth = right.path.depth();
         left_depth
             .cmp(&right_depth)
             .then(left.path.cmp(&right.path))
     });
+}
 
+/// Resolves metadata whose source order is already deterministic.
+fn resolve_ordered<'a>(
+    documents: impl IntoIterator<Item = &'a Document>, page: Option<Document>,
+) -> Result<Resolved> {
     let mut root = Node {
         origin: Origin::Runtime,
         value: Value::Map(BTreeMap::new()),
@@ -367,20 +345,60 @@ fn scalar_kind(value: &Dynamic) -> u8 {
     }
 }
 
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::collections::BTreeMap;
+
+    use anyhow::Result;
+
+    use crate::path::{SourcePath, SourceRoot};
+    use crate::structure::dynamic::Dynamic;
+
+    use super::{
+        applies, parse, resolve_ordered, sort_documents, Document, Index,
+        Origin, Resolved, Settings, Value,
+    };
+
+    fn resolve(
+        documents: impl IntoIterator<Item = Document>, page: Option<Document>,
+    ) -> Result<Resolved> {
+        let mut documents = documents.into_iter().collect::<Vec<_>>();
+        sort_documents(&mut documents);
+        resolve_ordered(&documents, page)
+    }
 
     fn values(source: &str) -> BTreeMap<String, Dynamic> {
-        resolve([], Some(parse("docs/page.md", source).unwrap()))
+        resolve([], Some(parse(path("docs/page.md"), source).unwrap()))
             .unwrap()
             .values()
     }
 
+    fn path(value: &str) -> SourcePath {
+        value.parse().unwrap()
+    }
+
     #[test]
     fn matches_path_components() {
-        assert!(applies("docs/guide/.meta.yml", "docs/guide/page.md"));
-        assert!(!applies("docs/guide/.meta.yml", "docs/guidelines/page.md"));
+        assert!(applies(
+            &path("docs/guide/.meta.yml"),
+            &path("docs/guide/page.md")
+        ));
+        assert!(!applies(
+            &path("docs/guide/.meta.yml"),
+            &path("docs/guidelines/page.md")
+        ));
+        assert!(applies(
+            &path("docs/café/defaults.yml"),
+            &path("docs/café/nested/page.md")
+        ));
+        assert!(!applies(
+            &path("docs/café/defaults.yml"),
+            &path("docs/café-other/page.md")
+        ));
     }
 
     #[test]
@@ -390,9 +408,11 @@ mod tests {
 
     #[test]
     fn merges_maps_and_appends_lists() {
-        let root = parse("docs/.meta.yml", "x:\n  a: 1\nitems: [a]\n").unwrap();
+        let root =
+            parse(path("docs/.meta.yml"), "x:\n  a: 1\nitems: [a]\n").unwrap();
         let nested =
-            parse("docs/guide/.meta.yml", "x:\n  b: 2\nitems: [b]\n").unwrap();
+            parse(path("docs/guide/.meta.yml"), "x:\n  b: 2\nitems: [b]\n")
+                .unwrap();
         let values = resolve([nested, root], None).unwrap().values();
         assert_eq!(
             values["items"],
@@ -412,8 +432,8 @@ mod tests {
 
     #[test]
     fn rejects_type_mismatch() {
-        let root = parse("docs/.meta.yml", "value: text\n").unwrap();
-        let page = parse("docs/page.md", "value: [text]\n").unwrap();
+        let root = parse(path("docs/.meta.yml"), "value: text\n").unwrap();
+        let page = parse(path("docs/page.md"), "value: [text]\n").unwrap();
         let error = format!("{:#}", resolve([root], Some(page)).unwrap_err());
         assert!(error.contains(".meta.yml"));
         assert!(error.contains("page.md"));
@@ -421,8 +441,8 @@ mod tests {
 
     #[test]
     fn scalar_override_keeps_winning_source() {
-        let root = parse(".meta.yml", "title: Default\n").unwrap();
-        let page = parse("page.md", "title: Page\n").unwrap();
+        let root = parse(path(".meta.yml"), "title: Default\n").unwrap();
+        let page = parse(path("page.md"), "title: Page\n").unwrap();
         let resolved = resolve([root], Some(page)).unwrap();
         let Value::Map(values) = &resolved.root.value else {
             panic!("mapping")
@@ -430,7 +450,7 @@ mod tests {
         let Origin::Source(span) = &values["title"].origin else {
             panic!("source")
         };
-        assert_eq!(span.source, "page.md");
+        assert_eq!(span.source.as_str(), "page.md");
     }
 
     #[test]
@@ -451,9 +471,10 @@ mod tests {
             enabled: true,
             meta_file: ".meta.yml".into(),
         };
-        let values = Index::load(docs, &settings)
+        let root = SourceRoot::open(docs).unwrap();
+        let values = Index::load(&root, &settings)
             .unwrap()
-            .resolve("guide/page.md", None)
+            .resolve(&path("guide/page.md"), None)
             .unwrap()
             .values();
         assert_eq!(

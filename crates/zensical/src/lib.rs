@@ -32,19 +32,23 @@
 
 use crossbeam::channel::{unbounded, RecvTimeoutError};
 use pyo3::exceptions::PyRuntimeError;
-use pyo3::prelude::*;
-use pyo3::Python;
-use std::collections::BTreeMap;
+use pyo3::types::{PyModule, PyModuleMethods};
+use pyo3::{
+    pyfunction, pymodule, wrap_pyfunction, Bound, FromPyObject, PyResult,
+    Python,
+};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{fs, io, thread};
+
 use zrx::id::Id;
 use zrx::stream::{Change, Key};
 
 mod compat;
 mod config;
+pub mod path;
 mod python;
 mod server;
 mod structure;
@@ -55,22 +59,12 @@ mod workflow;
 use compat::mkdocs::plugin::meta;
 use config::Config;
 use server::{create_server, ServeOptions};
-use watcher::{Source, Watcher};
-use workflow::{create_workflow, Input};
+use watcher::Watcher;
+use workflow::{create_workflow, Configuration, Input};
 
 // ----------------------------------------------------------------------------
 // Enums
 // ----------------------------------------------------------------------------
-
-/// Serve options.
-#[derive(Clone, Debug, FromPyObject, PartialEq, Eq)]
-#[pyo3(from_item_all)]
-pub struct BuildOptions {
-    /// Whether to clean the cache directory before building.
-    pub clean: Option<bool>,
-    /// Whether to enable strict mode - abort the build on any warnings.
-    pub strict: Option<bool>,
-}
 
 /// Build mode.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -79,6 +73,20 @@ pub enum Mode {
     Build(BuildOptions),
     /// Build the project continuously.
     Serve(ServeOptions, u64),
+}
+
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
+
+/// Build options.
+#[derive(Clone, Debug, FromPyObject, PartialEq, Eq)]
+#[pyo3(from_item_all)]
+pub struct BuildOptions {
+    /// Whether to clean the cache directory before building.
+    pub clean: Option<bool>,
+    /// Whether to enable strict mode and abort on warnings.
+    pub strict: Option<bool>,
 }
 
 // ----------------------------------------------------------------------------
@@ -183,9 +191,9 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     // true differential builds, which will also include cleaning up old files
     // that are not needed anymore but for now, we just remove everything, like
     // MkDocs does it, but not the directory itself, see https://t.ly/Lrjdx
-    let site_dir = config.get_site_dir();
+    let site_dir = config.output_root().as_path();
     if site_dir.exists() {
-        clear_dir(&site_dir).expect("site directory could not be cleaned");
+        clear_dir(site_dir).expect("site directory could not be cleaned");
     }
 
     // Determine if strict mode is enabled
@@ -196,16 +204,39 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         Mode::Serve(_, _) => false,
     };
 
+    // Resolve metadata settings once for the workflow and provider boundary.
+    // The provider still needs them while metadata remains a revision fact
+    // workaround, so share the module-owned value rather than reprojecting
+    // configuration independently on both sides.
+    let meta_settings = Arc::new(meta::Settings::new(&config));
+
     // Create workflow runner and acquire its source input
-    let workflow = create_workflow(&config, strict);
+    let workflow = create_workflow(&config, strict, meta_settings.clone());
     let mut runner = workflow
         .runner()
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
     let mut input = runner
         .input::<Input>()
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
-    let meta_settings = meta::Settings::new(&config);
-
+    let configuration = runner
+        .input::<Configuration>()
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    let mut revision = configuration
+        .begin()
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    revision
+        .insert(
+            Key::<Id>::from_iter(std::iter::empty()),
+            Configuration::new(config.clone(), strict),
+        )
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    let _configuration = revision
+        .seal()
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    let run = runner
+        .settle()
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    report_failures(&run)?;
     // Create channel for reload notifications
     let (sender, receiver) = unbounded();
 
@@ -234,6 +265,11 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
 
     let serve = matches!(mode, Mode::Serve(_, _));
     let watcher = Watcher::new(&config, serve, sender, waker.clone())?;
+    let mut metadata = meta::Admission::new(
+        config.docs_root().clone(),
+        config.project.docs_dir.clone(),
+        meta_settings,
+    );
 
     // Start the event loop. Each debounced watcher batch is admitted as one
     // source revision and fully settled before the next batch is accepted.
@@ -242,23 +278,16 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     loop {
         match watcher.receive(Duration::from_millis(100)) {
             Ok(changes) => {
-                let metadata = Arc::new(
-                    meta::Index::load(&config.get_docs_dir(), &meta_settings)
-                        .map_err(|error| {
+                let meta::Prepared { index, dependents } =
+                    metadata.prepare(&changes).map_err(|error| {
                         PyRuntimeError::new_err(format!("{error:#}"))
-                    })?,
-                );
-                let dependents = metadata_dependents(
-                    &changes,
-                    &config.get_docs_dir(),
-                    &meta_settings,
-                )?;
+                    })?;
                 let mut revision = input
                     .begin()
                     .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
                 for (key, source) in dependents {
                     revision
-                        .insert(key, Input::new(source, metadata.clone()))
+                        .insert(key, Input::new(source, index.clone()))
                         .map_err(|err| {
                             PyRuntimeError::new_err(err.to_string())
                         })?;
@@ -266,7 +295,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
                 for change in changes {
                     match change {
                         Change::Insert(key, source) => revision
-                            .insert(key, Input::new(source, metadata.clone()))
+                            .insert(key, Input::new(source, index.clone()))
                             .map_err(|err| {
                                 PyRuntimeError::new_err(err.to_string())
                             })?,
@@ -312,75 +341,6 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
 
     // All good
     Ok(false)
-}
-
-/// Expands metadata-file changes into descendant Markdown updates.
-fn metadata_dependents(
-    changes: &[Change<Id, Source>], docs: &Path, settings: &meta::Settings,
-) -> PyResult<Vec<(Key<Id>, Source)>> {
-    if !settings.enabled {
-        return Ok(Vec::new());
-    }
-    let mut dependents = BTreeMap::new();
-    for change in changes {
-        let key = match change {
-            Change::Insert(key, _) | Change::Remove(key) => key,
-        };
-        let location = key[0].location();
-        if !meta::claims(&location, settings) {
-            continue;
-        }
-        let parent = Path::new(location.as_ref())
-            .parent()
-            .unwrap_or_else(|| Path::new(""));
-        let mut paths = Vec::new();
-        collect_markdown(&docs.join(parent), &mut paths)
-            .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
-        for path in paths {
-            let relative = path
-                .strip_prefix(docs)
-                .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
-            let location = relative.to_string_lossy().replace('\\', "/");
-            let id = key[0]
-                .to_builder()
-                .location(location)
-                .build()
-                .expect("invariant");
-            dependents.insert(
-                Key::from(id),
-                Source::from(path.to_string_lossy().into_owned()),
-            );
-        }
-    }
-
-    // A provider update for the page itself is authoritative. In particular,
-    // the initial snapshot contains both metadata files and every Markdown
-    // page, so retaining synthesized inserts here would admit each page twice.
-    for change in changes {
-        let key = match change {
-            Change::Insert(key, _) | Change::Remove(key) => key,
-        };
-        dependents.remove(key);
-    }
-    Ok(dependents.into_iter().collect())
-}
-
-/// Recursively collects Markdown files below one metadata directory.
-fn collect_markdown(
-    directory: &Path, paths: &mut Vec<PathBuf>,
-) -> io::Result<()> {
-    let Ok(entries) = fs::read_dir(directory) else {
-        return Ok(());
-    };
-    for entry in entries {
-        let path = entry?.path();
-        if path.is_dir() {
-            collect_markdown(&path, paths)?;
-        } else if path.extension().is_some_and(|extension| extension == "md") {
-            paths.push(path);
-        }
-    }
-    Ok(())
 }
 
 /// Returns the first action failure reported by one settled run.
@@ -446,9 +406,10 @@ fn zensical(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
     use tempfile::tempdir;
+
+    use super::clear_dir;
 
     #[test]
     fn clear_dir_removes_non_hidden_file() {
@@ -541,80 +502,5 @@ mod tests {
         clear_dir(dir.path()).unwrap();
 
         assert!(dir.path().exists());
-    }
-
-    #[test]
-    fn metadata_change_selects_only_descendant_markdown() {
-        let dir = tempdir().unwrap();
-        let docs = dir.path();
-        fs::create_dir_all(docs.join("guide/nested")).unwrap();
-        fs::create_dir_all(docs.join("guidelines")).unwrap();
-        fs::write(docs.join("guide/page.md"), "# Page").unwrap();
-        fs::write(docs.join("guide/nested/page.md"), "# Nested").unwrap();
-        fs::write(docs.join("guidelines/page.md"), "# Other").unwrap();
-
-        let id = Id::builder()
-            .provider("file")
-            .context("docs")
-            .location("guide/.meta.yml")
-            .build()
-            .unwrap();
-        let changes = vec![Change::Insert(
-            Key::from(id),
-            Source::from(docs.join("guide/.meta.yml").display().to_string()),
-        )];
-        let settings = meta::Settings {
-            enabled: true,
-            meta_file: ".meta.yml".into(),
-        };
-        let dependents =
-            metadata_dependents(&changes, docs, &settings).unwrap();
-        let locations = dependents
-            .iter()
-            .map(|(key, _)| key[0].location().into_owned())
-            .collect::<Vec<_>>();
-        assert_eq!(locations, vec!["guide/nested/page.md", "guide/page.md"]);
-    }
-
-    #[test]
-    fn provider_page_change_supersedes_metadata_dependent() {
-        let dir = tempdir().unwrap();
-        let docs = dir.path();
-        fs::create_dir_all(docs.join("guide")).unwrap();
-        let page = docs.join("guide/page.md");
-        fs::write(&page, "# Page").unwrap();
-
-        let meta_id = Id::builder()
-            .provider("file")
-            .context("docs")
-            .location("guide/.meta.yml")
-            .build()
-            .unwrap();
-        let page_id = Id::builder()
-            .provider("file")
-            .context("docs")
-            .location("guide/page.md")
-            .build()
-            .unwrap();
-        let changes = vec![
-            Change::Insert(
-                Key::from(meta_id),
-                Source::from(
-                    docs.join("guide/.meta.yml").display().to_string(),
-                ),
-            ),
-            Change::Insert(
-                Key::from(page_id),
-                Source::from(page.display().to_string()),
-            ),
-        ];
-        let settings = meta::Settings {
-            enabled: true,
-            meta_file: ".meta.yml".into(),
-        };
-
-        assert!(metadata_dependents(&changes, docs, &settings)
-            .unwrap()
-            .is_empty());
     }
 }

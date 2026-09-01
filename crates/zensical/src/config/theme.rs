@@ -31,6 +31,21 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 // ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
+
+/// Font settings.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[serde(untagged)]
+#[pyo3(from_item_all)]
+pub enum Font {
+    /// Use custom fonts.
+    Custom(CustomFont),
+    /// Use system fonts.
+    System(bool),
+}
+
+// ----------------------------------------------------------------------------
 // Structs
 // ----------------------------------------------------------------------------
 
@@ -65,17 +80,6 @@ pub struct Theme {
 }
 
 // ----------------------------------------------------------------------------
-
-/// Font settings.
-#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
-#[serde(untagged)]
-#[pyo3(from_item_all)]
-pub enum Font {
-    /// Use custom fonts.
-    Custom(CustomFont),
-    /// Use system fonts.
-    System(bool),
-}
 
 /// Custom fonts.
 #[derive(Clone, Debug, Hash, FromPyObject, Serialize)]

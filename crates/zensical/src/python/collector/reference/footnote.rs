@@ -25,7 +25,7 @@
 
 //! Footnote reference.
 
-use pyo3::prelude::*;
+use pyo3::FromPyObject;
 use std::ops::Range;
 
 use crate::python::Span;

@@ -176,10 +176,12 @@ class TestPluginShimming:
             tmp_path,
             plugins={"material/meta": {"meta_file": "defaults.yml"}},
         )
+        assert "material/meta" not in config["plugins"]
         assert config["plugins"]["meta"]["config"] == {
             "enabled": True,
             "meta_file": "defaults.yml",
         }
+        assert config["plugins_hash"] == cfg_module._hash(config["plugins"])
 
     def test_redirects_plugin_is_normalized(self, tmp_path: Path) -> None:
         config = self._parse_yaml(

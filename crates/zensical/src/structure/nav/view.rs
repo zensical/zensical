@@ -25,9 +25,8 @@
 
 //! Lazy MiniJinja navigation views.
 
-use std::sync::Arc;
-
 use minijinja::value::{Enumerator, Object, Value};
+use std::sync::Arc;
 
 use super::{Navigation, NavigationItem};
 
@@ -66,7 +65,7 @@ struct Overlay {
 
 /// Lazy navigation object exposed to MiniJinja.
 #[derive(Clone, Debug)]
-pub(crate) struct NavigationView {
+pub struct NavigationView {
     /// Shared overlay.
     overlay: Arc<Overlay>,
 }
@@ -103,7 +102,7 @@ impl Overlay {
 
 impl NavigationView {
     /// Creates a navigation view for an optional active page.
-    pub(crate) fn new(navigation: Navigation, active: Option<&str>) -> Self {
+    pub fn new(navigation: Navigation, active: Option<&str>) -> Self {
         fn find(
             items: &[NavigationItem], url: &str, path: &mut Vec<usize>,
         ) -> bool {
@@ -129,7 +128,7 @@ impl NavigationView {
     }
 
     /// Creates the flattened page sequence used by static templates.
-    pub(crate) fn pages(&self) -> Value {
+    pub fn pages(&self) -> Value {
         fn collect(
             items: &[NavigationItem], parent: &mut Vec<usize>,
             overlay: &Arc<Overlay>, values: &mut Vec<Value>,
@@ -166,28 +165,6 @@ impl NavigationView {
             _ => None,
         }
     }
-}
-
-// ----------------------------------------------------------------------------
-
-/// Creates one lazy sequence of navigation item views.
-fn items(overlay: &Arc<Overlay>, parent: &[usize]) -> Value {
-    let children = if parent.is_empty() {
-        &*overlay.navigation.items
-    } else {
-        &overlay.item(parent).children
-    };
-    let values = (0..children.len())
-        .map(|index| {
-            let mut path = parent.to_vec();
-            path.push(index);
-            Value::from_object(ItemView {
-                overlay: Arc::clone(overlay),
-                path,
-            })
-        })
-        .collect::<Vec<_>>();
-    Value::from_object(values)
 }
 
 // ----------------------------------------------------------------------------
@@ -247,14 +224,39 @@ impl Object for ItemView {
 }
 
 // ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
+/// Creates one lazy sequence of navigation item views.
+fn items(overlay: &Arc<Overlay>, parent: &[usize]) -> Value {
+    let children = if parent.is_empty() {
+        &*overlay.navigation.items
+    } else {
+        &overlay.item(parent).children
+    };
+    let values = (0..children.len())
+        .map(|index| {
+            let mut path = parent.to_vec();
+            path.push(index);
+            Value::from_object(ItemView {
+                overlay: Arc::clone(overlay),
+                path,
+            })
+        })
+        .collect::<Vec<_>>();
+    Value::from_object(values)
+}
+
+// ----------------------------------------------------------------------------
 // Tests
 // ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
-    use minijinja::{context, Environment};
+    use minijinja::{context, Environment, Value};
+    use std::sync::Arc;
 
-    use super::*;
+    use super::{Navigation, NavigationItem, NavigationView};
 
     /// Creates the same tree in immutable and page-active forms.
     fn navigation(active: bool) -> Navigation {

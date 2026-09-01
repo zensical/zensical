@@ -31,11 +31,13 @@ use percent_encoding::percent_decode_str;
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
 use std::slice::Iter;
+
 use zrx::id::Id;
 use zrx::stream::Key;
 
 use crate::compat::mkdocs::plugin::autorefs::UnresolvedAutorefs;
 use crate::config::validation::Validation;
+use crate::path::SourcePath;
 
 use super::collector::reference::{
     LinkReference, LinkReferenceKind, Reference,
@@ -59,55 +61,55 @@ pub enum Issue {
     /// The span is optional, since autorefs might be introduced by templates
     /// or transformations, in which case they cannot be located in the source.
     UnresolvedAutoref {
-        path: PathBuf,
+        path: SourcePath,
         span: Option<Span>,
         id: String,
     },
     /// Link or image reference with no matching definition.
     UnresolvedReference {
-        path: PathBuf,
+        path: SourcePath,
         span: Span,
         id: String,
     },
     /// Footnote reference with no matching definition.
     UnresolvedFootnote {
-        path: PathBuf,
+        path: SourcePath,
         span: Span,
         id: String,
     },
     /// Link definition that is never referenced.
     UnusedDefinition {
-        path: PathBuf,
+        path: SourcePath,
         span: Span,
         id: String,
     },
     /// Footnote definition that is never referenced.
     UnusedFootnote {
-        path: PathBuf,
+        path: SourcePath,
         span: Span,
         id: String,
     },
     /// Shadowed link definition.
     ShadowedDefinition {
-        path: PathBuf,
+        path: SourcePath,
         span: Span,
         id: String,
     },
     /// Shadowed footnote definition.
     ShadowedFootnote {
-        path: PathBuf,
+        path: SourcePath,
         span: Span,
         id: String,
     },
     /// Invalid link.
     InvalidLink {
-        path: PathBuf,
+        path: SourcePath,
         span: Span,
         href: String,
     },
     /// Invalid link anchor
     InvalidLinkAnchor {
-        path: PathBuf,
+        path: SourcePath,
         span: Span,
         href: String,
         anchor: String,
@@ -122,7 +124,7 @@ pub enum Issue {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Issues<'a> {
     /// Markdown contents for printing errors.
-    contents: HashMap<String, &'a str>,
+    contents: HashMap<SourcePath, &'a str>,
     /// Inner set of issues.
     inner: Vec<Issue>,
 }
@@ -131,7 +133,7 @@ pub struct Issues<'a> {
 
 impl Issue {
     /// Returns the path of the issue.
-    pub fn path(&self) -> &Path {
+    pub fn path(&self) -> &SourcePath {
         match self {
             Issue::UnresolvedAutoref { path, .. }
             | Issue::UnresolvedReference { path, .. }
@@ -190,12 +192,15 @@ impl<'a> Issues<'a> {
         let mut anchor_map = HashMap::default();
         for (key, (references, anchors, autorefs)) in iter {
             let id = key.try_as_id().expect("invariant");
-            let path = id.location().into_owned();
+            let path = id
+                .location()
+                .parse::<SourcePath>()
+                .expect("provider identity must be a canonical source path");
 
             // Associate anchors with their location for lookup
             contents.insert(path.clone(), references.markdown());
             anchor_map.insert(
-                to_slash(&path),
+                path.as_str().to_string(),
                 anchors
                     .into_iter()
                     .map(String::as_str)
@@ -225,7 +230,7 @@ impl<'a> Issues<'a> {
                     }
                 }
             }
-            link_map.insert(to_slash(id.location().as_ref()), mappings);
+            link_map.insert(path.clone(), mappings);
 
             // Initialize link and footnote definitions
             let mut link_defs = HashMap::default();
@@ -239,7 +244,7 @@ impl<'a> Issues<'a> {
                         let id = &markdown[link.id.start..link.id.end];
                         if let Some(prev) = link_defs.insert(to_id(id), link) {
                             issues.push(Issue::ShadowedDefinition {
-                                path: path.clone().into(),
+                                path: path.clone(),
                                 span: (prev.id.start..prev.id.end).into(),
                                 id: id.to_string(),
                             });
@@ -249,7 +254,7 @@ impl<'a> Issues<'a> {
                         let id = &markdown[note.id.start..note.id.end];
                         if let Some(prev) = note_defs.insert(to_id(id), note) {
                             issues.push(Issue::ShadowedFootnote {
-                                path: path.clone().into(),
+                                path: path.clone(),
                                 span: (prev.id.start..prev.id.end).into(),
                                 id: id.to_string(),
                             });
@@ -272,7 +277,7 @@ impl<'a> Issues<'a> {
                             used_link_defs.insert(to_id(id));
                         } else {
                             issues.push(Issue::UnresolvedReference {
-                                path: path.clone().into(),
+                                path: path.clone(),
                                 span: (link.id.start..link.id.end).into(),
                                 id: id.to_string(),
                             });
@@ -284,7 +289,7 @@ impl<'a> Issues<'a> {
                             used_note_defs.insert(to_id(id));
                         } else {
                             issues.push(Issue::UnresolvedFootnote {
-                                path: path.clone().into(),
+                                path: path.clone(),
                                 span: (note.id.start..note.id.end).into(),
                                 id: id.to_string(),
                             });
@@ -299,7 +304,7 @@ impl<'a> Issues<'a> {
                 let id = &markdown[link.id.start..link.id.end];
                 if !used_link_defs.contains(&to_id(id)) {
                     issues.push(Issue::UnusedDefinition {
-                        path: path.clone().into(),
+                        path: path.clone(),
                         span: (link.id.start..link.id.end).into(),
                         id: id.to_string(),
                     });
@@ -311,7 +316,7 @@ impl<'a> Issues<'a> {
                 let id = &markdown[note.id.start..note.id.end];
                 if !used_note_defs.contains(&to_id(id)) {
                     issues.push(Issue::UnusedFootnote {
-                        path: path.clone().into(),
+                        path: path.clone(),
                         span: (note.id.start..note.id.end).into(),
                         id: id.to_string(),
                     });
@@ -338,14 +343,14 @@ impl<'a> Issues<'a> {
                 if let Some(spans) = spans.get(id.as_str()) {
                     for span in spans {
                         issues.push(Issue::UnresolvedAutoref {
-                            path: path.clone().into(),
+                            path: path.clone(),
                             span: Some(*span),
                             id: id.clone(),
                         });
                     }
                 } else {
                     issues.push(Issue::UnresolvedAutoref {
-                        path: path.clone().into(),
+                        path: path.clone(),
                         span: None,
                         id: id.clone(),
                     });
@@ -355,8 +360,7 @@ impl<'a> Issues<'a> {
 
         // Check links across pages for issues
         for (base, mappings) in link_map {
-            let base_str = to_slash(&base);
-            let base = Path::new(&base_str);
+            let base_path = Path::new(base.as_str());
             for (span, href) in mappings {
                 if let Some((path, anchor)) = href.split_once('#') {
                     let offset = path.len();
@@ -381,28 +385,23 @@ impl<'a> Issues<'a> {
                     if !path.is_empty() && !is_markdown_path(&path) {
                         if is_invalid_markdown_path(&path) {
                             issues.push(Issue::InvalidLink {
-                                path: base.into(),
+                                path: base.clone(),
                                 span,
-                                href: to_slash(
-                                    &resolve_relative(base, &path)
-                                        .to_string_lossy(),
-                                ),
+                                href: resolve_link(base_path, &path),
                             });
                         }
                         continue;
                     }
 
                     // Resolve the link against the base path
-                    let link = to_slash(
-                        &resolve_relative(base, &path).to_string_lossy(),
-                    );
+                    let link = resolve_link(base_path, &path);
 
                     // Check if the link exists, and if it does, whether the
                     // anchor exists on the target page
                     if let Some(anchors) = anchor_map.get(&link) {
                         if !anchors.contains(anchor.as_str()) {
                             issues.push(Issue::InvalidLinkAnchor {
-                                path: base.into(),
+                                path: base.clone(),
                                 span: Span::from(
                                     (span.start + offset + 1)..span.end - len,
                                 ),
@@ -412,7 +411,7 @@ impl<'a> Issues<'a> {
                         }
                     } else {
                         issues.push(Issue::InvalidLink {
-                            path: base.into(),
+                            path: base.clone(),
                             span,
                             href: link,
                         });
@@ -422,24 +421,19 @@ impl<'a> Issues<'a> {
                     if !is_markdown_path(&href) {
                         if is_invalid_markdown_path(&href) {
                             issues.push(Issue::InvalidLink {
-                                path: base.into(),
+                                path: base.clone(),
                                 span,
-                                href: to_slash(
-                                    &resolve_relative(base, &href)
-                                        .to_string_lossy(),
-                                ),
+                                href: resolve_link(base_path, &href),
                             });
                         }
                         continue;
                     }
 
-                    let link = to_slash(
-                        &resolve_relative(base, &href).to_string_lossy(),
-                    );
+                    let link = resolve_link(base_path, &href);
 
                     if !anchor_map.contains_key(&link) {
                         issues.push(Issue::InvalidLink {
-                            path: base.into(),
+                            path: base.clone(),
                             span,
                             href: link,
                         });
@@ -468,7 +462,7 @@ impl<'a> Issues<'a> {
         let mut count = 0;
         for issue in &self.inner {
             // Determine the path and kind of report
-            let path = issue.path().to_string_lossy();
+            let path = issue.path().as_str();
             let kind = match issue {
                 Issue::UnresolvedAutoref { .. } => {
                     if !validation.invalid_links {
@@ -563,36 +557,32 @@ impl<'a> Issues<'a> {
                 let Issue::UnresolvedAutoref { id, .. } = issue else {
                     unreachable!("only autorefs may lack spans");
                 };
-                Report::build(kind, (path.as_ref(), 0..0))
+                Report::build(kind, (path, 0..0))
                     .with_message(format!("{message} `{id}` in {path}"))
                     .finish()
-                    .eprint((path.as_ref(), Source::from("")))?;
+                    .eprint((path, Source::from("")))?;
                 count += 1;
                 continue;
             };
 
             // Create report
-            let builder =
-                Report::build(kind, (path.as_ref(), Range::from(*span)))
-                    .with_message(message)
-                    .with_label(
-                        Label::new((path.as_ref(), Range::from(*span)))
-                            .with_message(message)
-                            .with_color(color),
-                    );
+            let builder = Report::build(kind, (path, Range::from(*span)))
+                .with_message(message)
+                .with_label(
+                    Label::new((path, Range::from(*span)))
+                        .with_message(message)
+                        .with_color(color),
+                );
 
             // Obtain Markdown source
-            let source = self
-                .contents
-                .get(path.as_ref())
-                .copied()
-                .unwrap_or_default();
+            let source =
+                self.contents.get(issue.path()).copied().unwrap_or_default();
 
             // Create and print report
             builder
                 .with_config(Config::default().with_index_type(IndexType::Byte))
                 .finish()
-                .eprint((path.as_ref(), Source::from(source)))?;
+                .eprint((path, Source::from(source)))?;
             count += 1;
         }
 
@@ -722,6 +712,15 @@ where
     }
     let base_dir = base.as_ref().parent().unwrap_or(Path::new(""));
     normalize(base_dir.join(href))
+}
+
+/// Resolves a UTF-8 authored URL path into its normalized lookup form.
+fn resolve_link(base: &Path, href: &str) -> String {
+    let path = resolve_relative(base, href);
+    let path = path
+        .to_str()
+        .expect("a path constructed from UTF-8 link text remains UTF-8");
+    to_slash(path)
 }
 
 /// Returns whether a URL path points directly to a Markdown file.

@@ -30,14 +30,16 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufWriter, Write};
 use std::sync::Arc;
+
 use zrx::id::Id;
 use zrx::scheduler::Value;
-use zrx::stream::{Key, Signal};
+use zrx::stream::Signal;
 
 use crate::config::plugins::SearchPluginConfig;
 use crate::config::Config;
+use crate::path::{SitePath, SourcePath};
 use crate::structure::dynamic::Dynamic;
-use crate::structure::nav::{file_sort_key, Navigation};
+use crate::structure::nav::{source_sort_key, Navigation};
 use crate::structure::page::Page;
 
 mod item;
@@ -70,14 +72,16 @@ struct SearchIndex {
 
 /// Search facts extracted while rendering one Markdown page.
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
-pub(crate) struct Facts {
+pub struct Facts {
     /// Page-local search sections.
     sections: Vec<SearchSection>,
 }
 
 /// Compact page document retained by the search branch.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Document {
+pub struct Document {
+    /// Documentation-relative source used for deterministic ordering.
+    source: SourcePath,
     /// Page target URL.
     url: String,
     /// Page title.
@@ -90,9 +94,9 @@ pub(crate) struct Document {
 
 /// Revision-aligned search inputs from the site settlement boundary.
 #[derive(Clone, Debug)]
-pub(crate) struct Snapshot {
+pub struct Snapshot {
     /// Compact page documents.
-    documents: Arc<Vec<(Key<Id>, Document)>>,
+    documents: Arc<Vec<Document>>,
     /// Navigation from the same page revision.
     nav: Navigation,
 }
@@ -115,8 +119,9 @@ impl SearchConfig {
 
 impl Document {
     /// Attaches page properties to previously extracted search facts.
-    pub(crate) fn new(page: &Page, facts: Arc<Facts>) -> Self {
+    pub fn new(page: &Page, facts: Arc<Facts>) -> Self {
         Self {
+            source: page.source().clone(),
             url: page.url.clone(),
             title: page.title.clone(),
             tags: page.tags().into_iter().map(|tag| tag.name).collect(),
@@ -129,9 +134,7 @@ impl Document {
 
 impl Snapshot {
     /// Creates a search snapshot without another site-wide reduction.
-    pub(crate) fn new(
-        documents: Vec<(Key<Id>, Document)>, nav: Navigation,
-    ) -> Self {
+    pub fn new(documents: Vec<Document>, nav: Navigation) -> Self {
         Self {
             documents: Arc::new(documents),
             nav,
@@ -143,7 +146,7 @@ impl Snapshot {
 
 impl Facts {
     /// Returns whether this page contributes anything to the search index.
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.sections.is_empty()
     }
 }
@@ -154,17 +157,19 @@ impl SearchIndex {
     /// Creates a search index from compact page facts.
     #[allow(clippy::assigning_clones)]
     fn new(
-        documents: Vec<(Key<Id>, Document)>, nav: &Navigation,
-        config: SearchPluginConfig, language: &str,
+        documents: Vec<Document>, nav: &Navigation, config: SearchPluginConfig,
+        language: &str,
     ) -> Self {
         let mut items: Vec<SearchItem> = Vec::new();
 
-        let mut documents = Vec::from_iter(documents);
-        documents.sort_by_key(|(id, _)| file_sort_key(&id[0]));
+        // Provider order is not stable, so establish MkDocs-compatible source
+        // order before emitting the site-wide index.
+        let mut documents = documents;
+        documents.sort_by_key(|document| source_sort_key(&document.source));
 
         // Attach site-wide navigation facts only while assembling the final
         // artifact, keeping them out of each page-local stream value.
-        for (_id, document) in documents {
+        for document in documents {
             let iter = nav.ancestors_for_url(&document.url).into_iter().rev();
             let mut path = iter
                 .filter_map(|item| {
@@ -178,6 +183,8 @@ impl SearchIndex {
                 path.push(document.title.clone());
             }
 
+            // Each heading section becomes an independently addressable search
+            // item while sharing the page path and tags.
             for section in &document.facts.sections {
                 let location = match &section.location {
                     Some(id) => format!("{}#{}", document.url, id),
@@ -219,7 +226,7 @@ impl Value for Snapshot {}
 // ----------------------------------------------------------------------------
 
 /// Attach MkDocs-compatible search artifact generation to the build graph.
-pub(crate) fn attach(config: &Config, snapshot: &Signal<Id, Snapshot>) {
+pub fn attach(config: &Config, snapshot: &Signal<Id, Snapshot>) {
     let config = config.clone();
     let _ = snapshot.map(move |snapshot: &Snapshot| {
         let documents = if config.project.plugins.search.config.enabled {
@@ -238,7 +245,7 @@ pub(crate) fn attach(config: &Config, snapshot: &Signal<Id, Snapshot>) {
 }
 
 /// Creates the page-local search visitor.
-pub(crate) fn parser(meta: &BTreeMap<String, Dynamic>) -> Parser {
+pub fn parser(meta: &BTreeMap<String, Dynamic>) -> Parser {
     if is_search_excluded(meta) {
         Parser::discarding()
     } else {
@@ -247,21 +254,25 @@ pub(crate) fn parser(meta: &BTreeMap<String, Dynamic>) -> Parser {
 }
 
 /// Converts a completed visitor into cached page-local facts.
-pub(crate) fn finish(parser: Parser) -> Arc<Facts> {
+pub fn finish(parser: Parser) -> Arc<Facts> {
     Arc::new(Facts { sections: parser.finish() })
 }
 
 /// Write search artifacts without retaining a second serialized copy.
 fn write(config: &Config, search: &SearchIndex) -> anyhow::Result<()> {
-    let site_dir = config.get_site_dir();
-    let path = site_dir.join("search.json");
+    let output_root = config.output_root();
+    let path = output_root
+        .join(&"search.json".parse::<SitePath>().expect("static site path"));
     fs::create_dir_all(path.parent().expect("invariant"))?;
     let mut writer = BufWriter::new(fs::File::create(path)?);
     serde_json::to_writer(&mut writer, search)?;
     writer.flush()?;
 
+    // Offline mode embeds the same index in the JavaScript global expected by
+    // the theme instead of changing its schema.
     if config.project.plugins.offline.config.enabled {
-        let path = site_dir.join("search.js");
+        let path = output_root
+            .join(&"search.js".parse::<SitePath>().expect("static site path"));
         fs::create_dir_all(path.parent().expect("invariant"))?;
         let mut writer = BufWriter::new(fs::File::create(path)?);
         writer.write_all(b"var __index = ")?;
@@ -286,7 +297,11 @@ fn is_search_excluded(meta: &BTreeMap<String, Dynamic>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::collections::BTreeMap;
+
+    use crate::structure::dynamic::Dynamic;
+
+    use super::is_search_excluded;
 
     #[test]
     fn search_exclusion_is_read_from_page_metadata() {

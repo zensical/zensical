@@ -30,15 +30,18 @@ use mio::Waker;
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
+
 use zensical_watch::event::{Event, Kind};
 use zensical_watch::{Agent, Error, Result};
 use zrx::id::Id;
 use zrx::stream::Change;
 
-use super::config::Config;
+use crate::config::Config;
+use crate::path::SourcePath;
 
 mod source;
 
@@ -59,6 +62,12 @@ pub struct Watcher {
     changes: Receiver<Vec<Change<Id, Source>>>,
 }
 
+/// One physical source root and its provider-relative identity context.
+struct SourceMount {
+    root: PathBuf,
+    context: String,
+}
+
 // ----------------------------------------------------------------------------
 // Implementations
 // ----------------------------------------------------------------------------
@@ -74,9 +83,15 @@ impl Watcher {
         let mut sources = Vec::default();
 
         // Add docs directory and theme directories
-        sources.push((config.get_docs_dir(), config.project.docs_dir.clone()));
+        sources.push(SourceMount::new(
+            config.docs_root().as_path().to_owned(),
+            config.project.docs_dir.clone(),
+        ));
         for (i, theme_dir) in config.theme_dirs.iter().enumerate() {
-            sources.push((theme_dir.clone(), format!("templates/{i}")));
+            sources.push(SourceMount::new(
+                theme_dir.clone(),
+                format!("templates/{i}"),
+            ));
         }
 
         // Add configuration file last, or we might run into overlapping paths.
@@ -85,8 +100,11 @@ impl Watcher {
         // so we can make sure that there won't be any ambiguities.
         let mut path = config.path.clone();
         path.pop();
-        sources.push((config.get_site_dir(), config.project.site_dir.clone()));
-        sources.push((path, String::from(".")));
+        sources.push(SourceMount::new(
+            config.output_root().as_path().to_owned(),
+            String::from("."),
+        ));
+        sources.push(SourceMount::new(path, String::from(".")));
 
         // Track seen files to restart on config or template change
         let mut seen = BTreeSet::new();
@@ -170,12 +188,12 @@ impl Watcher {
                     // that were generated and should not trigger a rebuild. We
                     // forward them to the reload channel in the server instead,
                     // so the browser can refresh the site.
-                    let site_dir = config.get_site_dir();
-                    let site_dir = canonical_or_clone(&site_dir);
-                    if event_path.starts_with(&site_dir) {
+                    let site_dir = config.output_root().as_path();
+                    if event_path.starts_with(site_dir) {
                         // Compute identifier, since we need the relative URL
                         // so we only reload the page the client is on.
-                        let id = to_id(event.path().clone(), &sources);
+                        let event_path = event.path();
+                        let id = to_id(&event_path, &sources)?;
 
                         // Compute path, and if directory URLs are enabled,
                         // strip the `index.html` suffix, if present.
@@ -210,29 +228,27 @@ impl Watcher {
                         // File was created or modified
                         Event::Create { path, .. }
                         | Event::Modify { path, .. } => {
-                            let data = path.to_string_lossy().into_owned();
                             batch.push(Change::Insert(
-                                to_id(path, &sources).into(),
-                                data.into(),
+                                to_id(&path, &sources)?.into(),
+                                Source::from(path),
                             ));
                         }
 
                         // File was renamed
                         Event::Rename { from, to, .. } => {
-                            let data = to.to_string_lossy().into_owned();
                             batch.push(Change::Remove(
-                                to_id(from, &sources).into(),
+                                to_id(&from, &sources)?.into(),
                             ));
                             batch.push(Change::Insert(
-                                to_id(to, &sources).into(),
-                                data.into(),
+                                to_id(&to, &sources)?.into(),
+                                Source::from(to),
                             ));
                         }
 
                         // File was removed
                         Event::Remove { path, .. } => {
                             batch.push(Change::Remove(
-                                to_id(path, &sources).into(),
+                                to_id(&path, &sources)?.into(),
                             ));
                         }
                     }
@@ -274,12 +290,12 @@ impl Watcher {
         }
 
         // Watch site directory, ensuring it exists
-        let site_dir = config.get_site_dir();
-        fs::create_dir_all(&site_dir).unwrap();
-        agent.watch(&site_dir)?;
+        let site_dir = config.output_root().as_path();
+        fs::create_dir_all(site_dir).unwrap();
+        agent.watch(site_dir)?;
 
         // Return file watcher
-        agent.watch(config.get_docs_dir())?;
+        agent.watch(config.docs_root().as_path())?;
         Ok(Self {
             _agent: agent,
             changes: receiver,
@@ -294,6 +310,16 @@ impl Watcher {
     }
 }
 
+impl SourceMount {
+    /// Creates a source mount with platform-independent context spelling.
+    fn new(root: PathBuf, context: String) -> Self {
+        Self {
+            root,
+            context: context.replace('\\', "/"),
+        }
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
@@ -302,29 +328,77 @@ impl Watcher {
 ///
 /// This will also be hoisted into the file provider, which will make sure that
 /// identifiers are platform independent by always ensuring forward slashes.
-fn to_id(path: Arc<PathBuf>, sources: &[(PathBuf, String)]) -> Id {
-    let option = sources.iter().find_map(|(prefix, context)| {
-        if let Ok(suffix) = path.strip_prefix(prefix) {
-            let location = suffix.to_str().unwrap_or("");
-            Some(
-                Id::builder()
-                    .provider("file")
-                    .context(context.replace('\\', "/"))
-                    .location(location.replace('\\', "/"))
-                    .build()
-                    .expect("invariant"),
-            )
-        } else {
-            None
-        }
+fn to_id(path: &Path, sources: &[SourceMount]) -> io::Result<Id> {
+    let option = sources.iter().find_map(|source| {
+        path.strip_prefix(&source.root)
+            .ok()
+            .map(|suffix| (source, suffix))
     });
 
     // Note that this cannot fail, since there must be a path in the source
     // mapping that matches the given path, at least the project root
-    option.expect("invariant")
+    let (source, suffix) = option.expect("invariant");
+    let location = SourcePath::from_path(suffix).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid source path '{}': {error}", path.display()),
+        )
+    })?;
+    Ok(Id::builder()
+        .provider("file")
+        .context(&source.context)
+        .location(location.as_str())
+        .build()
+        .expect("invariant"))
 }
 
 #[inline]
 fn canonical_or_clone(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, io};
+    use tempfile::tempdir;
+
+    use super::{to_id, SourceMount};
+
+    #[test]
+    fn output_identifiers_do_not_contain_the_physical_root() {
+        let directory = tempdir().unwrap();
+        let output = directory.path().join("absolute/site");
+        fs::create_dir_all(&output).unwrap();
+        let file = output.join("guide/index.html");
+        let sources = [SourceMount::new(output, String::from("."))];
+
+        let id = to_id(&file, &sources).unwrap();
+
+        assert_eq!(id.context(), ".");
+        assert_eq!(id.location(), "guide/index.html");
+        assert_eq!(id.as_uri().as_str(), "guide/index.html");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_non_utf8_provider_identity_instead_of_collapsing_it() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt as _;
+
+        let directory = tempdir().unwrap();
+        let file = directory
+            .path()
+            .join(OsString::from_vec(b"bad-\xff.md".to_vec()));
+        let sources = [SourceMount::new(
+            directory.path().to_owned(),
+            String::from("docs"),
+        )];
+
+        let error = to_id(&file, &sources).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    }
 }

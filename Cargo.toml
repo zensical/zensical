@@ -25,6 +25,10 @@
 resolver = "3"
 members = ["crates/*"]
 
+[profile.release]
+codegen-units = 1
+strip = "symbols"
+
 [workspace.package]
 edition = "2024"
 rust-version = "1.86"

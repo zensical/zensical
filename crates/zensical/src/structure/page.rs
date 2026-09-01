@@ -29,13 +29,14 @@ use minijinja::{context, Error, Value as TemplateValue};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::ops::Deref;
-use std::path::PathBuf;
 use std::sync::Arc;
+
 use zensical_serve::http::Uri;
 use zrx::id::Id;
 use zrx::scheduler::Value;
 
 use crate::config::{Config, Project};
+use crate::path::{PathError, SitePath, SourcePath};
 use crate::template::{Output, Template, GENERATOR};
 
 use super::dynamic::Dynamic;
@@ -49,15 +50,13 @@ use super::tag::Tag;
 
 /// Stable route facts derived from one Markdown source.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct PageRoute {
+pub struct PageRoute {
     /// Documentation-relative source URI.
-    pub source: String,
+    pub source: SourcePath,
     /// Site-relative destination URI.
-    pub destination: String,
+    pub destination: SitePath,
     /// Encoded page URL.
     pub url: String,
-    /// Absolute destination path.
-    pub path: String,
 }
 
 impl Value for PageRoute {}
@@ -71,6 +70,12 @@ impl Value for PageRoute {}
 /// behind an [`Arc`] makes those clones constant-sized.
 #[derive(Debug, Serialize)]
 pub struct PageData {
+    /// Validated documentation-relative source used by internal consumers.
+    #[serde(skip)]
+    source: SourcePath,
+    /// Validated site-relative output used by the writer.
+    #[serde(skip)]
+    destination: SitePath,
     /// Page target URL.
     pub url: String,
     /// Page canonical URL.
@@ -110,28 +115,24 @@ pub struct Page {
 
 impl PageRoute {
     /// Computes route facts for a source identifier.
-    pub(crate) fn new(config: &Config, id: &Id) -> Self {
-        Self::from_source(config, &id.location())
+    pub fn new(config: &Config, id: &Id) -> Result<Self, PathError> {
+        Self::from_source(config, id.location().parse()?)
     }
 
     /// Computes route facts for a documentation-relative source URI.
-    pub(crate) fn from_source(config: &Config, source: &str) -> Self {
+    pub fn from_source(
+        config: &Config, source: SourcePath,
+    ) -> Result<Self, PathError> {
         let destination =
-            Self::destination(source, config.project.use_directory_urls);
+            Self::destination(&source, config.project.use_directory_urls)?;
         let url = route_url(&destination, config.project.use_directory_urls);
-        let path = config.get_site_dir().join(&destination);
-        Self {
-            source: source.into(),
-            destination,
-            url,
-            path: path.to_string_lossy().into_owned(),
-        }
+        Ok(Self { source, destination, url })
     }
 
     /// Computes the site-relative destination for a Markdown source.
-    pub(crate) fn destination(
-        source: &str, use_directory_urls: bool,
-    ) -> String {
+    pub fn destination(
+        source: &SourcePath, use_directory_urls: bool,
+    ) -> Result<SitePath, PathError> {
         destination(source, use_directory_urls)
     }
 }
@@ -141,9 +142,10 @@ impl PageRoute {
 impl Page {
     /// Creates a page.
     #[allow(clippy::similar_names)]
-    pub(crate) fn new(
-        config: &Config, route: PageRoute, markdown: Markdown,
-    ) -> Page {
+    pub fn new(config: &Config, route: PageRoute, markdown: Markdown) -> Page {
+        let path = config.output_root().join(&route.destination);
+        let source = route.source;
+        let destination = route.destination;
         // Retrieve site URL
         let site_url = config.project.site_url.clone();
 
@@ -163,9 +165,9 @@ impl Page {
         let edit_url = repo_url.clone().and_then(|repo_url| {
             edit_uri.clone().map(|uri| {
                 if uri.starts_with("https://") {
-                    format!("{uri}/{}", route.source)
+                    format!("{uri}/{source}")
                 } else {
-                    format!("{repo_url}/{uri}/{}", route.source)
+                    format!("{repo_url}/{uri}/{source}")
                 }
             })
         });
@@ -176,10 +178,15 @@ impl Page {
         // single struct, but to split up the page as necessary later on.
         Page {
             data: Arc::new(PageData {
+                source,
+                destination,
                 url,
                 canonical_url,
                 edit_url,
-                path: route.path,
+                path: path
+                    .to_str()
+                    .expect("configured output path is valid UTF-8")
+                    .into(),
                 markdown,
             }),
             ancestors: Vec::new(),
@@ -236,35 +243,16 @@ impl Page {
         }
         tags
     }
-}
 
-// ----------------------------------------------------------------------------
-
-/// Computes the site-relative destination for a Markdown source.
-fn destination(source: &str, use_directory_urls: bool) -> String {
-    let mut path = PathBuf::from(source);
-    let is_index = path.ends_with("index.md") || path.ends_with("README.md");
-    if path.ends_with("README.md") {
-        path.pop();
-        path.push("index.md");
+    /// Returns the validated site-relative page output.
+    pub fn destination(&self) -> &SitePath {
+        &self.destination
     }
-    if !use_directory_urls || is_index {
-        path.set_extension("html");
-    } else {
-        path.set_extension("");
-        path.push("index.html");
-    }
-    path.to_string_lossy().replace('\\', "/")
-}
 
-/// Computes the encoded URL for a site-relative destination.
-fn route_url(destination: &str, use_directory_urls: bool) -> String {
-    let url = if use_directory_urls {
-        destination.trim_end_matches("index.html")
-    } else {
-        destination
-    };
-    Uri::from(url).to_string()
+    /// Returns the validated documentation-relative page source.
+    pub fn source(&self) -> &SourcePath {
+        &self.source
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -278,6 +266,8 @@ impl Value for Page {}
 impl PartialEq for PageData {
     fn eq(&self, other: &Self) -> bool {
         self.url == other.url
+            && self.source == other.source
+            && self.destination == other.destination
             && self.canonical_url == other.canonical_url
             && self.edit_url == other.edit_url
             && self.title == other.title
@@ -315,11 +305,49 @@ impl Deref for Page {
 }
 
 // ----------------------------------------------------------------------------
-// Type alises
+// Type aliases
 // ----------------------------------------------------------------------------
 
 /// Page metadata.
 pub type PageMeta = BTreeMap<String, Dynamic>;
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
+/// Computes the site-relative destination for a Markdown source.
+fn destination(
+    source: &SourcePath, use_directory_urls: bool,
+) -> Result<SitePath, PathError> {
+    let parent = source.parent();
+    let name = source.file_name();
+    let is_index = matches!(name, "index.md" | "README.md");
+    let stem = if name == "README.md" {
+        "index"
+    } else {
+        source.file_stem()
+    };
+    let output = if use_directory_urls && !is_index {
+        format!("{stem}/index.html")
+    } else {
+        format!("{stem}.html")
+    };
+    let destination = match parent {
+        Some(parent) => format!("{parent}/{output}"),
+        None => output,
+    };
+    destination.parse()
+}
+
+/// Computes the encoded URL for a site-relative destination.
+fn route_url(destination: &SitePath, use_directory_urls: bool) -> String {
+    let url = if use_directory_urls {
+        destination.as_str().trim_end_matches("index.html")
+    } else {
+        destination.as_str()
+    };
+    Uri::from(url).to_string()
+}
 
 // ----------------------------------------------------------------------------
 // Tests
@@ -327,8 +355,10 @@ pub type PageMeta = BTreeMap<String, Dynamic>;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
+    use std::sync::Arc;
+
+    use super::{destination, route_url, Page, PageData, PageRoute};
 
     fn page() -> Page {
         let markdown = serde_json::from_value(json!({
@@ -341,6 +371,8 @@ mod tests {
         .unwrap();
         Page {
             data: Arc::new(PageData {
+                source: "index.md".parse().unwrap(),
+                destination: "index.html".parse().unwrap(),
                 url: String::from("/"),
                 canonical_url: None,
                 edit_url: None,
@@ -363,17 +395,56 @@ mod tests {
 
     #[test]
     fn computes_mkdocs_destinations() {
-        assert_eq!(destination("index.md", true), "index.html");
-        assert_eq!(destination("README.md", true), "index.html");
-        assert_eq!(destination("guide/README.md", true), "guide/index.html");
-        assert_eq!(destination("guide/page.md", true), "guide/page/index.html");
-        assert_eq!(destination("guide/page.md", false), "guide/page.html");
+        let cases = [
+            ("index.md", true, "index.html"),
+            ("README.md", true, "index.html"),
+            ("guide/README.md", true, "guide/index.html"),
+            ("guide/index.md", true, "guide/index.html"),
+            ("guide/page.md", true, "guide/page/index.html"),
+            ("myindex.md", true, "myindex/index.html"),
+            ("guide/page.md", false, "guide/page.html"),
+            ("guide/README.md", false, "guide/index.html"),
+            ("café/100%.md", true, "café/100%/index.html"),
+        ];
+        for (source, directory_urls, expected) in cases {
+            let source = source.parse().unwrap();
+            assert_eq!(
+                destination(&source, directory_urls).unwrap().as_str(),
+                expected
+            );
+        }
     }
 
     #[test]
     fn computes_encoded_urls() {
-        assert_eq!(route_url("100%/index.html", true), "100%25/");
-        assert_eq!(route_url("100%.html", false), "100%25.html");
+        let cases = [
+            ("100%/index.html", true, "100%25/"),
+            ("100%.html", false, "100%25.html"),
+            ("café/index.html", true, "caf%C3%A9/"),
+            ("myindex/index.html", true, "myindex/"),
+        ];
+        for (destination, directory_urls, expected) in cases {
+            assert_eq!(
+                route_url(&destination.parse().unwrap(), directory_urls),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn route_serialization_contains_only_logical_facts() {
+        let route = PageRoute {
+            source: "guide/café.md".parse().unwrap(),
+            destination: "guide/café/index.html".parse().unwrap(),
+            url: "guide/caf%C3%A9/".into(),
+        };
+        let value = serde_json::to_value(&route).unwrap();
+
+        assert_eq!(value["source"], "guide/café.md");
+        assert_eq!(value["destination"], "guide/café/index.html");
+        assert_eq!(value["url"], "guide/caf%C3%A9/");
+        assert!(value.get("path").is_none());
+        assert_eq!(serde_json::from_value::<PageRoute>(value).unwrap(), route);
     }
 
     #[test]
@@ -382,6 +453,8 @@ mod tests {
 
         assert_eq!(value["url"], "/");
         assert_eq!(value["title"], "Home");
+        assert!(value.get("source").is_none());
+        assert!(value.get("destination").is_none());
         assert!(value.get("data").is_none());
     }
 }

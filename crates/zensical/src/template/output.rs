@@ -25,9 +25,9 @@
 
 //! MiniJinja template output.
 
+use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 
-use serde::{Deserialize, Serialize};
 use zrx::stream::Value;
 
 // ----------------------------------------------------------------------------

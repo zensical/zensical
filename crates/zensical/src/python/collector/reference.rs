@@ -25,12 +25,14 @@
 
 //! Reference.
 
-use pyo3::prelude::*;
+use pyo3::types::PyAnyMethods;
+use pyo3::{FromPyObject, PyErr, PyResult, Python};
 use std::fmt::{self, Debug};
 use std::ops::Deref;
 use std::slice::Iter;
 use std::str::FromStr;
 use std::sync::Arc;
+
 use zrx::stream::Value;
 
 mod footnote;
