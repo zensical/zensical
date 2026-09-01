@@ -102,15 +102,15 @@ impl Middleware for Client {
         let mut res = next.handle(req);
 
         // In case an HTML file is served, inject the client script
-        if let Some(value) = res.headers.get(Header::ContentType) {
-            if value.contains("text/html") {
-                res.body.extend(b"<script type=\"module\">");
-                res.body.extend(CLIENT.as_bytes());
-                res.body.extend(b"</script>");
+        if let Some(value) = res.headers.get(Header::ContentType)
+            && value.contains("text/html")
+        {
+            res.body.extend(b"<script type=\"module\">");
+            res.body.extend(CLIENT.as_bytes());
+            res.body.extend(b"</script>");
 
-                // Update content length
-                res.headers.insert(Header::ContentLength, res.body.len());
-            }
+            // Update content length
+            res.headers.insert(Header::ContentLength, res.body.len());
         }
 
         // Never cache JavaScript or CSS files, so reloading works smoothly

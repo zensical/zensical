@@ -101,6 +101,10 @@ pub struct Parser {
     start: Option<StartTag>,
     /// Current attribute of the pending start tag.
     attribute: Attribute,
+    /// Whether directive attributes are retained for a later final pass.
+    retain_directives: bool,
+    /// Whether this document contains a search exclusion directive.
+    has_directives: bool,
 }
 
 /// Section being assembled.
@@ -161,6 +165,17 @@ impl Parser {
         }
     }
 
+    /// Retains cleanup directives for a later post-transformation pass.
+    pub fn retaining_directives(mut self) -> Self {
+        self.retain_directives = true;
+        self
+    }
+
+    /// Returns whether a retained directive still requires final cleanup.
+    pub fn requires_cleanup(&self) -> bool {
+        self.retain_directives && self.has_directives
+    }
+
     /// Handles a tokenizer event.
     fn handle(
         &mut self, event: &CallbackEvent<'_>, span: Span<usize>,
@@ -171,7 +186,10 @@ impl Parser {
         if let CallbackEvent::AttributeName { name } = event
             && *name == b"data-search-exclude"
         {
-            editor.remove_attribute(name, span);
+            self.has_directives = true;
+            if !self.retain_directives {
+                editor.remove_attribute(name, span);
+            }
         }
 
         // Page-level exclusion disables fact collection, but not HTML cleanup.
@@ -706,6 +724,19 @@ mod tests {
         let mut parser = Parser::default();
         let _ = scan(html, &mut [&mut parser]);
         parser.finish()
+    }
+
+    #[test]
+    fn retained_directives_are_cleaned_only_by_the_final_pass() {
+        let html = r"<div data-search-exclude>Drop</div><p>Keep</p>";
+        let mut parser = Parser::default().retaining_directives();
+        assert_eq!(scan(html, &mut [&mut parser]), None);
+        assert!(parser.requires_cleanup());
+        assert_eq!(parser.finish(), vec![item(None, 1, "", "<p>Keep</p>")]);
+
+        let mut final_parser = Parser::default();
+        let output = scan(html, &mut [&mut final_parser]).unwrap();
+        assert_eq!(output, "<div>Drop</div><p>Keep</p>");
     }
 
     fn item(

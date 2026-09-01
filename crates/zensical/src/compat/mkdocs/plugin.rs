@@ -29,6 +29,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::config::Config;
+use crate::path::SourcePath;
 use crate::structure::markdown::Markdown;
 
 use super::html::{self, Visitor};
@@ -39,6 +40,7 @@ pub mod minify;
 pub mod mkdocstrings;
 pub mod redirects;
 pub mod search;
+pub mod tags;
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -51,17 +53,21 @@ pub struct HtmlFacts {
     pub autorefs: Arc<autorefs::References>,
     /// Page-local search sections.
     pub search: Arc<search::Facts>,
+    /// Page-local tag mappings and listing slots.
+    pub tags: Arc<tags::Facts>,
 }
 
 // ----------------------------------------------------------------------------
 
 /// Enabled MkDocs-compatible participants in the shared Markdown HTML pass.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Settings {
-    /// Whether autorefs extraction and settlement are active.
-    pub autorefs: bool,
-    /// Whether search extraction is active.
-    search: bool,
+    /// MkDocs-compatible autorefs pipeline.
+    pub autorefs: Arc<autorefs::Autorefs>,
+    /// MkDocs-compatible search pipeline.
+    pub search: Arc<search::Search>,
+    /// Material tags compatibility pipeline.
+    pub tags: tags::Tags,
 }
 
 // ----------------------------------------------------------------------------
@@ -70,10 +76,11 @@ pub struct Settings {
 
 impl Settings {
     /// Derives active compatibility participants from resolved configuration.
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &Config, serve: bool) -> Self {
         Self {
-            autorefs: autorefs::is_enabled(config),
-            search: config.project.plugins.search.config.enabled,
+            autorefs: Arc::new(autorefs::Autorefs::new(config)),
+            search: Arc::new(search::Search::new(config)),
+            tags: tags::Tags::new(config, serve),
         }
     }
 }
@@ -83,34 +90,61 @@ impl Settings {
 // ----------------------------------------------------------------------------
 
 /// Runs enabled MkDocs-compatible visitors in one page-local HTML pass.
-pub fn prepare(markdown: &mut Markdown, settings: Settings) -> HtmlFacts {
+pub fn prepare(
+    markdown: &mut Markdown, source: &SourcePath, settings: &Settings,
+) -> anyhow::Result<HtmlFacts> {
     let mut autorefs = autorefs::Parser::default();
+    let defer_search_cleanup =
+        settings.search.is_enabled() && !settings.tags.is_empty();
     let mut search = search::parser(&markdown.meta);
-
-    let content = match (settings.search, settings.autorefs) {
-        (true, true) => {
-            let mut visitors: [&mut dyn Visitor; 2] =
-                [&mut search, &mut autorefs];
-            html::scan(&markdown.content, &mut visitors)
-        }
-        (true, false) => html::scan(&markdown.content, &mut [&mut search]),
-        (false, true) => html::scan(&markdown.content, &mut [&mut autorefs]),
-        (false, false) => None,
+    if defer_search_cleanup {
+        search = search.retaining_directives();
+    }
+    let mut tags = if settings.tags.is_empty() {
+        None
+    } else {
+        Some(tags::Parser::new(&settings.tags, source, &markdown.meta)?)
     };
+
+    // Compose enabled observers dynamically so adding a compatibility module
+    // doesn't grow an exhaustive Boolean match or another HTML traversal.
+    let mut visitors = Vec::<&mut dyn Visitor>::new();
+    if settings.search.is_enabled() {
+        visitors.push(&mut search);
+    }
+    if settings.autorefs.is_enabled() {
+        visitors.push(&mut autorefs);
+    }
+    if let Some(parser) = &mut tags {
+        visitors.push(parser);
+    }
+    let content = (!visitors.is_empty())
+        .then(|| html::scan(&markdown.content, &mut visitors))
+        .flatten();
     if let Some(content) = content {
         markdown.replace_content(content);
     }
 
-    HtmlFacts {
-        autorefs: if settings.autorefs {
+    let requires_search_cleanup = search.requires_cleanup();
+    let mut tag_facts = match tags {
+        Some(parser) => parser.finish()?,
+        None => tags::Facts::default(),
+    };
+    if requires_search_cleanup {
+        tag_facts.require_search_cleanup();
+    }
+
+    Ok(HtmlFacts {
+        autorefs: if settings.autorefs.is_enabled() {
             Arc::new(autorefs.finish())
         } else {
             Arc::default()
         },
-        search: if settings.search {
+        search: if settings.search.is_enabled() {
             search::finish(search)
         } else {
             Arc::default()
         },
-    }
+        tags: Arc::new(tag_facts),
+    })
 }

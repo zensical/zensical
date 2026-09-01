@@ -43,7 +43,9 @@ use zrx::stream::{
 
 use crate::compat::mkdocs::plugin::autorefs::UnresolvedAutorefs;
 use crate::compat::mkdocs::{
-    plugin::{self, autorefs, meta, minify, mkdocstrings, redirects, search},
+    plugin::{
+        self, autorefs, meta, minify, mkdocstrings, redirects, search, tags,
+    },
     resource,
 };
 use crate::config::Config;
@@ -85,8 +87,10 @@ struct Main {
     config: Config,
     /// Strict mode.
     strict: bool,
-    /// Resolved metadata settings shared with source admission.
-    meta: Arc<meta::Settings>,
+    /// Whether the retained workflow serves live updates.
+    serve: bool,
+    /// Metadata pipeline shared with source admission.
+    meta: meta::Meta,
 }
 
 /// File input enriched with immutable facts for the current revision.
@@ -135,23 +139,6 @@ impl Deref for Input {
         &self.source
     }
 }
-
-/// Revision-settled site batch derived from the current page relation.
-#[derive(Clone, Debug)]
-struct Site {
-    /// Complete pages selected for this batch.
-    pages: Arc<Vec<(Key<Id>, SitePage)>>,
-    /// Navigation derived from the current pages.
-    nav: Navigation,
-    /// Autoref registry derived from the same settled page snapshot.
-    autorefs: autorefs::Registry,
-    /// Search inputs derived from the same settled page snapshot.
-    search: search::Snapshot,
-}
-
-impl Value for Site {}
-
-// ----------------------------------------------------------------------------
 
 /// Page render input retained after site-wide settlement.
 #[derive(Clone, Debug)]
@@ -229,6 +216,8 @@ struct RenderedPage {
 impl Value for RenderedPage {}
 
 // ----------------------------------------------------------------------------
+
+// ----------------------------------------------------------------------------
 // Implementations
 // ----------------------------------------------------------------------------
 
@@ -237,13 +226,14 @@ impl Main {
     fn setup(&self, ctx: &mut Builder<Id>) {
         let files = ctx.input::<Input>();
         let configuration = ctx.input::<Configuration>();
-        let minify = minify::Settings::new(&self.config);
+        let minify = minify::Minify::new(&self.config);
 
         // Set up workflow to process static assets and Markdown files.
         let sources = files.map(|input: &Input| input.source.clone());
         let resources = resource::Resources::new(&self.config, &self.meta)
             .setup(resource::Dependencies { sources: &sources });
-        let assets = minify::asset::attach(&self.config, &minify, &resources);
+        let assets =
+            minify.setup(minify::Dependencies { resources: &resources });
         let markdown = route_markdown(&self.config, &files);
 
         // Redirects depend on routes, not rendered Markdown. Settle their
@@ -262,20 +252,53 @@ impl Main {
             routes: &routes,
         });
 
-        let rendered = process_markdown(&self.config, &markdown);
+        let plugins = plugin::Settings::new(&self.config, self.serve);
+        let rendered = process_markdown(&self.config, &plugins, &markdown);
 
-        // Cross the one global settlement boundary, derive all site-wide
-        // state, then expand the resulting batch into independent page work.
+        // Construct pages, apply any module-owned settlement, then retain
+        // page-local products as relations. Only genuinely site-wide facts
+        // cross a settlement boundary.
         let rendered_page = generate_page(&self.config, &rendered);
+        let rendered_page = apply_tags(&plugins.tags, &rendered_page);
         let page =
             rendered_page.map(|rendered: &RenderedPage| rendered.page.clone());
-        let site = generate_site(&self.config, &rendered_page);
-        let nav = generate_nav(&site);
-        let search = site.map(|site: &Site| site.search.clone());
-        search::attach(&self.config, &search);
-        mkdocstrings::attach(&self.config, &nav);
+        let site_page = rendered_page.map(|rendered: &RenderedPage| SitePage {
+            page: rendered.page.clone(),
+            autorefs: rendered.html.autorefs.clone(),
+        });
+        let search_document =
+            rendered_page.filter_map(|rendered: &RenderedPage| {
+                (!rendered.html.search.is_empty()).then(|| {
+                    search::Document::new(
+                        &rendered.page,
+                        rendered.html.search.clone(),
+                    )
+                })
+            });
+        let nav = generate_nav(&self.config, &rendered_page);
+        let autorefs_input =
+            rendered_page.map(|rendered: &RenderedPage| autorefs::PageInput {
+                source: rendered.page.source().clone(),
+                facts: rendered.registrations.clone(),
+            });
+        let autorefs = plugins
+            .autorefs
+            .setup(autorefs::Dependencies { pages: &autorefs_input });
+        plugins.search.setup(search::Dependencies {
+            documents: &search_document,
+            navigation: &nav,
+        });
+        mkdocstrings::Mkdocstrings::new(&self.config)
+            .setup(mkdocstrings::Dependencies { navigation: &nav });
         let _ = render_templates(&self.config, &files, &nav, &assets, &minify);
-        let unresolved = render_pages(&self.config, &site, &assets, &minify);
+        let unresolved = render_pages(
+            &self.config,
+            &site_page,
+            &nav,
+            &autorefs,
+            &assets,
+            &minify,
+        );
         validate(&self.config, self.strict, &files, &page, &unresolved);
     }
 }
@@ -345,6 +368,7 @@ fn page_hash(page: &Page, autorefs: &autorefs::References) -> u64 {
     let mut hasher = DefaultHasher::new();
     page.content.hash(&mut hasher);
     page.meta.hash(&mut hasher);
+    page.hash_derived_template_context(&mut hasher);
     autorefs.hash(&mut hasher);
     hasher.finish()
 }
@@ -373,10 +397,11 @@ fn route_markdown(
 
 /// Create a stream to process routed Markdown files.
 fn process_markdown(
-    config: &Config, routed: &Stream<Id, RoutedMarkdown>,
+    config: &Config, plugins: &plugin::Settings,
+    routed: &Stream<Id, RoutedMarkdown>,
 ) -> Stream<Id, RenderedMarkdown> {
     // Create pipeline to render Markdown files
-    let plugins = plugin::Settings::new(config);
+    let plugins = plugins.clone();
     let config = config.clone();
     routed
         // Render Markdown if we don't have a recent cached version at our own
@@ -394,7 +419,7 @@ fn process_markdown(
             // This is a hack while waiting for CommonMark (AST) and components,
             // as well as topic-based authoring functionality.
             if SNIPPET_RE.is_match(&data) {
-                render_markdown(id, route, data, plugins, resolved)
+                render_markdown(id, route, data, plugins.clone(), resolved)
             } else {
                 cached(
                     &config,
@@ -407,11 +432,46 @@ fn process_markdown(
                         resolved.clone(),
                     ),
                     |(_, _, data, route, resolved)| {
-                        render_markdown(id, route, data, plugins, resolved)
+                        render_markdown(
+                            id,
+                            route,
+                            data,
+                            plugins.clone(),
+                            resolved,
+                        )
                     },
                 )
             }
         }))
+}
+
+/// Applies revision-complete tag listings and page-level tag references.
+fn apply_tags(
+    pipeline: &tags::Tags, pages: &Stream<Id, RenderedPage>,
+) -> Stream<Id, RenderedPage> {
+    if pipeline.is_empty() {
+        return pages.clone();
+    }
+
+    let inputs = pages.map(|rendered: &RenderedPage| tags::PageInput {
+        page: rendered.page.clone(),
+        facts: rendered.html.tags.clone(),
+    });
+    let patches = pipeline.setup(tags::Dependencies { pages: &inputs });
+    (pages.clone(), patches).join().map(
+        |(rendered, patch): &(RenderedPage, tags::Patch)| {
+            let mut rendered = rendered.clone();
+            rendered.page.apply_derived(
+                patch.content.clone(),
+                patch.toc.clone(),
+                patch.variables.clone(),
+            );
+            if let Some(search) = &patch.search {
+                rendered.html.search = search.clone();
+            }
+            rendered
+        },
+    )
 }
 
 /// Render Markdown and collect the page-local facts produced alongside it.
@@ -421,12 +481,8 @@ fn render_markdown(
 ) -> anyhow::Result<RenderedMarkdown> {
     let mut markdown =
         Markdown::new(id, route.url.clone(), content, meta.values())?;
-    let html = plugin::prepare(&mut markdown, plugins);
-    let registrations = if plugins.autorefs {
-        autorefs::take_page(&route.url)
-    } else {
-        Arc::default()
-    };
+    let html = plugin::prepare(&mut markdown, &route.source, &plugins)?;
+    let registrations = plugins.autorefs.take_page(&route.url);
     Ok(RenderedMarkdown {
         route,
         markdown,
@@ -451,58 +507,26 @@ fn generate_page(
     })
 }
 
-/// Derive one complete site batch at the page-relation terminal.
-fn generate_site(
+/// Derive navigation from the complete current page relation.
+fn generate_nav(
     config: &Config, pages: &Stream<Id, RenderedPage>,
-) -> Signal<Id, Site> {
+) -> Signal<Id, Navigation> {
     let config = config.clone();
     pages.reduce(move |pages: &dyn Collection<Key<Id>, RenderedPage>| {
-        let mut nav_pages = Vec::new();
-        let mut site_pages = Vec::new();
-        let mut facts = Vec::new();
-        let mut documents = Vec::new();
-        for (key, rendered) in pages.iter() {
-            nav_pages.push(rendered.page.clone());
-            site_pages.push((
-                key.clone(),
-                SitePage {
-                    page: rendered.page.clone(),
-                    autorefs: rendered.html.autorefs.clone(),
-                },
-            ));
-            facts.push((
-                rendered.page.source().clone(),
-                rendered.registrations.clone(),
-            ));
-            if !rendered.html.search.is_empty() {
-                documents.push(search::Document::new(
-                    &rendered.page,
-                    rendered.html.search.clone(),
-                ));
-            }
-        }
-
-        let nav = Navigation::new(config.project.nav.clone(), nav_pages);
-        let autorefs = autorefs::assemble(&config, facts);
-        let search = search::Snapshot::new(documents, nav.clone());
-        Ok::<_, anyhow::Error>(Some(Site {
-            pages: Arc::new(site_pages),
-            nav,
-            autorefs,
-            search,
-        }))
+        Some(Navigation::new(
+            config.project.nav.clone(),
+            pages
+                .values()
+                .map(|rendered| rendered.page.clone())
+                .collect(),
+        ))
     })
-}
-
-/// Project navigation from the current site batch.
-fn generate_nav(site: &Signal<Id, Site>) -> Signal<Id, Navigation> {
-    site.map(|site: &Site| site.nav.clone())
 }
 
 /// Render static and extra templates.
 fn render_templates(
     config: &Config, files: &Stream<Id, Input>, nav: &Signal<Id, Navigation>,
-    assets: &Signal<Id, minify::asset::Manifest>, minify: &minify::Settings,
+    assets: &Signal<Id, minify::Manifest>, minify: &minify::Minify,
 ) -> Stream<Id, ()> {
     let docs_dir = config.project.docs_dir.clone();
 
@@ -538,7 +562,7 @@ fn render_templates(
     templates.product(nav).product(assets).map(
         move |id: &Id,
               input: &(Input, Navigation),
-              assets: &minify::asset::Manifest| {
+              assets: &minify::Manifest| {
             let (_, nav) = input;
             let output = template_output(id)?;
             let name = output.as_str();
@@ -562,26 +586,21 @@ fn template_output(id: &Id) -> Result<SitePath, PathError> {
 
 /// Render pages.
 fn render_pages(
-    config: &Config, site: &Signal<Id, Site>,
-    assets: &Signal<Id, minify::asset::Manifest>, minify: &minify::Settings,
+    config: &Config, pages: &Stream<Id, SitePage>,
+    nav: &Signal<Id, Navigation>, autorefs: &Signal<Id, autorefs::Registry>,
+    assets: &Signal<Id, minify::Manifest>, minify: &minify::Minify,
 ) -> Stream<Id, UnresolvedAutorefs> {
-    let pages = site.product(assets).flat_map(
-        |site: &Site, assets: &minify::asset::Manifest| {
-            site.pages
-                .iter()
-                .map(|(key, page)| {
-                    (
-                        key.clone(),
-                        PageRender {
-                            input: page.clone(),
-                            nav: site.nav.clone(),
-                            autorefs: site.autorefs.clone(),
-                            project: assets.project.clone(),
-                            asset_hash: assets.hash,
-                        },
-                    )
-                })
-                .collect::<Vec<_>>()
+    let pages = pages.product(nav).product(autorefs).product(assets).map(
+        |input: &((SitePage, Navigation), autorefs::Registry),
+         assets: &minify::Manifest| {
+            let ((page, nav), autorefs) = input;
+            PageRender {
+                input: page.clone(),
+                nav: nav.clone(),
+                autorefs: autorefs.clone(),
+                project: assets.project.clone(),
+                asset_hash: assets.hash,
+            }
         },
     );
 
@@ -630,12 +649,13 @@ fn render_pages(
 
 /// Creates a workflow for the given config.
 pub fn create_workflow(
-    config: &Config, strict: bool, meta: Arc<meta::Settings>,
+    config: &Config, strict: bool, serve: bool, meta: meta::Meta,
 ) -> Workflow<Id> {
     Workflow::build(|workflow| {
         Main {
             config: config.clone(),
             strict,
+            serve,
             meta,
         }
         .setup(workflow);

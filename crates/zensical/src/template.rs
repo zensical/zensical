@@ -25,7 +25,7 @@
 
 //! MiniJinja template engine.
 
-use minijinja::{context, AutoEscape, Environment, Error, Value};
+use minijinja::{context, AutoEscape, Environment, Error, ErrorKind, Value};
 use minijinja_contrib::filters::striptags;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -89,6 +89,22 @@ impl Template<'_> {
     {
         let template = self.env.get_template(name)?;
         template.render(context)
+    }
+
+    /// Renders an overrideable fragment with a native fallback template.
+    pub fn render_fragment<C>(
+        &self, name: &str, fallback: &str, context: C,
+    ) -> Result<String, Error>
+    where
+        C: Serialize,
+    {
+        match self.env.get_template(name) {
+            Ok(template) => template.render(context),
+            Err(error) if error.kind() == ErrorKind::TemplateNotFound => {
+                self.env.render_str(fallback, context)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Renders the template.

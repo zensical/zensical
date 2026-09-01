@@ -58,7 +58,7 @@ pub struct Markdown {
 }
 
 /// Immutable rendered Markdown data.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MarkdownData {
     /// Markdown metadata.
     pub meta: BTreeMap<String, Dynamic>,
@@ -124,11 +124,25 @@ impl Markdown {
         })
     }
 
-    /// Replaces rendered HTML before the Markdown value enters the workflow.
+    /// Replaces rendered HTML, cloning shared facts only when necessary.
     pub fn replace_content(&mut self, content: String) {
-        Arc::get_mut(&mut self.data)
-            .expect("rendered Markdown is not shared yet")
-            .content = content;
+        Arc::make_mut(&mut self.data).content = content;
+    }
+
+    /// Applies optional derived HTML and TOC values with one copy-on-write.
+    pub fn replace_derived(
+        &mut self, content: Option<String>, toc: Option<Vec<Section>>,
+    ) {
+        if content.is_none() && toc.is_none() {
+            return;
+        }
+        let data = Arc::make_mut(&mut self.data);
+        if let Some(content) = content {
+            data.content = content;
+        }
+        if let Some(toc) = toc {
+            data.toc = toc;
+        }
     }
 }
 

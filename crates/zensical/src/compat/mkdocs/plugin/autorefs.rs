@@ -29,10 +29,13 @@ use ahash::HashMap;
 use pyo3::types::PyAnyMethods;
 use pyo3::{FromPyObject, Python};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::string::ToString;
 use std::sync::Arc;
 
-use zrx::stream::Value;
+use zrx::id::Id;
+use zrx::stream::function::Collection;
+use zrx::stream::{Key, Signal, Stream, Value};
 
 use crate::compat::mkdocs::html;
 use crate::config::Config;
@@ -70,6 +73,36 @@ const EXTENSION_NAME: &str = "zensical.extensions.autorefs";
 // Structs
 // ----------------------------------------------------------------------------
 
+/// MkDocs-compatible autorefs pipeline.
+#[derive(Clone, Debug)]
+pub struct Autorefs {
+    /// Whether autorefs extraction and settlement are active.
+    enabled: bool,
+    /// Cache directory containing external inventory facts.
+    cache: PathBuf,
+}
+
+// ----------------------------------------------------------------------------
+
+/// Inputs required to derive the revision-complete autorefs registry.
+pub struct Dependencies<'a> {
+    /// Page-local autorefs registrations.
+    pub pages: &'a Stream<Id, PageInput>,
+}
+
+// ----------------------------------------------------------------------------
+
+/// One page's registrations keyed by its documentation source.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PageInput {
+    /// Documentation-relative source used for deterministic ordering.
+    pub source: SourcePath,
+    /// Registrations produced while rendering the page.
+    pub facts: Arc<Facts>,
+}
+
+// ----------------------------------------------------------------------------
+
 /// Autoref identifiers that could not be resolved in a single page.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct UnresolvedAutorefs {
@@ -81,7 +114,7 @@ pub struct UnresolvedAutorefs {
 
 /// Shared immutable registry used to resolve page-local autorefs.
 #[derive(Clone, Debug)]
-pub struct Registry(Option<Arc<Autorefs>>);
+pub struct Registry(Option<Arc<Resolver>>);
 
 // ----------------------------------------------------------------------------
 
@@ -137,7 +170,7 @@ pub struct Facts {
 /// - No secondary URL mapped to an identifier? Try using absolute URLs
 ///   (typically registered by loading inventories in mkdocstrings).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct Autorefs {
+struct Resolver {
     // Primary URLs.
     primary: HashMap<String, Vec<String>>,
     // Secondary URLs.
@@ -153,6 +186,61 @@ struct Autorefs {
 // ----------------------------------------------------------------------------
 
 impl Autorefs {
+    /// Resolves the private settings owned by this pipeline instance.
+    pub fn new(config: &Config) -> Self {
+        Self {
+            enabled: config.has_markdown_extension(EXTENSION_NAME),
+            cache: config.get_cache_dir(),
+        }
+    }
+
+    /// Returns whether autorefs participates in page processing.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    /// Installs revision-complete autorefs registry derivation.
+    pub fn setup(
+        &self, dependencies: Dependencies<'_>,
+    ) -> Signal<Id, Registry> {
+        let pipeline = self.clone();
+        dependencies.pages.reduce(
+            move |pages: &dyn Collection<Key<Id>, PageInput>| {
+                if !pipeline.enabled {
+                    return Some(Registry(None));
+                }
+                let mut pages = pages.values().cloned().collect::<Vec<_>>();
+                pages.sort_by_key(|page| source_sort_key(&page.source));
+                let mut registry = Resolver::new();
+                for page in pages {
+                    registry.merge(&page.facts);
+                }
+                registry.inventory = inventory::load(&pipeline.cache);
+                Some(Registry(Some(Arc::new(registry))))
+            },
+        )
+    }
+
+    /// Takes registrations produced by the most recently rendered page.
+    pub fn take_page(&self, url: &str) -> Arc<Facts> {
+        if !self.enabled {
+            return Arc::default();
+        }
+        Arc::new(
+            Python::attach(|py| {
+                let module = py.import("zensical.extensions.autorefs")?;
+                module
+                    .call_method1("get_autorefs_page_data", (url,))?
+                    .extract::<Facts>()
+            })
+            .unwrap_or_default(),
+        )
+    }
+}
+
+// ----------------------------------------------------------------------------
+
+impl Resolver {
     /// Creates a new, empty autorefs.
     pub fn new() -> Self {
         Self::default()
@@ -448,47 +536,15 @@ impl Value for Registry {}
 
 // ----------------------------------------------------------------------------
 
+impl Value for PageInput {}
+
+// ----------------------------------------------------------------------------
+
 impl Value for UnresolvedAutorefs {}
 
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
-
-/// Assemble a complete immutable registry from settled page-local facts.
-pub fn assemble(
-    config: &Config, mut facts: Vec<(SourcePath, Arc<Facts>)>,
-) -> Registry {
-    if !is_enabled(config) {
-        return Registry(None);
-    }
-
-    facts.sort_by_key(|(source, _)| source_sort_key(source));
-
-    let mut registry = Autorefs::new();
-    for (_, facts) in facts {
-        registry.merge(&facts);
-    }
-    registry.inventory = inventory::load(&config.get_cache_dir());
-    Registry(Some(Arc::new(registry)))
-}
-
-/// Returns whether autorefs is active after configuration shims are applied.
-pub fn is_enabled(config: &Config) -> bool {
-    config.has_markdown_extension(EXTENSION_NAME)
-}
-
-/// Take registrations produced by the most recently rendered page.
-pub fn take_page(url: &str) -> Arc<Facts> {
-    Arc::new(
-        Python::attach(|py| {
-            let module = py.import("zensical.extensions.autorefs")?;
-            module
-                .call_method1("get_autorefs_page_data", (url,))?
-                .extract::<Facts>()
-        })
-        .unwrap_or_default(),
-    )
-}
 
 /// Merge URL lists while preserving registration order and uniqueness.
 fn merge_url_map(
@@ -524,7 +580,7 @@ mod tests {
 
     use crate::compat::mkdocs::html;
 
-    use super::{Autorefs, Facts, Parser, References};
+    use super::{Facts, Parser, References, Resolver};
 
     fn prepare(input: &str) -> (String, References) {
         let mut parser = Parser::default();
@@ -535,7 +591,7 @@ mod tests {
 
     #[test]
     fn page_facts_merge_without_overwriting_shared_identifiers() {
-        let mut autorefs = Autorefs::new();
+        let mut autorefs = Resolver::new();
         autorefs.merge(&Facts {
             primary: HashMap::from_iter([(
                 "shared".to_string(),
@@ -556,7 +612,7 @@ mod tests {
 
     #[test]
     fn unresolved_autorefs_are_collected_while_replacing() {
-        let mut autorefs = Autorefs::new();
+        let mut autorefs = Resolver::new();
         autorefs
             .primary
             .insert("known".to_string(), vec!["reference/#known".to_string()]);
@@ -581,7 +637,7 @@ mod tests {
 
     #[test]
     fn cached_slots_preserve_autoref_rendering_contract() {
-        let mut autorefs = Autorefs::new();
+        let mut autorefs = Resolver::new();
         autorefs
             .primary
             .insert("known".to_string(), vec!["reference/#known".to_string()]);
@@ -613,7 +669,7 @@ mod tests {
 
     #[test]
     fn slug_is_used_as_a_resolution_fallback() {
-        let mut autorefs = Autorefs::new();
+        let mut autorefs = Resolver::new();
         autorefs.primary.insert(
             "foo-bar".to_string(),
             vec!["reference/#foo-bar".to_string()],

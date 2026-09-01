@@ -205,8 +205,9 @@ impl TryIntoHandler for Builder {
 
     /// Attempts to convert the stack into a handler.
     ///
-    /// This method is equivalent to calling [`Stack::try_into_middleware`]
-    /// with [`Scope::default`], scoping all middlewares to `/`.
+    /// This method is equivalent to calling
+    /// [`TryIntoMiddleware::try_into_middleware`] with [`Scope::default`],
+    /// scoping all middlewares to `/`.
     ///
     /// # Errors
     ///

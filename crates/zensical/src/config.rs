@@ -35,6 +35,7 @@ use std::sync::Arc;
 
 use zrx::path::PathExt;
 
+use crate::config::plugins::TagsPlugin;
 use crate::path::{OutputRoot, SourceRoot};
 
 mod error;
@@ -115,6 +116,14 @@ impl Config {
             let markdown_extensions = config
                 .get_item("markdown_extensions")?
                 .extract::<Vec<String>>()?;
+
+            // Validate raw native tags configuration before derived project
+            // extraction can replace its precise diagnostic with generic
+            // nested-field context from PyO3.
+            config
+                .get_item("plugins")?
+                .get_item("tags")?
+                .extract::<TagsPlugin>()?;
             let project = config.extract::<Project>()?;
 
             // Return configuration and theme directory
@@ -196,10 +205,7 @@ impl Config {
     where
         P: AsRef<Path>,
     {
-        PathBuf::from(".")
-            .relative_to(path)
-            .to_string_lossy()
-            .replace('\\', "/")
+        relative_base_url(path)
     }
 
     /// Returns the base path, derived from the site URL if available.
@@ -224,6 +230,21 @@ impl Config {
             base.trim_end_matches('/').to_string()
         }
     }
+}
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
+/// Computes the relative root used by page and fragment template contexts.
+pub fn relative_base_url<P>(path: P) -> String
+where
+    P: AsRef<Path>,
+{
+    PathBuf::from(".")
+        .relative_to(path)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 // ----------------------------------------------------------------------------

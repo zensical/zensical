@@ -29,6 +29,13 @@ use pyo3::FromPyObject;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
+mod tags;
+
+pub use tags::{
+    python_bool, python_float, python_scalar, TagsListingConfig, TagsPlugin,
+    TagsPluginConfig,
+};
+
 // ----------------------------------------------------------------------------
 // Structs
 // ----------------------------------------------------------------------------
@@ -53,6 +60,8 @@ pub struct Plugins {
     pub redirects: RedirectsPlugin,
     /// Minify plugin.
     pub minify: MinifyPlugin,
+    /// Material tags plugin instances.
+    pub tags: TagsPlugin,
     /// Offline plugin.
     pub offline: OfflinePlugin,
 }
@@ -160,8 +169,6 @@ pub struct HtmlMinOptions {
     /// Attribute marking an element or attribute value for preservation.
     pub pre_attr: String,
 }
-
-// ----------------------------------------------------------------------------
 
 /// Search plugin.
 #[derive(Clone, Debug, Hash, FromPyObject, Serialize)]

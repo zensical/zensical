@@ -110,7 +110,9 @@ impl FromStr for Route {
     ///
     /// # Errors
     ///
-    /// In case conversion fails, an [`Error`] is returned.
+    /// In case conversion fails, a [`matcher::Error`] is returned.
+    ///
+    /// [`matcher::Error`]: crate::handler::matcher::Error
     ///
     /// # Examples
     ///

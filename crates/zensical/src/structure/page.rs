@@ -28,6 +28,7 @@
 use minijinja::{context, Error, Value as TemplateValue};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -68,7 +69,7 @@ impl Value for PageRoute {}
 /// Page values are cloned by the scheduler as they fan out into navigation,
 /// search, validation, and rendering branches. Keeping the immutable payload
 /// behind an [`Arc`] makes those clones constant-sized.
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct PageData {
     /// Validated documentation-relative source used by internal consumers.
     #[serde(skip)]
@@ -107,6 +108,9 @@ pub struct Page {
     pub previous_page: Option<NavigationItem>,
     /// Next page.
     pub next_page: Option<NavigationItem>,
+    /// Dynamic page-level template variables supplied by compatibility modules.
+    #[serde(skip)]
+    template_variables: Option<BTreeMap<String, Vec<Tag>>>,
 }
 
 // ----------------------------------------------------------------------------
@@ -192,6 +196,7 @@ impl Page {
             ancestors: Vec::new(),
             previous_page: None,
             next_page: None,
+            template_variables: None,
         }
     }
 
@@ -216,6 +221,9 @@ impl Page {
 
         // Add the page-local active overlay without cloning the navigation tree.
         let nav = NavigationView::new(nav, Some(&self.url));
+        let variables = self.template_variables.clone().unwrap_or_else(|| {
+            BTreeMap::from([(String::from("tags"), self.tags())])
+        });
         let output = template.render_with_context(
             &name,
             context! {
@@ -225,8 +233,8 @@ impl Page {
                 extra_css => project.extra_css.clone(),
                 extra_javascript => project.extra_javascript.clone(),
                 config => project.clone(),
-                tags => self.tags(),
                 page => self,
+                .. TemplateValue::from_serialize(&variables),
             },
         )?;
 
@@ -238,7 +246,13 @@ impl Page {
         let mut tags = Vec::new();
         if let Some(Dynamic::List(values)) = self.meta.get("tags") {
             for name in values {
-                tags.push(Tag { name: name.to_string() });
+                tags.push(Tag {
+                    name: name.to_string(),
+                    parent: None,
+                    url: None,
+                    hidden: false,
+                    links: Vec::new(),
+                });
             }
         }
         tags
@@ -252,6 +266,25 @@ impl Page {
     /// Returns the validated documentation-relative page source.
     pub fn source(&self) -> &SourcePath {
         &self.source
+    }
+
+    /// Adds module-derived template context to a page-render cache key.
+    pub fn hash_derived_template_context<H: Hasher>(&self, state: &mut H) {
+        self.template_variables.hash(state);
+    }
+
+    /// Replaces page-local content, table of contents, and template variables.
+    pub fn apply_derived(
+        &mut self, content: Option<String>,
+        toc: Option<Vec<crate::structure::toc::Section>>,
+        variables: BTreeMap<String, Vec<Tag>>,
+    ) {
+        if content.is_some() || toc.is_some() {
+            Arc::make_mut(&mut self.data)
+                .markdown
+                .replace_derived(content, toc);
+        }
+        self.template_variables = Some(variables);
     }
 }
 
@@ -382,6 +415,7 @@ mod tests {
             ancestors: Vec::new(),
             previous_page: None,
             next_page: None,
+            template_variables: None,
         }
     }
 

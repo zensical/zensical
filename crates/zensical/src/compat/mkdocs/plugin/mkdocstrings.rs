@@ -28,41 +28,74 @@
 use pyo3::types::PyAnyMethods;
 use pyo3::Python;
 use std::fs;
+use std::path::PathBuf;
 
 use zrx::id::Id;
 use zrx::stream::Signal;
 
 use crate::config::Config;
-use crate::path::SitePath;
+use crate::path::{OutputRoot, SitePath};
 use crate::structure::nav::Navigation;
 
 // ----------------------------------------------------------------------------
-// Functions
+// Structs
 // ----------------------------------------------------------------------------
 
-/// Attach object inventory generation to the settled navigation stream.
-pub fn attach(config: &Config, nav: &Signal<Id, Navigation>) {
-    let config = config.clone();
-    let _ = nav.map(move |_: &Navigation| {
-        let cache_dir = config.get_cache_dir();
-        let cache_path = cache_dir.join("objects.inv");
-        let cached = fs::read(&cache_path).ok();
+/// Mkdocstrings compatibility pipeline.
+#[derive(Clone, Debug)]
+pub struct Mkdocstrings {
+    /// Cache directory shared with the Python compatibility layer.
+    cache: PathBuf,
+    /// Site output directory.
+    output: OutputRoot,
+}
 
-        let data = Python::attach(|py| {
-            let module = py.import("zensical.compat.mkdocstrings")?;
-            module
-                .call_method1("get_inventory", (cached,))?
-                .extract::<Vec<u8>>()
-        });
+// ----------------------------------------------------------------------------
 
-        if let Ok(data) = data {
-            let path = config.output_root().join(
-                &"objects.inv".parse::<SitePath>().expect("static site path"),
-            );
-            let _ = fs::create_dir_all(path.parent().expect("invariant"));
-            let _ = fs::write(path, &data);
-            let _ = fs::create_dir_all(&cache_dir);
-            let _ = fs::write(&cache_path, &data);
+/// Inputs required to generate the object inventory.
+pub struct Dependencies<'a> {
+    /// Revision-complete site navigation.
+    pub navigation: &'a Signal<Id, Navigation>,
+}
+
+// ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
+
+impl Mkdocstrings {
+    /// Resolves the private settings owned by this pipeline instance.
+    pub fn new(config: &Config) -> Self {
+        Self {
+            cache: config.get_cache_dir(),
+            output: config.output_root().clone(),
         }
-    });
+    }
+
+    /// Installs object inventory generation.
+    pub fn setup(&self, dependencies: Dependencies<'_>) {
+        let pipeline = self.clone();
+        let _ = dependencies.navigation.map(move |_: &Navigation| {
+            let cache_path = pipeline.cache.join("objects.inv");
+            let cached = fs::read(&cache_path).ok();
+
+            let data = Python::attach(|py| {
+                let module = py.import("zensical.compat.mkdocstrings")?;
+                module
+                    .call_method1("get_inventory", (cached,))?
+                    .extract::<Vec<u8>>()
+            });
+
+            if let Ok(data) = data {
+                let path = pipeline.output.join(
+                    &"objects.inv"
+                        .parse::<SitePath>()
+                        .expect("static site path"),
+                );
+                let _ = fs::create_dir_all(path.parent().expect("invariant"));
+                let _ = fs::write(path, &data);
+                let _ = fs::create_dir_all(&pipeline.cache);
+                let _ = fs::write(&cache_path, &data);
+            }
+        });
+    }
 }

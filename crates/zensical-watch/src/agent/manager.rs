@@ -188,10 +188,10 @@ impl Manager {
                     // inside a symbolic link. If the path can be canonicalized
                     // and is different from the previous one, we replace it.
                     Entry::Occupied(mut entry) => {
-                        if let Ok(to) = fs::canonicalize(&path) {
-                            if *entry.get() != to {
-                                entry.insert(path);
-                            }
+                        if let Ok(to) = fs::canonicalize(&path)
+                            && *entry.get() != to
+                        {
+                            entry.insert(path);
                         }
                     }
                 }
@@ -210,11 +210,11 @@ impl Manager {
                 // the same file identifier in this iteration, we know that the
                 // path was renamed, and we can coalesce the two events into a
                 // single rename instead of a removal and creation
-                if let Some((id, _)) = self.paths.get(&path) {
-                    if let Some(to) = changes.remove(id) {
-                        results.append(&mut self.handle_rename(&to));
-                        return None;
-                    }
+                if let Some((id, _)) = self.paths.get(&path)
+                    && let Some(to) = changes.remove(id)
+                {
+                    results.append(&mut self.handle_rename(&to));
+                    return None;
                 }
 
                 // The path does not point to a file or folder, and it's also
@@ -254,10 +254,10 @@ impl Manager {
             // In case the event doesn't contain a path that is a symbolic link
             // itself, try to spread it to all symbolic links, if inside any
             for (i, result) in results.iter().enumerate() {
-                if let Ok(event) = result {
-                    if event.kind() != Kind::Link {
-                        inserts.push((i, self.spread(event)));
-                    }
+                if let Ok(event) = result
+                    && event.kind() != Kind::Link
+                {
+                    inserts.push((i, self.spread(event)));
                 }
             }
 
@@ -275,10 +275,10 @@ impl Manager {
         // mentioned above, this must be done after spreading symbolic links,
         // or we'll end up with duplicate events in the result set.
         for (i, result) in results.iter().enumerate() {
-            if let Ok(event) = result {
-                if event.kind() == Kind::Link {
-                    inserts.push((i, self.follow(event)));
-                }
+            if let Ok(event) = result
+                && event.kind() == Kind::Link
+            {
+                inserts.push((i, self.follow(event)));
             }
         }
 
@@ -720,20 +720,20 @@ impl Manager {
         // emit a removal event for all paths inside the symbolic link.
         let target = Some(Ok(event.clone()));
         let mut iter = iter.peekable();
-        if let Event::Rename { kind, from, .. } = event {
-            if iter.peek().is_none() {
-                let path = Arc::clone(from);
+        if let Event::Rename { kind, from, .. } = event
+            && iter.peek().is_none()
+        {
+            let path = Arc::clone(from);
 
-                // Create a temporary removal event, so we can spread it to all
-                // paths inside the symbolic link, and then return the original.
-                // It's easier to just reuse the removal business logic, as
-                // otherwise we'd need more code for an edge case.
-                let event = Event::Remove { kind: *kind, path };
-                return target
-                    .into_iter()
-                    .chain(self.spread(&event).into_iter().skip(1))
-                    .collect();
-            }
+            // Create a temporary removal event, so we can spread it to all
+            // paths inside the symbolic link, and then return the original.
+            // It's easier to just reuse the removal business logic, as
+            // otherwise we'd need more code for an edge case.
+            let event = Event::Remove { kind: *kind, path };
+            return target
+                .into_iter()
+                .chain(self.spread(&event).into_iter().skip(1))
+                .collect();
         }
 
         // Collect results from iterator

@@ -117,8 +117,8 @@ impl Action<Key<Id>> for Writer {
 // Functions
 // ----------------------------------------------------------------------------
 
-/// Attaches a removal-aware writer to the emission relation.
-pub fn attach(output: OutputRoot, emissions: &Stream<Id, Emission>) {
+/// Installs a removal-aware writer for the emission relation.
+pub fn setup(output: OutputRoot, emissions: &Stream<Id, Emission>) {
     let _ = emissions.subscribe(Writer { output });
 }
 

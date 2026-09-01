@@ -26,41 +26,81 @@
 //! MkDocs-compatible minify plugin.
 
 use std::path::Path;
+use std::sync::Arc;
+
+use zrx::id::Id;
+use zrx::stream::{Signal, Stream};
 
 use crate::config::plugins::MinifyPluginConfig;
-use crate::config::Config;
+use crate::config::{Config, Project};
+use crate::path::OutputRoot;
 
-pub mod asset;
+use super::super::resource::Resource;
+
+mod asset;
 mod html;
 mod script;
 mod style;
+
+pub use asset::Manifest;
 
 // ----------------------------------------------------------------------------
 // Structs
 // ----------------------------------------------------------------------------
 
-/// Resolved minification settings shared by page render tasks.
+/// MkDocs-compatible minify pipeline.
 #[derive(Clone, Debug)]
-pub struct Settings {
+pub struct Minify {
     /// Normalized MkDocs-compatible minification configuration.
     config: MinifyPluginConfig,
+    /// Site output directory shared with the asset writer.
+    output: OutputRoot,
+    /// Template-visible project configuration projected by asset mappings.
+    project: Arc<Project>,
+}
+
+// ----------------------------------------------------------------------------
+
+/// Inputs required to derive and write effective assets.
+pub struct Dependencies<'a> {
+    /// Resources after MkDocs source precedence has been resolved.
+    pub resources: &'a Stream<Id, Resource>,
 }
 
 // ----------------------------------------------------------------------------
 // Implementations
 // ----------------------------------------------------------------------------
 
-impl Settings {
-    /// Resolves minification settings from project configuration.
+impl Minify {
+    /// Resolves the private settings owned by this pipeline instance.
     pub fn new(config: &Config) -> Self {
         Self {
             config: config.project.plugins.minify.config.clone(),
+            output: config.output_root().clone(),
+            project: config.project.clone(),
         }
     }
 
+    /// Installs asset transformation, output, and manifest derivation.
+    pub fn setup(
+        &self, dependencies: Dependencies<'_>,
+    ) -> Signal<Id, Manifest> {
+        asset::setup(self, dependencies.resources)
+    }
+
     /// Returns the normalized plugin configuration for the asset stage.
-    pub fn config(&self) -> &MinifyPluginConfig {
+    pub(super) fn config(&self) -> &MinifyPluginConfig {
         &self.config
+    }
+
+    /// Returns the site output directory owned by this pipeline.
+    pub(super) fn output(&self) -> &OutputRoot {
+        &self.output
+    }
+
+    /// Returns the template-visible project configuration.
+    pub(super) fn project(&self) -> &Arc<Project> {
+        &self.project
     }
 
     /// Processes one final HTML document after all compatibility mutations.

@@ -79,6 +79,11 @@ impl<'a> Editor<'a> {
         &self.input[range]
     }
 
+    /// Returns whether the original HTML contains a prospective marker.
+    pub fn contains(&self, value: &str) -> bool {
+        self.input.contains(value)
+    }
+
     /// Replaces a byte range after all visitors have observed the input.
     pub fn replace(
         &mut self, range: Range<usize>, replacement: impl Into<Box<str>>,
@@ -158,20 +163,20 @@ impl<'a> Editor<'a> {
 
         let mut edits: Vec<Edit> = Vec::with_capacity(self.edits.len());
         for edit in self.edits {
-            if let Some(previous) = edits.last() {
-                if edit.range.start < previous.range.end {
-                    assert!(
-                        edit.range.end <= previous.range.end,
-                        "HTML edits partially overlap"
+            if let Some(previous) = edits.last()
+                && edit.range.start < previous.range.end
+            {
+                assert!(
+                    edit.range.end <= previous.range.end,
+                    "HTML edits partially overlap"
+                );
+                if edit.range == previous.range {
+                    assert_eq!(
+                        edit.replacement, previous.replacement,
+                        "HTML edits disagree on the same span"
                     );
-                    if edit.range == previous.range {
-                        assert_eq!(
-                            edit.replacement, previous.replacement,
-                            "HTML edits disagree on the same span"
-                        );
-                    }
-                    continue;
                 }
+                continue;
             }
             edits.push(edit);
         }

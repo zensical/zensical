@@ -23,60 +23,20 @@
 
 // ----------------------------------------------------------------------------
 
-//! Floating point number with equality and hashing.
+//! Revision-complete selection values for rendering and page patching.
 
-use pyo3::FromPyObject;
-use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::hash::{Hash, Hasher};
+use zrx::id::Id;
+use zrx::stream::Key;
 
 // ----------------------------------------------------------------------------
 // Structs
 // ----------------------------------------------------------------------------
 
-/// Floating point number.
-#[derive(Clone, Debug, FromPyObject, Serialize, Deserialize)]
-pub struct Float(pub f64);
-
-// ----------------------------------------------------------------------------
-// Implementations
-// ----------------------------------------------------------------------------
-
-impl Float {
-    /// Returns the represented floating-point value.
-    pub fn get(&self) -> f64 {
-        self.0
-    }
-}
-
-// ----------------------------------------------------------------------------
-// Trait implementations
-// ----------------------------------------------------------------------------
-
-impl PartialEq for Float {
-    /// Compares two floating point numbers for equality.
-    fn eq(&self, other: &Self) -> bool {
-        (self.0 - other.0).abs() < f64::EPSILON
-    }
-}
-
-impl Eq for Float {}
-
-// ----------------------------------------------------------------------------
-
-impl Hash for Float {
-    /// Hashes the number.
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: Hasher,
-    {
-        state.write(&self.0.to_ne_bytes());
-    }
-}
-
-impl fmt::Display for Float {
-    /// Formats the floating point number.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
+/// One live selector configuration and its revision-complete members.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Selection<N, T> {
+    /// Selector configuration paired with the completed member snapshot.
+    pub configuration: N,
+    /// Selected source values in deterministic key order.
+    pub members: Vec<(Key<Id>, T)>,
 }

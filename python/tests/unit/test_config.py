@@ -251,6 +251,33 @@ class TestPluginShimming:
         assert plugin["minify_html"] is False
         assert plugin["htmlmin_opts"]["pre_tags"] == ["pre", "textarea"]
 
+    def test_tags_plugin_instances_are_preserved_for_rust_normalization(
+        self, tmp_path: Path
+    ) -> None:
+        config = self._parse_yaml(
+            tmp_path,
+            plugins=[
+                {"tags": {"listings_directive": "$tags"}},
+                {
+                    "material/tags/private": {
+                        "filters": {"include": ["private/**"]},
+                        "tags_name_property": "labels",
+                    }
+                },
+            ],
+        )
+        instances = config["plugins"]["tags"]["config"]
+        assert [instance["name"] for instance in instances] == [
+            "tags",
+            "material/tags/private",
+        ]
+        assert instances[0]["config"]["listings_directive"] == "$tags"
+        assert instances[1]["config"]["filters"] == {
+            "include": ["private/**"]
+        }
+        assert instances[1]["config"]["tags_name_property"] == "labels"
+        assert "tags_slugify" not in instances[0]["config"]
+
     def test_mike_plugin_defaults_with_versioned_build(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:

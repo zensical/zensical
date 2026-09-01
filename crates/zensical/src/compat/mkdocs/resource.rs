@@ -82,7 +82,7 @@ struct Classifier {
 
 impl Resources {
     /// Resolves the private settings owned by this module instance.
-    pub fn new(config: &Config, meta: &meta::Settings) -> Self {
+    pub fn new(config: &Config, meta: &meta::Meta) -> Self {
         Self {
             classifier: Classifier::new(config, meta),
         }
@@ -112,12 +112,12 @@ impl Resources {
 
 impl Classifier {
     /// Resolves classification settings once for the workflow lifetime.
-    fn new(config: &Config, meta: &meta::Settings) -> Self {
+    fn new(config: &Config, meta: &meta::Meta) -> Self {
         Self {
             docs: config.project.docs_dir.clone(),
             extra_templates: config.project.extra_templates.clone(),
             static_templates: config.project.theme.static_templates.clone(),
-            meta: meta.clone(),
+            meta: meta.settings().clone(),
         }
     }
 

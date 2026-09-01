@@ -1249,19 +1249,37 @@ def _convert_markdown_extensions(value: Any) -> tuple[list[str], dict]:
 def _convert_plugins(value: Any, config: dict) -> dict:
     """Convert plugins configuration to something we can work with."""
     plugins = {}
+    tags = []
+
+    def add(name: str, data: Any) -> None:
+        """Preserve tags instances while retaining legacy map semantics."""
+        if name in ("tags", "material/tags") or name.startswith(
+            ("tags/", "material/tags/")
+        ):
+            tags.append({"name": name, "config": dict(data or {})})
+        else:
+            plugins[name] = data
 
     # Plugins can be defined as a dict
     if isinstance(value, dict):
-        plugins.update(value)
+        for name, data in value.items():
+            add(name, data)
 
     # Plugins can also be defined as a list
     else:
         for item in value:
             if isinstance(item, dict):
-                name, data = item.popitem()
-                plugins[name] = data
+                name, data = next(iter(item.items()))
+                if not isinstance(name, str):
+                    raise ConfigurationError("Plugin names must be strings")
+                add(name, data)
             elif isinstance(item, str):
-                plugins[item] = {}
+                add(item, {})
+
+    # Rust owns all tags defaults, validation, scalar coercion and callable
+    # lowering. Python only preserves ordered plugin instances and their raw
+    # configuration, as it does for future native compatibility modules.
+    plugins["tags"] = tags
 
     # Define defaults for search plugin
     search = set_default(plugins, "search", {}, dict)

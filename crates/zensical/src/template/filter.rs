@@ -138,17 +138,17 @@ pub fn script_tag_filter(state: &State, value: Value) -> String {
     }
 
     // Set `async` attribute, if given
-    if let Ok(flag) = value.get_attr("async") {
-        if flag.is_true() {
-            html.push_str(" async");
-        }
+    if let Ok(flag) = value.get_attr("async")
+        && flag.is_true()
+    {
+        html.push_str(" async");
     }
 
     // Set `defer` attribute, if given
-    if let Ok(flag) = value.get_attr("defer") {
-        if flag.is_true() {
-            html.push_str(" defer");
-        }
+    if let Ok(flag) = value.get_attr("defer")
+        && flag.is_true()
+    {
+        html.push_str(" defer");
     }
 
     // Return script tag

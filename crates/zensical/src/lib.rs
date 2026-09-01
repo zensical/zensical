@@ -39,7 +39,6 @@ use pyo3::{
 };
 use std::path::{Path, PathBuf};
 use std::process;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::{fs, io, thread};
 
@@ -177,13 +176,13 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     };
 
     // Clean cache directory if requested
-    if let Mode::Build(options) = &mode {
-        if options.clean.unwrap_or(false) {
-            let cache_dir = config.get_cache_dir();
-            if cache_dir.exists() {
-                std::fs::remove_dir_all(&cache_dir)
-                    .expect("cache directory could not be removed");
-            }
+    if let Mode::Build(options) = &mode
+        && options.clean.unwrap_or(false)
+    {
+        let cache_dir = config.get_cache_dir();
+        if cache_dir.exists() {
+            std::fs::remove_dir_all(&cache_dir)
+                .expect("cache directory could not be removed");
         }
     }
 
@@ -204,14 +203,18 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         Mode::Serve(_, _) => false,
     };
 
-    // Resolve metadata settings once for the workflow and provider boundary.
-    // The provider still needs them while metadata remains a revision fact
-    // workaround, so share the module-owned value rather than reprojecting
-    // configuration independently on both sides.
-    let meta_settings = Arc::new(meta::Settings::new(&config));
+    // Resolve the metadata pipeline once for the workflow and provider
+    // boundary. Provider admission remains a revision-fact workaround, so
+    // share the module-owned value across both sides.
+    let meta = meta::Meta::new(&config);
 
     // Create workflow runner and acquire its source input
-    let workflow = create_workflow(&config, strict, meta_settings.clone());
+    let workflow = create_workflow(
+        &config,
+        strict,
+        matches!(&mode, Mode::Serve(_, _)),
+        meta.clone(),
+    );
     let mut runner = workflow
         .runner()
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
@@ -265,11 +268,10 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
 
     let serve = matches!(mode, Mode::Serve(_, _));
     let watcher = Watcher::new(&config, serve, sender, waker.clone())?;
-    let mut metadata = meta::Admission::new(
-        config.docs_root().clone(),
-        config.project.docs_dir.clone(),
-        meta_settings,
-    );
+    let mut metadata = meta.setup(meta::Dependencies {
+        docs: config.docs_root().clone(),
+        context: config.project.docs_dir.clone(),
+    });
 
     // Start the event loop. Each debounced watcher batch is admitted as one
     // source revision and fully settled before the next batch is accepted.

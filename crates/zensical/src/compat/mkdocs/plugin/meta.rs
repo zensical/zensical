@@ -31,6 +31,7 @@ use std::collections::BTreeMap;
 use std::hash::Hash;
 use std::ops::Range;
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::config::Config;
 use crate::path::{SourcePath, SourceRoot};
@@ -69,6 +70,25 @@ enum Value {
 
 // ----------------------------------------------------------------------------
 // Structs
+// ----------------------------------------------------------------------------
+
+/// MkDocs Material metadata pipeline.
+#[derive(Clone, Debug)]
+pub struct Meta {
+    /// Immutable settings shared with provider admission and page resolution.
+    settings: Arc<Settings>,
+}
+
+// ----------------------------------------------------------------------------
+
+/// Inputs required to install metadata admission.
+pub struct Dependencies {
+    /// Documentation root used to resolve metadata descendants.
+    pub docs: SourceRoot,
+    /// Provider context whose metadata changes are admitted.
+    pub context: String,
+}
+
 // ----------------------------------------------------------------------------
 
 /// Metadata plugin settings used by the workflow.
@@ -133,6 +153,31 @@ pub struct Index {
 
 // ----------------------------------------------------------------------------
 // Implementations
+// ----------------------------------------------------------------------------
+
+impl Meta {
+    /// Resolves the private settings owned by this pipeline instance.
+    pub fn new(config: &Config) -> Self {
+        Self {
+            settings: Arc::new(Settings::new(config)),
+        }
+    }
+
+    /// Installs the provider-side metadata admission boundary.
+    pub fn setup(&self, dependencies: Dependencies) -> Admission {
+        Admission::new(
+            dependencies.docs,
+            dependencies.context,
+            self.settings.clone(),
+        )
+    }
+
+    /// Returns the immutable settings shared with resource classification.
+    pub(crate) fn settings(&self) -> &Settings {
+        &self.settings
+    }
+}
+
 // ----------------------------------------------------------------------------
 
 impl Settings {

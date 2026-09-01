@@ -124,15 +124,15 @@ impl Middleware for StaticFiles {
 
         // In case we can both extract the date from the header and the file
         // system lookup is successful, check if we can just return a 304
-        if let (Some(date), Ok(meta)) = (header, fs::metadata(full)) {
-            if let Ok(mut last) = meta.modified() {
-                // Subtract one second to account for rounding issues
-                last -= Duration::from_secs(1);
-                if date >= last {
-                    return Response::new()
-                        .status(Status::NotModified)
-                        .header(Header::ContentLength, 0);
-                }
+        if let (Some(date), Ok(meta)) = (header, fs::metadata(full))
+            && let Ok(mut last) = meta.modified()
+        {
+            // Subtract one second to account for rounding issues
+            last -= Duration::from_secs(1);
+            if date >= last {
+                return Response::new()
+                    .status(Status::NotModified)
+                    .header(Header::ContentLength, 0);
             }
         }
 

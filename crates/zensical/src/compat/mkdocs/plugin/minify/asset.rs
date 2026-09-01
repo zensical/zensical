@@ -38,12 +38,11 @@ use zrx::stream::{Key, Signal, Stream, Value};
 
 use crate::compat::mkdocs::resource::Resource;
 use crate::config::plugins::MinifyPluginConfig;
-use crate::config::{Config, Project};
+use crate::config::Project;
 use crate::path::SitePath;
 use crate::watcher::Source;
 
-use super::Settings as PluginSettings;
-use super::{script, style};
+use super::{script, style, Minify};
 
 mod selector;
 mod writer;
@@ -337,8 +336,8 @@ impl Value for Manifest {}
 
 /// Transforms selected resources, writes every effective asset, and publishes
 /// the project view whose configured asset paths name the emitted files.
-pub fn attach(
-    config: &Config, plugin: &PluginSettings, resources: &Stream<Id, Resource>,
+pub(super) fn setup(
+    plugin: &Minify, resources: &Stream<Id, Resource>,
 ) -> Signal<Id, Manifest> {
     let settings = Settings::new(plugin.config());
     let settings_for_transform = settings.clone();
@@ -349,9 +348,9 @@ pub fn attach(
     let outputs = emissions.unique_by_key(move |emission: &Emission| {
         output_key(&emission.output_path)
     });
-    writer::attach(config.output_root().clone(), &outputs);
+    writer::setup(plugin.output().clone(), &outputs);
 
-    let project = config.project.clone();
+    let project = plugin.project().clone();
     let settings_for_manifest = settings;
     outputs
         .filter(|emission: &Emission| emission.claimed)

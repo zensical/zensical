@@ -330,13 +330,13 @@ impl<'a> Issues<'a> {
             // introduced by a template, fall back to a page-level issue.
             let mut spans = HashMap::<_, Vec<Span>>::default();
             for reference in references.iter() {
-                if let Reference::LinkReference(link) = reference {
-                    if let Some(id) = autoref_id(markdown, link) {
-                        spans
-                            .entry(id)
-                            .or_default()
-                            .push((link.id.start..link.id.end).into());
-                    }
+                if let Reference::LinkReference(link) = reference
+                    && let Some(id) = autoref_id(markdown, link)
+                {
+                    spans
+                        .entry(id)
+                        .or_default()
+                        .push((link.id.start..link.id.end).into());
                 }
             }
             for id in autorefs.iter() {
