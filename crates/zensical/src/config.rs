@@ -63,6 +63,8 @@ pub struct Config {
     pub project: Arc<Project>,
     /// Theme directories.
     pub theme_dirs: Vec<PathBuf>,
+    /// Resolved Python Markdown extensions after compatibility shims.
+    markdown_extensions: Arc<[String]>,
     /// Configuration hash.
     pub hash: u64,
 }
@@ -94,14 +96,17 @@ impl Config {
             // but we'll move it through the same pipeline for consistency.
             let module = py.import("zensical.config")?;
             let config = module
-                .call_method1("parse_config", (path.to_string_lossy(),))?
-                .extract::<Project>()?;
+                .call_method1("parse_config", (path.to_string_lossy(),))?;
+            let markdown_extensions = config
+                .get_item("markdown_extensions")?
+                .extract::<Vec<String>>()?;
+            let project = config.extract::<Project>()?;
 
             // Return configuration and theme directory
-            Ok::<_, PyErr>(config)
+            Ok::<_, PyErr>((project, markdown_extensions))
         })
         .map_err(Into::into)
-        .and_then(|project| {
+        .and_then(|(project, markdown_extensions)| {
             // Merge theme directories, giving precedence to custom directory
             // over the main theme directory to allow for overrides
             let iter = project.theme_dirs.clone().into_iter();
@@ -121,9 +126,17 @@ impl Config {
                 path: path.canonicalize()?,
                 project: Arc::new(project),
                 theme_dirs,
+                markdown_extensions: markdown_extensions.into(),
                 hash,
             })
         })
+    }
+
+    /// Returns whether a resolved Python Markdown extension is active.
+    pub(crate) fn has_markdown_extension(&self, name: &str) -> bool {
+        self.markdown_extensions
+            .iter()
+            .any(|extension| extension == name)
     }
 
     /// Returns the directory the configuration file is located in.

@@ -23,12 +23,13 @@
 
 // ----------------------------------------------------------------------------
 
-//! MkDocs-compatible search index.
+//! MkDocs-compatible search plugin.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufWriter, Write};
+use std::sync::Arc;
 use zrx::id::Id;
 use zrx::scheduler::Value;
 use zrx::stream::function::Collection;
@@ -44,7 +45,7 @@ mod item;
 mod parser;
 
 use item::{SearchItem, SearchSection};
-pub(crate) use parser::extract;
+use parser::Parser;
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -68,17 +69,24 @@ struct SearchIndex {
     items: Vec<SearchItem>,
 }
 
-/// Compact page facts retained by the search branch.
+/// Search facts extracted while rendering one Markdown page.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]
+pub(crate) struct Facts {
+    /// Page-local search sections.
+    sections: Vec<SearchSection>,
+}
+
+/// Compact page document retained by the search branch.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct SearchDocument {
+pub(crate) struct Document {
     /// Page target URL.
     url: String,
     /// Page title.
     title: String,
     /// Page tag names.
     tags: Vec<String>,
-    /// Page-local search sections.
-    sections: Vec<SearchSection>,
+    /// Page-local facts extracted before page construction.
+    facts: Arc<Facts>,
 }
 
 // ----------------------------------------------------------------------------
@@ -97,15 +105,24 @@ impl SearchConfig {
 
 // ----------------------------------------------------------------------------
 
-impl SearchDocument {
-    /// Extracts the facts search needs from a rendered page.
-    fn new(page: &Page) -> Self {
+impl Document {
+    /// Attaches page properties to previously extracted search facts.
+    pub(crate) fn new(page: &Page, facts: Arc<Facts>) -> Self {
         Self {
             url: page.url.clone(),
             title: page.title.clone(),
             tags: page.tags().into_iter().map(|tag| tag.name).collect(),
-            sections: extract(&page.content),
+            facts,
         }
+    }
+}
+
+// ----------------------------------------------------------------------------
+
+impl Facts {
+    /// Returns whether this page contributes anything to the search index.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.sections.is_empty()
     }
 }
 
@@ -115,7 +132,7 @@ impl SearchIndex {
     /// Creates a search index from compact page facts.
     #[allow(clippy::assigning_clones)]
     fn new(
-        documents: Vec<(Key<Id>, SearchDocument)>, nav: &Navigation,
+        documents: Vec<(Key<Id>, Document)>, nav: &Navigation,
         config: SearchPluginConfig, language: &str,
     ) -> Self {
         let mut items: Vec<SearchItem> = Vec::new();
@@ -139,21 +156,21 @@ impl SearchIndex {
                 path.push(document.title.clone());
             }
 
-            for section in document.sections {
-                let location = match section.location {
+            for section in &document.facts.sections {
+                let location = match &section.location {
                     Some(id) => format!("{}#{}", document.url, id),
                     _ => document.url.clone(),
                 };
                 let title = if section.title.is_empty() {
                     document.title.clone()
                 } else {
-                    section.title
+                    section.title.clone()
                 };
                 items.push(SearchItem {
                     location: Some(location),
                     level: section.level,
                     title,
-                    text: section.text,
+                    text: section.text.clone(),
                     path: path.clone(),
                     tags: document.tags.clone(),
                 });
@@ -172,7 +189,7 @@ impl SearchIndex {
 // Trait implementations
 // ----------------------------------------------------------------------------
 
-impl Value for SearchDocument {}
+impl Value for Document {}
 
 // ----------------------------------------------------------------------------
 // Functions
@@ -180,7 +197,8 @@ impl Value for SearchDocument {}
 
 /// Attach MkDocs-compatible search artifact generation to the build graph.
 pub(crate) fn attach(
-    config: &Config, pages: &Stream<Id, Page>, nav: &Signal<Id, Navigation>,
+    config: &Config, documents: &Stream<Id, Document>,
+    nav: &Signal<Id, Navigation>,
 ) {
     if !config.project.plugins.search.config.enabled {
         let config = config.clone();
@@ -196,22 +214,18 @@ pub(crate) fn attach(
         return;
     }
 
-    let documents = pages
-        .filter(|page: &Page| !is_search_excluded(&page.meta))
-        .map(SearchDocument::new);
-    let documents = documents.reduce(
-        |documents: &dyn Collection<Key<Id>, SearchDocument>| {
+    let documents =
+        documents.reduce(|documents: &dyn Collection<Key<Id>, Document>| {
             Some(
                 documents
                     .iter()
                     .map(|(key, document)| (key.clone(), document.clone()))
                     .collect::<Vec<_>>(),
             )
-        },
-    );
+        });
     let config = config.clone();
     let _ = documents.product(nav).map(
-        move |documents: &Vec<(Key<Id>, SearchDocument)>, nav: &Navigation| {
+        move |documents: &Vec<(Key<Id>, Document)>, nav: &Navigation| {
             let search = SearchIndex::new(
                 documents.clone(),
                 nav,
@@ -221,6 +235,20 @@ pub(crate) fn attach(
             write(&config, &search)
         },
     );
+}
+
+/// Creates the page-local search visitor.
+pub(crate) fn parser(meta: &BTreeMap<String, Dynamic>) -> Parser {
+    if is_search_excluded(meta) {
+        Parser::discarding()
+    } else {
+        Parser::default()
+    }
+}
+
+/// Converts a completed visitor into cached page-local facts.
+pub(crate) fn finish(parser: Parser) -> Arc<Facts> {
+    Arc::new(Facts { sections: parser.finish() })
 }
 
 /// Write search artifacts without retaining a second serialized copy.

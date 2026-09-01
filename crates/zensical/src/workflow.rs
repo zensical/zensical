@@ -26,6 +26,7 @@
 //! Workflow definitions
 
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -39,7 +40,7 @@ use zrx::stream::{
     concurrent, Key, Signal, Stream, StreamTupleExt, Value, Workflow,
 };
 
-use super::compat::mkdocs::{mkdocstrings, search};
+use super::compat::mkdocs::plugin::{self, autorefs, mkdocstrings, search};
 use super::config::Config;
 use super::structure::markdown::Markdown;
 use super::structure::nav::Navigation;
@@ -47,10 +48,8 @@ use super::structure::page::Page;
 use super::template::Template;
 use super::watcher::Source;
 
-use super::{
-    python::{Anchors, Issues, References, SharedReferences},
-    structure::markdown::UnresolvedAutorefs,
-};
+use super::compat::mkdocs::plugin::autorefs::UnresolvedAutorefs;
+use super::python::{Anchors, Issues, References, SharedReferences};
 
 // TODO: Migrate aggregation after the basic workflow runs on the new runtime.
 // mod aggregate;
@@ -91,12 +90,57 @@ pub struct Main {
 #[derive(Clone, Debug)]
 struct Site {
     /// Complete pages selected for this batch.
-    pages: Arc<Vec<(Key<Id>, Page)>>,
+    pages: Arc<Vec<(Key<Id>, SitePage)>>,
     /// Navigation derived from the current pages.
     nav: Navigation,
+    /// Autoref registry derived from the same settled page snapshot.
+    autorefs: autorefs::Registry,
 }
 
 impl Value for Site {}
+
+// ----------------------------------------------------------------------------
+
+/// Page render input retained after site-wide settlement.
+#[derive(Clone, Debug)]
+struct SitePage {
+    /// Page passed to the template renderer.
+    page: Page,
+    /// Page-local autorefs replaced with stable slots.
+    autorefs: Arc<autorefs::References>,
+}
+
+impl Value for SitePage {}
+
+// ----------------------------------------------------------------------------
+
+/// Cached output of rendering one Markdown source.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct RenderedMarkdown {
+    /// Rendered Markdown consumed by page construction.
+    markdown: Markdown,
+    /// Page-local registrations consumed during site settlement.
+    registrations: Arc<autorefs::Facts>,
+    /// Facts extracted by the shared MkDocs-compatible HTML pass.
+    html: plugin::HtmlFacts,
+}
+
+impl Value for RenderedMarkdown {}
+
+// ----------------------------------------------------------------------------
+
+/// Page plus compatibility facts derived from the same Markdown render.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RenderedPage {
+    /// Page consumed by site-wide and page-local branches.
+    page: Page,
+    /// Autoref registrations revision-aligned with the page.
+    registrations: Arc<autorefs::Facts>,
+    /// HTML compatibility facts revision-aligned with the page.
+    html: plugin::HtmlFacts,
+}
+
+impl Value for RenderedPage {}
 
 // ----------------------------------------------------------------------------
 // Implementations
@@ -110,14 +154,24 @@ impl Main {
         // Set up workflow to process static assets and Markdown files.
         process_theme_assets(&self.config, &files);
         process_assets(&self.config, &files);
-        let markdown = process_markdown(&self.config, &files);
+        let rendered = process_markdown(&self.config, &files);
 
         // Cross the one global settlement boundary, derive all site-wide
         // state, then expand the resulting batch into independent page work.
-        let page = generate_page(&self.config, &markdown);
-        let site = generate_site(&self.config, &page);
+        let rendered_page = generate_page(&self.config, &rendered);
+        let page =
+            rendered_page.map(|rendered: &RenderedPage| rendered.page.clone());
+        let document = rendered_page
+            .filter(|rendered: &RenderedPage| !rendered.html.search.is_empty())
+            .map(|rendered: &RenderedPage| {
+                search::Document::new(
+                    &rendered.page,
+                    rendered.html.search.clone(),
+                )
+            });
+        let site = generate_site(&self.config, &rendered_page);
         let nav = generate_nav(&site);
-        search::attach(&self.config, &page, &nav);
+        search::attach(&self.config, &document, &nav);
         mkdocstrings::attach(&self.config, &nav);
         let _ = render_templates(&self.config, &files, &nav);
         let unresolved = render_pages(&self.config, &site);
@@ -209,10 +263,11 @@ fn validate(
 }
 
 /// Compute a hash of the page content relevant to template rendering.
-fn page_hash(page: &Page) -> u64 {
+fn page_hash(page: &Page, autorefs: &autorefs::References) -> u64 {
     let mut hasher = DefaultHasher::new();
     page.content.hash(&mut hasher);
     page.meta.hash(&mut hasher);
+    autorefs.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -296,9 +351,9 @@ fn copy_file(
 }
 
 /// Create a stream to process Markdown files.
-pub fn process_markdown(
+fn process_markdown(
     config: &Config, files: &Stream<Id, Source>,
-) -> Stream<Id, Markdown> {
+) -> Stream<Id, RenderedMarkdown> {
     let matcher = Arc::new(
         Matcher::from_str(&format!(
             "zrs::::{}:**/*.md:",
@@ -308,6 +363,7 @@ pub fn process_markdown(
     );
 
     // Create pipeline to render Markdown files
+    let plugins = plugin::Settings::new(config);
     let config = config.clone();
     files
         .filter(move |id: &Id| matcher.is_match(id).expect("invariant"))
@@ -361,44 +417,72 @@ pub fn process_markdown(
             // This is a hack while waiting for CommonMark (AST) and components,
             // as well as topic-based authoring functionality.
             if SNIPPET_RE.is_match(&data) {
-                Markdown::new(id, url, data)
+                render_markdown(id, url, data, plugins)
             } else {
                 cached(
                     &config,
                     id.as_str(),
                     (config.hash, data.clone(), url.clone()),
-                    |(_, data, url)| Markdown::new(id, url, data),
+                    |(_, data, url)| render_markdown(id, url, data, plugins),
                 )
             }
         }))
 }
 
+/// Render Markdown and collect the page-local facts produced alongside it.
+fn render_markdown(
+    id: &Id, url: String, content: String, plugins: plugin::Settings,
+) -> anyhow::Result<RenderedMarkdown> {
+    let mut markdown = Markdown::new(id, url.clone(), content)?;
+    let html = plugin::prepare(&mut markdown, plugins);
+    let registrations = if plugins.autorefs {
+        autorefs::take_page(&url)
+    } else {
+        Arc::default()
+    };
+    Ok(RenderedMarkdown { markdown, registrations, html })
+}
+
 /// Generate pages from Markdown files.
-pub fn generate_page(
-    config: &Config, markdown: &Stream<Id, Markdown>,
-) -> Stream<Id, Page> {
+fn generate_page(
+    config: &Config, markdown: &Stream<Id, RenderedMarkdown>,
+) -> Stream<Id, RenderedPage> {
     let config = config.clone();
-    markdown.map(move |id: &Id, markdown: &Markdown| {
-        Page::new(&config, id, markdown.clone())
+    markdown.map(move |id: &Id, markdown: &RenderedMarkdown| RenderedPage {
+        page: Page::new(&config, id, markdown.markdown.clone()),
+        registrations: markdown.registrations.clone(),
+        html: markdown.html.clone(),
     })
 }
 
 /// Derive one complete site batch at the page-relation terminal.
 fn generate_site(
-    config: &Config, pages: &Stream<Id, Page>,
+    config: &Config, pages: &Stream<Id, RenderedPage>,
 ) -> Signal<Id, Site> {
     let config = config.clone();
-    pages.reduce(move |pages: &dyn Collection<Key<Id>, Page>| {
-        let pages: Vec<_> = pages
-            .iter()
-            .map(|(key, page)| (key.clone(), page.clone()))
-            .collect();
-        let nav = Navigation::new(
-            config.get_cache_dir(),
-            config.project.nav.clone(),
-            pages.clone(),
-        );
-        Some(Site { pages: Arc::new(pages), nav })
+    pages.reduce(move |pages: &dyn Collection<Key<Id>, RenderedPage>| {
+        let mut nav_pages = Vec::new();
+        let mut site_pages = Vec::new();
+        let mut facts = Vec::new();
+        for (key, rendered) in pages.iter() {
+            nav_pages.push((key.clone(), rendered.page.clone()));
+            site_pages.push((
+                key.clone(),
+                SitePage {
+                    page: rendered.page.clone(),
+                    autorefs: rendered.html.autorefs.clone(),
+                },
+            ));
+            facts.push((key.clone(), rendered.registrations.clone()));
+        }
+
+        let nav = Navigation::new(config.project.nav.clone(), nav_pages);
+        let autorefs = autorefs::assemble(&config, facts);
+        Some(Site {
+            pages: Arc::new(site_pages),
+            nav,
+            autorefs,
+        })
     })
 }
 
@@ -464,36 +548,48 @@ fn render_pages(
     let pages = site.flat_map(|site: &Site| {
         site.pages
             .iter()
-            .map(|(key, page)| (key.clone(), (page.clone(), site.nav.clone())))
+            .map(|(key, page)| {
+                (
+                    key.clone(),
+                    (page.clone(), site.nav.clone(), site.autorefs.clone()),
+                )
+            })
             .collect::<Vec<_>>()
     });
 
     let template = OnceLock::new();
     let theme_dirs = config.theme_dirs.clone();
     let config = config.clone();
-    pages.map(move |page: &Page, nav: &Navigation| {
-        let mut page = page.clone();
-        let id = page.url.clone();
+    pages.map(
+        move |input: &SitePage,
+              nav: &Navigation,
+              autorefs: &autorefs::Registry| {
+            let mut page = input.page.clone();
+            let references = &input.autorefs;
+            let id = page.url.clone();
 
-        // Cache template rendering independently of autorefs, which are
-        // substituted below on every pass. Deriving a cache key for the
-        // substitution would require the same resolution scan that the
-        // substitution itself performs, so caching it can't pay off.
-        let args = (config.hash, nav.hash, page_hash(&page));
-        let rendered = cached(&config, ("template", id), args, |(_, _, _)| {
-            let template =
-                template.get_or_init(|| Template::new(theme_dirs.clone()));
-            Ok(page.render_template(template, &config, nav.clone())?)
-        })?;
+            // Cache template rendering independently of autorefs, which are
+            // substituted below on every pass. Deriving a cache key for the
+            // substitution would require the same resolution scan that the
+            // substitution itself performs, so caching it can't pay off.
+            let args = (config.hash, nav.hash, page_hash(&page, references));
+            let rendered =
+                cached(&config, ("template", id), args, |(_, _, _)| {
+                    let template = template
+                        .get_or_init(|| Template::new(theme_dirs.clone()));
+                    Ok(page.render_template(template, &config, nav.clone())?)
+                })?;
 
-        // Replace autorefs and retain unresolved identifiers
-        let (data, unresolved) = nav.autorefs.replace_in(rendered, &page.url);
+            // Replace autorefs and retain unresolved identifiers
+            let (data, unresolved) =
+                autorefs.replace_in(rendered, references, &page.url);
 
-        let path = Path::new(&page.path);
-        fs::create_dir_all(path.parent().expect("invariant"))?;
-        fs::write(path, &data)?;
-        Ok::<_, anyhow::Error>(unresolved)
-    })
+            let path = Path::new(&page.path);
+            fs::create_dir_all(path.parent().expect("invariant"))?;
+            fs::write(path, &data)?;
+            Ok::<_, anyhow::Error>(unresolved)
+        },
+    )
 }
 
 /// Creates a workflow for the given config.

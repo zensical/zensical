@@ -5,32 +5,12 @@
 
 //! MkDocs-compatible search extraction from rendered HTML.
 
-use html5gum::emitters::callback::{CallbackEmitter, CallbackEvent};
-use html5gum::{Span, Tokenizer};
-use std::convert::Infallible;
+use html5gum::emitters::callback::CallbackEvent;
+use html5gum::Span;
+
+use crate::compat::mkdocs::html::{Editor, Visitor};
 
 use super::SearchSection;
-
-/// Extract page-local search sections from rendered HTML.
-pub(crate) fn extract(html: &str) -> Vec<SearchSection> {
-    let mut parser = SearchParser::default();
-
-    {
-        let mut emitter = CallbackEmitter::new(
-            |event: CallbackEvent<'_>, _span: Span<()>| -> Option<Infallible> {
-                parser.handle(event);
-                None
-            },
-        );
-        emitter.naively_switch_states(true);
-
-        Tokenizer::new_with_emitter(html, emitter)
-            .finish()
-            .expect("string input is infallible");
-    }
-
-    parser.finish()
-}
 
 // ----------------------------------------------------------------------------
 // Parser
@@ -38,7 +18,9 @@ pub(crate) fn extract(html: &str) -> Vec<SearchSection> {
 
 /// Streaming search parser.
 #[derive(Default)]
-struct SearchParser {
+pub(crate) struct Parser {
+    /// Whether extraction is disabled for a page excluded through metadata.
+    discard: bool,
     /// Open HTML elements.
     context: Vec<Element>,
     /// Section currently receiving text.
@@ -53,9 +35,29 @@ struct SearchParser {
     attribute: Attribute,
 }
 
-impl SearchParser {
+impl Parser {
+    /// Creates a parser that only applies search-related HTML cleanup.
+    pub(crate) fn discarding() -> Self {
+        Self {
+            discard: true,
+            ..Self::default()
+        }
+    }
+
     /// Handles a tokenizer event.
-    fn handle(&mut self, event: CallbackEvent<'_>) {
+    fn handle(
+        &mut self, event: &CallbackEvent<'_>, span: Span<usize>,
+        editor: &mut Editor<'_>,
+    ) {
+        if let CallbackEvent::AttributeName { name } = event
+            && *name == b"data-search-exclude"
+        {
+            editor.remove_attribute(name, span);
+        }
+        if self.discard {
+            return;
+        }
+
         match event {
             CallbackEvent::OpenStartTag { name } => {
                 self.start = Some(StartTag::new(Tag::from_bytes(name)));
@@ -76,7 +78,7 @@ impl SearchParser {
                 if let Some(start) = self.start.take() {
                     let tag = start.tag.clone();
                     self.start(start);
-                    if self_closing {
+                    if *self_closing {
                         self.end(&tag);
                     }
                 }
@@ -286,7 +288,7 @@ impl SearchParser {
     }
 
     /// Converts parser state into page-local search sections.
-    fn finish(self) -> Vec<SearchSection> {
+    pub(crate) fn finish(self) -> Vec<SearchSection> {
         self.sections
             .into_iter()
             .filter(|section| !section.excluded)
@@ -297,6 +299,19 @@ impl SearchParser {
                 text: trim(section.text.value),
             })
             .collect()
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Trait implementations
+// ----------------------------------------------------------------------------
+
+impl Visitor for Parser {
+    fn visit(
+        &mut self, event: &CallbackEvent<'_>, span: Span<usize>,
+        editor: &mut Editor<'_>,
+    ) {
+        self.handle(event, span, editor);
     }
 }
 
@@ -621,6 +636,13 @@ fn trim(mut value: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compat::mkdocs::html::scan;
+
+    fn extract(html: &str) -> Vec<SearchSection> {
+        let mut parser = Parser::default();
+        let _ = scan(html, &mut [&mut parser]);
+        parser.finish()
+    }
 
     fn item(
         location: Option<&str>, level: u32, title: &str, text: &str,
@@ -682,6 +704,35 @@ mod tests {
             extract(html),
             vec![item(None, 1, "Top", "<p>Keep</p><p>After</p>")]
         );
+    }
+
+    #[test]
+    fn removes_exclusion_attributes_from_rendered_html() {
+        let html = concat!(
+            r#"<h1 id="top">Top</h1><p>Keep</p>"#,
+            r#"<div data-search-exclude="true"><p>Drop</p></div>"#,
+        );
+        let mut parser = Parser::default();
+        let output = scan(html, &mut [&mut parser]).expect("search edit");
+
+        assert_eq!(
+            output,
+            concat!(
+                r#"<h1 id="top">Top</h1><p>Keep</p>"#,
+                r#"<div><p>Drop</p></div>"#,
+            )
+        );
+        assert_eq!(parser.finish(), vec![item(None, 1, "Top", "<p>Keep</p>")]);
+    }
+
+    #[test]
+    fn excluded_pages_only_apply_html_cleanup() {
+        let html = r"<p data-search-exclude>Drop</p>";
+        let mut parser = Parser::discarding();
+        let output = scan(html, &mut [&mut parser]).expect("search edit");
+
+        assert_eq!(output, "<p>Drop</p>");
+        assert!(parser.finish().is_empty());
     }
 
     #[test]

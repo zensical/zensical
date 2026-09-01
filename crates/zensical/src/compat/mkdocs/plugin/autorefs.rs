@@ -23,26 +23,32 @@
 
 // ----------------------------------------------------------------------------
 
-//! Autorefs (mkdocstrings).
+//! MkDocs-compatible autorefs plugin.
 
-use ahash::{HashMap, HashSet};
-use pyo3::FromPyObject;
-use regex::{Captures, Regex};
+use ahash::HashMap;
+use pyo3::types::PyAnyMethods;
+use pyo3::{FromPyObject, Python};
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::Path;
 use std::string::ToString;
-use std::sync::LazyLock;
+use std::sync::Arc;
+use zrx::id::Id;
 use zrx::path::PathExt;
-use zrx::stream::Value;
+use zrx::stream::{Key, Value};
+
+use crate::compat::mkdocs::html;
+use crate::config::Config;
+use crate::structure::nav::file_sort_key;
+
+mod parser;
+
+pub(crate) use parser::{Parser, References};
+use parser::{Reference, SLOT_PREFIX, SLOT_SUFFIX};
 
 // ----------------------------------------------------------------------------
 // Constants
 // ----------------------------------------------------------------------------
-
-/// Autoref regex.
-static AUTOREF_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"<autoref (?P<attrs>.*?)>(?P<title>.*?)</autoref>").unwrap()
-});
 
 /// Handled autoref attributes that should not be passed through to the output link.
 const HANDLED_ATTRS: &[&str] = &[
@@ -59,6 +65,9 @@ const HANDLED_ATTRS: &[&str] = &[
     "backlink-type",
     "backlink-anchor",
 ];
+
+/// Python Markdown extension that produces autorefs compatibility facts.
+const EXTENSION_NAME: &str = "zensical.extensions.autorefs";
 
 // ----------------------------------------------------------------------------
 // Helper Functions
@@ -211,6 +220,37 @@ pub struct UnresolvedAutorefs {
 
 // ----------------------------------------------------------------------------
 
+/// Shared immutable registry used to resolve page-local autorefs.
+#[derive(Clone, Debug)]
+pub(crate) struct Registry(Option<Arc<Autorefs>>);
+
+// ----------------------------------------------------------------------------
+
+/// Autoref registrations produced while rendering one Markdown page.
+#[derive(
+    Clone, Debug, Default, FromPyObject, Serialize, Deserialize, PartialEq, Eq,
+)]
+#[pyo3(from_item_all)]
+pub(crate) struct Facts {
+    /// Primary page-local URLs.
+    primary: HashMap<String, Vec<String>>,
+    /// Secondary page-local URLs.
+    secondary: HashMap<String, Vec<String>>,
+    /// Titles for page-local URLs.
+    titles: HashMap<String, String>,
+}
+
+// ----------------------------------------------------------------------------
+
+/// Cached global inventory URLs supplied by mkdocstrings handlers.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct InventoryCache {
+    /// Absolute inventory URLs.
+    inventory: HashMap<String, String>,
+}
+
+// ----------------------------------------------------------------------------
+
 /// Autorefs (mkdocstrings).
 ///
 /// We use three URL maps, one for "primary" URLs, one for "secondary" URLs,
@@ -246,22 +286,16 @@ pub struct UnresolvedAutorefs {
 /// - Multiple secondary URLs mapped to an identifier? Use the first one, or closest one if configured as such.
 /// - No secondary URL mapped to an identifier? Try using absolute URLs
 ///   (typically registered by loading inventories in mkdocstrings).
-#[derive(
-    Clone, Debug, Default, FromPyObject, Serialize, Deserialize, PartialEq, Eq,
-)]
-#[pyo3(from_item_all)]
-pub struct Autorefs {
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Autorefs {
     // Primary URLs.
-    pub primary: HashMap<String, Vec<String>>,
+    primary: HashMap<String, Vec<String>>,
     // Secondary URLs.
-    pub secondary: HashMap<String, Vec<String>>,
+    secondary: HashMap<String, Vec<String>>,
     // Inventory URLs.
-    pub inventory: HashMap<String, String>,
+    inventory: HashMap<String, String>,
     // Titles.
-    pub titles: HashMap<String, String>,
-    // Pages reprocessed since autorefs data was last collected.
-    #[serde(skip)]
-    pub updated_pages: Vec<String>,
+    titles: HashMap<String, String>,
 }
 
 // ----------------------------------------------------------------------------
@@ -274,124 +308,11 @@ impl Autorefs {
         Self::default()
     }
 
-    /// Merges another `Autorefs` into this one.
-    ///
-    /// Entries from `other` take precedence over existing entries. Used to
-    /// merge stale cached autorefs with fresh data from the Python process,
-    /// so that pages not re-processed in the current build retain their
-    /// previously registered identifiers while newly processed pages override
-    /// any stale entries.
-    pub fn merge(&mut self, other: Autorefs) {
-        self.primary.extend(other.primary);
-        self.secondary.extend(other.secondary);
-        self.inventory.extend(other.inventory);
-        self.titles.extend(other.titles);
-    }
-
-    /// Removes registrations owned by any of the given pages.
-    pub(crate) fn remove_pages(&mut self, pages: &HashSet<String>) {
-        self.retain_page_urls(|page| !pages.contains(page));
-    }
-
-    /// Retains registrations owned by one of the given pages.
-    pub(crate) fn retain_pages(&mut self, pages: &HashSet<String>) {
-        self.retain_page_urls(|page| pages.contains(page));
-    }
-
-    /// Retains registrations whose page URL matches the predicate.
-    fn retain_page_urls(&mut self, predicate: impl Fn(&str) -> bool) {
-        retain_url_map(&mut self.primary, &predicate);
-        retain_url_map(&mut self.secondary, &predicate);
-        self.titles
-            .retain(|url, _| predicate(page_url_from_autoref(url)));
-    }
-
-    /// Parses HTML attributes string into a HashMap.
-    ///
-    /// @todo Document that this is not the most resilient HTML parser
-    /// but since we control the autorefs elements, it's fine for now
-    fn parse_attributes(attrs_str: &str) -> HashMap<String, String> {
-        let mut attrs = HashMap::default();
-        let mut chars = attrs_str.chars().peekable();
-
-        while let Some(ch) = chars.peek() {
-            // Skip whitespace
-            if ch.is_whitespace() {
-                chars.next();
-                continue;
-            }
-
-            // Parse attribute name
-            let mut name = String::new();
-            while let Some(&ch) = chars.peek() {
-                if ch.is_whitespace() || ch == '=' {
-                    break;
-                }
-                name.push(ch);
-                chars.next();
-            }
-
-            if name.is_empty() {
-                break;
-            }
-
-            // Skip whitespace
-            while let Some(&ch) = chars.peek() {
-                if !ch.is_whitespace() {
-                    break;
-                }
-                chars.next();
-            }
-
-            // Check for '='
-            let has_value = chars.peek() == Some(&'=');
-            if has_value {
-                chars.next(); // consume '='
-
-                // Skip whitespace after '='
-                while let Some(&ch) = chars.peek() {
-                    if !ch.is_whitespace() {
-                        break;
-                    }
-                    chars.next();
-                }
-
-                // Parse value
-                let value = if let Some(&quote) = chars.peek() {
-                    if quote == '"' || quote == '\'' {
-                        chars.next(); // consume opening quote
-                        let mut val = String::new();
-                        for ch in chars.by_ref() {
-                            if ch == quote {
-                                break; // consume closing quote
-                            }
-                            val.push(ch);
-                        }
-                        val
-                    } else {
-                        // Unquoted value
-                        let mut val = String::new();
-                        while let Some(&ch) = chars.peek() {
-                            if ch.is_whitespace() {
-                                break;
-                            }
-                            val.push(ch);
-                            chars.next();
-                        }
-                        val
-                    }
-                } else {
-                    String::new()
-                };
-
-                attrs.insert(name, value);
-            } else {
-                // Boolean attribute
-                attrs.insert(name, String::new());
-            }
-        }
-
-        attrs
+    /// Merge one page's registrations into the complete registry.
+    fn merge(&mut self, facts: &Facts) {
+        merge_url_map(&mut self.primary, &facts.primary);
+        merge_url_map(&mut self.secondary, &facts.secondary);
+        self.titles.extend(facts.titles.clone());
     }
 
     /// Resolves the URL for an item identifier (internal implementation).
@@ -479,130 +400,187 @@ impl Autorefs {
         ))
     }
 
-    /// Replaces autorefs and collects unresolved identifiers.
+    /// Renders one parsed autoref against the settled registry.
     #[allow(clippy::single_match_else)]
-    pub fn replace_in<S>(
-        &self, content: S, from_url: &str,
+    fn render(
+        &self, reference: &Reference, from_url: &str,
+        unresolved: &mut UnresolvedAutorefs,
+    ) -> String {
+        let title = reference.title();
+        let identifier = reference.get("identifier").unwrap_or_default();
+        let slug = reference.get("slug").unwrap_or_default();
+        let optional = reference.contains("optional");
+        let identifiers = if slug.is_empty() {
+            vec![identifier.to_string()]
+        } else {
+            vec![identifier.to_string(), slug.to_string()]
+        };
+
+        match self.get_url_and_title_from_ids(&identifiers, from_url) {
+            Ok((url, original_title)) => {
+                let external = !is_relative_url(&url);
+                let mut classes = vec![
+                    "autorefs".to_string(),
+                    if external {
+                        "autorefs-external".to_string()
+                    } else {
+                        "autorefs-internal".to_string()
+                    },
+                ];
+                if let Some(class) = reference.get("class") {
+                    classes.extend(
+                        class.split_whitespace().map(ToString::to_string),
+                    );
+                }
+                let class = classes.join(" ");
+
+                // Pass unknown attributes through in source order. html5gum
+                // decodes their values, so escape them when serializing.
+                let remaining = reference
+                    .attributes()
+                    .filter(|(name, _)| !HANDLED_ATTRS.contains(name))
+                    .map(|(name, value)| {
+                        if value.is_empty() {
+                            name.to_string()
+                        } else {
+                            format!("{name}=\"{}\"", html_escape(value))
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                let remaining = if remaining.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", remaining.join(" "))
+                };
+
+                let tooltip = if optional {
+                    original_title.as_deref().unwrap_or(identifier)
+                } else {
+                    original_title.as_deref().unwrap_or_default()
+                };
+                let title_attr = if !tooltip.is_empty()
+                    && !format!("<code>{title}</code>").contains(tooltip)
+                {
+                    format!(" title=\"{}\"", html_escape(tooltip))
+                } else {
+                    String::new()
+                };
+
+                format!(
+                    "<a class=\"{class}\"{title_attr} href=\"{}\"{remaining}>{title}</a>",
+                    html_escape(&url)
+                )
+            }
+            Err(_) => {
+                if optional {
+                    format!("<span title=\"{identifier}\">{title}</span>")
+                } else {
+                    unresolved.insert(identifier);
+                    if title == identifier {
+                        format!("[{identifier}][]")
+                    } else if title == format!("<code>{identifier}</code>")
+                        && slug.is_empty()
+                    {
+                        format!("[<code>{identifier}</code>][]")
+                    } else {
+                        format!("[{title}][{identifier}]")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Expands page-local slots in one linear pass.
+    fn replace_slots(
+        &self, content: String, references: &References, from_url: &str,
+        unresolved: &mut UnresolvedAutorefs,
+    ) -> String {
+        if references.is_empty() || !content.contains(SLOT_PREFIX) {
+            return content;
+        }
+
+        let mut output = String::with_capacity(content.len());
+        let mut cursor = 0;
+        while let Some(offset) = content[cursor..].find(SLOT_PREFIX) {
+            let start = cursor + offset;
+            let index_start = start + SLOT_PREFIX.len();
+            let Some(offset) = content[index_start..].find(SLOT_SUFFIX) else {
+                break;
+            };
+            let index_end = index_start + offset;
+            let end = index_end + SLOT_SUFFIX.len();
+
+            output.push_str(&content[cursor..start]);
+            if let Ok(index) = content[index_start..index_end].parse::<usize>()
+                && let Some(reference) = references.get(index)
+            {
+                output.push_str(&self.render(reference, from_url, unresolved));
+            } else {
+                output.push_str(&content[start..end]);
+            }
+            cursor = end;
+        }
+        output.push_str(&content[cursor..]);
+        output
+    }
+
+    /// Replaces cached slots and raw markers introduced by templates.
+    fn replace_in<S>(
+        &self, content: S, references: &References, from_url: &str,
     ) -> (String, UnresolvedAutorefs)
     where
         S: Into<String>,
     {
-        let content = content.into();
         let mut unresolved = UnresolvedAutorefs::default();
-        let output = AUTOREF_RE.replace_all(&content, |captures: &Captures| {
-            let attrs_str =
-                captures.name("attrs").map_or("", |m| m.as_str());
-            let title =
-                captures.name("title").map_or("", |m| m.as_str());
+        let mut content = self.replace_slots(
+            content.into(),
+            references,
+            from_url,
+            &mut unresolved,
+        );
 
-            // Parse the HTML attributes
-            let attrs = Self::parse_attributes(attrs_str);
-            let identifier =
-                attrs.get("identifier").cloned().unwrap_or_default();
-            let slug = attrs.get("slug").cloned().unwrap_or_default();
-            let optional = attrs.contains_key("optional");
+        // Templates may introduce autorefs after the cached Markdown pass.
+        // Autorefs therefore participates in the deliberate final HTML pass
+        // whenever it is enabled, using the same visitor and slot expansion
+        // path as page-produced markers.
+        let mut parser = Parser::default();
+        if let Some(prepared) = html::scan(&content, &mut [&mut parser]) {
+            content = self.replace_slots(
+                prepared,
+                &parser.finish(),
+                from_url,
+                &mut unresolved,
+            );
+        }
 
-            let identifiers = if slug.is_empty() {
-                vec![identifier.clone()]
-            } else {
-                vec![identifier.clone(), slug.clone()]
-            };
-
-            match self.get_url_and_title_from_ids(&identifiers, from_url) {
-                Ok((url, original_title)) => {
-                    // Check if URL is external (not relative)
-                    let external = !is_relative_url(&url);
-
-                    // Build CSS classes
-                    let mut classes = vec![
-                        "autorefs".to_string(),
-                        if external {
-                            "autorefs-external".to_string()
-                        } else {
-                            "autorefs-internal".to_string()
-                        },
-                    ];
-
-                    // Add existing classes from attrs
-                    if let Some(class_str) = attrs.get("class") {
-                        classes.extend(
-                            class_str
-                                .split_whitespace()
-                                .map(ToString::to_string),
-                        );
-                    }
-                    let class_attr = classes.join(" ");
-
-                    // Build remaining attributes (those not in the handled set)
-                    let remaining_attrs: Vec<String> = attrs
-                        .iter()
-                        .filter(|(k, _)| !HANDLED_ATTRS.contains(&k.as_str()))
-                        .map(|(k, v)| {
-                            if v.is_empty() {
-                                // Boolean attribute (no value)
-                                k.clone()
-                            } else {
-                                // Attribute with value
-                                format!("{k}=\"{v}\"")
-                            }
-                        })
-                        .collect();
-
-                    let remaining = if remaining_attrs.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" {}", remaining_attrs.join(" "))
-                    };
-
-                    // Build title attribute (link_titles is always true, strip_title_tags is always false)
-                    let tooltip = if optional {
-                        // For optional, we use identifier as fallback if no original_title
-                        original_title.as_deref().unwrap_or(&identifier).to_string()
-                    } else {
-                        // For non-optional, use original_title or empty
-                        original_title.as_deref().unwrap_or("").to_string()
-                    };
-
-                    let title_attr = if !tooltip.is_empty() && !format!("<code>{title}</code>").contains(&tooltip) {
-                        format!(" title=\"{}\"", html_escape(&tooltip))
-                    } else {
-                        String::new()
-                    };
-
-                    let escaped_url = html_escape(&url);
-                    format!(
-                        "<a class=\"{class_attr}\"{title_attr} href=\"{escaped_url}\"{remaining}>{title}</a>"
-                    )
-                }
-                Err(_) => {
-                    if optional {
-                        format!("<span title=\"{identifier}\">{title}</span>")
-                    } else {
-                        unresolved.insert(&identifier);
-                        if title == identifier {
-                            format!("[{identifier}][]")
-                        } else if title == format!("<code>{identifier}</code>")
-                            && slug.is_empty()
-                        {
-                            format!("[<code>{identifier}</code>][]")
-                        } else {
-                            format!("[{title}][{identifier}]")
-                        }
-                    }
-                }
-            }
-        });
-
-        let output = match output {
-            std::borrow::Cow::Borrowed(_) => content,
-            std::borrow::Cow::Owned(output) => output,
-        };
-        (output, unresolved)
+        (content, unresolved)
     }
 }
 
 // ----------------------------------------------------------------------------
 // Trait implementations
+// ----------------------------------------------------------------------------
+
+impl Registry {
+    /// Replace autoref placeholders using this immutable registry.
+    pub(crate) fn replace_in<S>(
+        &self, content: S, references: &References, from_url: &str,
+    ) -> (String, UnresolvedAutorefs)
+    where
+        S: Into<String>,
+    {
+        if let Some(autorefs) = &self.0 {
+            autorefs.replace_in(content, references, from_url)
+        } else {
+            (content.into(), UnresolvedAutorefs::default())
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+
+impl Value for Registry {}
+
 // ----------------------------------------------------------------------------
 
 impl Value for UnresolvedAutorefs {}
@@ -629,24 +607,121 @@ impl UnresolvedAutorefs {
 // Functions
 // ----------------------------------------------------------------------------
 
-/// Retain URL-map entries based on their owning page URL.
-fn retain_url_map(
-    map: &mut HashMap<String, Vec<String>>, predicate: &impl Fn(&str) -> bool,
-) {
-    map.retain(|_, urls| {
-        urls.retain(|url| predicate(page_url_from_autoref(url)));
-        !urls.is_empty()
-    });
+/// Assemble a complete immutable registry from settled page-local facts.
+pub(crate) fn assemble(
+    config: &Config, mut facts: Vec<(Key<Id>, Arc<Facts>)>,
+) -> Registry {
+    if !is_enabled(config) {
+        return Registry(None);
+    }
+
+    facts.sort_by_key(|(key, _)| file_sort_key(&key[0]));
+
+    let mut registry = Autorefs::new();
+    for (_, facts) in facts {
+        registry.merge(&facts);
+    }
+    registry.inventory = inventory(&config.get_cache_dir());
+    Registry(Some(Arc::new(registry)))
 }
 
-/// Return the page URL portion of an autoref URL.
-fn page_url_from_autoref(url: &str) -> &str {
-    url.split_once('#').map_or(url, |(page, _)| page)
+/// Returns whether autorefs is active after configuration shims are applied.
+pub(super) fn is_enabled(config: &Config) -> bool {
+    config.has_markdown_extension(EXTENSION_NAME)
+}
+
+/// Collect and cache global inventory URLs supplied by mkdocstrings.
+fn inventory(cache_dir: &Path) -> HashMap<String, String> {
+    let path = cache_dir.join("autorefs.json");
+    let mut cache = fs::read(&path)
+        .ok()
+        .and_then(|data| serde_json::from_slice::<InventoryCache>(&data).ok())
+        .unwrap_or_default();
+
+    // An absent value means all pages came from the Markdown cache and Python
+    // never loaded mkdocstrings handlers. An empty map means rendering ran and
+    // no external inventory is configured, so it deliberately clears cache.
+    if let Some(inventory) = collect_inventory() {
+        cache.inventory = inventory;
+    }
+
+    if let Ok(data) = serde_json::to_vec_pretty(&cache) {
+        let _ = fs::create_dir_all(cache_dir);
+        let _ = fs::write(path, data);
+    }
+    cache.inventory
+}
+
+/// Take registrations produced by the most recently rendered page.
+pub(crate) fn take_page(url: &str) -> Arc<Facts> {
+    Arc::new(
+        Python::attach(|py| {
+            let module = py.import("zensical.extensions.autorefs")?;
+            module
+                .call_method1("get_autorefs_page_data", (url,))?
+                .extract::<Facts>()
+        })
+        .unwrap_or_default(),
+    )
+}
+
+/// Collect global inventory URLs if Python rendered at least one page.
+fn collect_inventory() -> Option<HashMap<String, String>> {
+    Python::attach(|py| {
+        let module = py.import("zensical.extensions.autorefs")?;
+        module
+            .call_method0("get_autorefs_inventory_data")?
+            .extract::<Option<HashMap<String, String>>>()
+    })
+    .unwrap_or_default()
+}
+
+/// Merge URL lists while preserving registration order and uniqueness.
+fn merge_url_map(
+    target: &mut HashMap<String, Vec<String>>,
+    source: &HashMap<String, Vec<String>>,
+) {
+    for (identifier, urls) in source {
+        let target = target.entry(identifier.clone()).or_default();
+        for url in urls {
+            if !target.contains(url) {
+                target.push(url.clone());
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn prepare(input: &str) -> (String, References) {
+        let mut parser = Parser::default();
+        let content = html::scan(input, &mut [&mut parser])
+            .unwrap_or_else(|| input.to_string());
+        (content, parser.finish())
+    }
+
+    #[test]
+    fn page_facts_merge_without_overwriting_shared_identifiers() {
+        let mut autorefs = Autorefs::new();
+        autorefs.merge(&Facts {
+            primary: HashMap::from_iter([(
+                "shared".to_string(),
+                vec!["one/#shared".to_string()],
+            )]),
+            ..Default::default()
+        });
+        autorefs.merge(&Facts {
+            primary: HashMap::from_iter([(
+                "shared".to_string(),
+                vec!["two/#shared".to_string()],
+            )]),
+            ..Default::default()
+        });
+
+        assert_eq!(autorefs.primary["shared"], ["one/#shared", "two/#shared"]);
+    }
 
     #[test]
     fn test_resolve_closest_url() {
@@ -726,6 +801,7 @@ mod tests {
                 "<autoref identifier=\"missing\">Missing</autoref>",
                 "<autoref identifier=\"skipped\" optional>Skipped</autoref>",
             ),
+            &References::default(),
             "guide/",
         );
 
@@ -734,5 +810,61 @@ mod tests {
         assert!(output.contains("href=\"../reference/#known\""));
         assert!(output.contains("[Missing][missing]"));
         assert!(output.contains("<span title=\"skipped\">Skipped</span>"));
+    }
+
+    #[test]
+    fn cached_slots_preserve_autoref_rendering_contract() {
+        let mut autorefs = Autorefs::new();
+        autorefs
+            .primary
+            .insert("known".to_string(), vec!["reference/#known".to_string()]);
+        autorefs.titles.insert(
+            "reference/#known".to_string(),
+            "Canonical title".to_string(),
+        );
+        let (content, references) = prepare(concat!(
+            "<autoref identifier=\"known\" class=\"custom\" ",
+            "data-kind=\"a&amp;b\" download>",
+            "<code>Known</code></autoref>",
+        ));
+
+        let (output, unresolved) =
+            autorefs.replace_in(content, &references, "guide/");
+
+        assert_eq!(
+            output,
+            concat!(
+                "<a class=\"autorefs autorefs-internal custom\" ",
+                "title=\"Canonical title\" ",
+                "href=\"../reference/#known\" ",
+                "data-kind=\"a&amp;b\" download>",
+                "<code>Known</code></a>",
+            )
+        );
+        assert!(unresolved.iter().next().is_none());
+    }
+
+    #[test]
+    fn slug_is_used_as_a_resolution_fallback() {
+        let mut autorefs = Autorefs::new();
+        autorefs.primary.insert(
+            "foo-bar".to_string(),
+            vec!["reference/#foo-bar".to_string()],
+        );
+        let (content, references) = prepare(
+            "<autoref identifier=\"Foo bar\" slug=\"foo-bar\">Foo bar</autoref>",
+        );
+
+        let (output, unresolved) =
+            autorefs.replace_in(content, &references, "guide/");
+
+        assert_eq!(
+            output,
+            concat!(
+                "<a class=\"autorefs autorefs-internal\" ",
+                "href=\"../reference/#foo-bar\">Foo bar</a>",
+            )
+        );
+        assert!(unresolved.iter().next().is_none());
     }
 }

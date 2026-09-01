@@ -34,8 +34,8 @@ use std::slice::Iter;
 use zrx::id::Id;
 use zrx::stream::Key;
 
+use crate::compat::mkdocs::plugin::autorefs::UnresolvedAutorefs;
 use crate::config::validation::Validation;
-use crate::structure::markdown::UnresolvedAutorefs;
 
 use super::collector::reference::{
     LinkReference, LinkReferenceKind, Reference,

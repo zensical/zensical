@@ -39,10 +39,6 @@ use crate::structure::dynamic::Dynamic;
 use crate::structure::nav::to_title;
 use crate::structure::toc::Section;
 
-mod autorefs;
-
-pub use autorefs::{Autorefs, UnresolvedAutorefs};
-
 // ----------------------------------------------------------------------------
 // Structs
 // ----------------------------------------------------------------------------
@@ -121,6 +117,13 @@ impl Markdown {
             data.title = extract_title(&id, &data);
             Markdown { data: Arc::new(data) }
         })
+    }
+
+    /// Replaces rendered HTML before the Markdown value enters the workflow.
+    pub(crate) fn replace_content(&mut self, content: String) {
+        Arc::get_mut(&mut self.data)
+            .expect("rendered Markdown is not shared yet")
+            .content = content;
     }
 }
 

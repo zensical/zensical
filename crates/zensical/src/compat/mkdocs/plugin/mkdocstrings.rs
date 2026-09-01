@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
-//! Mkdocstrings compatibility artifacts.
+//! Mkdocstrings compatibility plugin.
 
 use pyo3::types::PyAnyMethods;
 use pyo3::Python;

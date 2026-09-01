@@ -25,20 +25,16 @@
 
 //! Navigation.
 
-use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use ahash::{HashMap, HashSet};
+use ahash::HashMap;
 use pyo3::types::{PyAny, PyAnyMethods};
-use pyo3::{Bound, FromPyObject, PyResult, Python};
+use pyo3::{Bound, FromPyObject, PyResult};
 use serde::Serialize;
 use zrx::id::Id;
 use zrx::scheduler::Value;
 use zrx::stream::Key;
-
-use crate::structure::markdown::Autorefs;
 
 use super::page::Page;
 
@@ -49,13 +45,6 @@ mod view;
 pub use item::NavigationItem;
 use iter::Iter;
 pub(crate) use view::NavigationView;
-
-// ----------------------------------------------------------------------------
-// Constants
-// ----------------------------------------------------------------------------
-
-/// Lock serializing collection and caching of global autorefs data.
-static AUTOREFS_CACHE_LOCK: Mutex<()> = Mutex::new(());
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -74,10 +63,6 @@ pub struct Navigation {
     pub items: Arc<Vec<NavigationItem>>,
     /// Homepage, if defined.
     pub homepage: Option<NavigationItem>,
-    /// Autorefs (mkdocstrings), kept internal to the rendering pipeline.
-    #[pyo3(from_py_with = extract_shared_autorefs)]
-    #[serde(skip)]
-    pub autorefs: Arc<Autorefs>,
     /// Precomputed navigation-structure hash.
     pub hash: u64,
     /// Site snapshot generation this navigation was created from.
@@ -92,21 +77,10 @@ pub struct Navigation {
 impl Navigation {
     /// Creates a navigation from the given items.
     pub fn new(
-        cache_dir: PathBuf, mut items: Vec<NavigationItem>,
-        pages: Vec<(Key<Id>, Page)>,
+        mut items: Vec<NavigationItem>, pages: Vec<(Key<Id>, Page)>,
     ) -> Self {
-        let page_urls = pages
-            .iter()
-            .map(|(_, page)| page.url.clone())
-            .collect::<HashSet<_>>();
-
-        // Fetch and cache autorefs once, used by both branches below
-        let autorefs = get_autorefs_cached(&cache_dir, &page_urls);
-
         if items.is_empty() {
-            let mut nav = Self::from(pages);
-            nav.autorefs = Arc::new(autorefs);
-            return nav;
+            return Self::from(pages);
         }
 
         // Create a map of pages for easy lookup, so we can resolve titles and
@@ -188,7 +162,6 @@ impl Navigation {
         Self {
             items: Arc::new(items),
             homepage,
-            autorefs: Arc::new(autorefs),
             hash,
             generation: 0,
         }
@@ -352,19 +325,12 @@ impl From<Vec<(Key<Id>, Page)>> for Navigation {
             });
         }
 
-        // Start from empty autorefs — Navigation::new() overrides this with
-        // the cached+merged result when called through the normal build path.
-        // Fetching from Python here would consume the updated-pages tracking
-        // outside of the cache lock, silently losing update flags.
-        let autorefs = Autorefs::new();
-
         // Precompute hash
         let hash = navigation_hash(&items);
 
         // Determine homepage and return navigation
         Self {
             homepage: items.iter().find(|item| item.is_index).cloned(),
-            autorefs: Arc::new(autorefs),
             items: Arc::new(items),
             hash,
             generation: 0,
@@ -430,62 +396,10 @@ pub(crate) fn to_title(component: &str) -> String {
     }
 }
 
-fn extract_shared_autorefs(
-    value: &Bound<'_, PyAny>,
-) -> PyResult<Arc<Autorefs>> {
-    value.extract::<Autorefs>().map(Arc::new)
-}
-
 fn extract_shared_items(
     value: &Bound<'_, PyAny>,
 ) -> PyResult<Arc<Vec<NavigationItem>>> {
     value.extract::<Vec<NavigationItem>>().map(Arc::new)
-}
-
-fn get_autorefs_cached(
-    cache_dir: &Path, page_urls: &HashSet<String>,
-) -> Autorefs {
-    let _guard = AUTOREFS_CACHE_LOCK.lock().expect("invariant");
-    let path = cache_dir.join("autorefs.json");
-
-    // Load previously cached autorefs, falling back to empty if unavailable
-    let mut autorefs = fs::read(&path)
-        .ok()
-        .and_then(|data| serde_json::from_slice::<Autorefs>(&data).ok())
-        .unwrap_or_default();
-
-    // Fetch fresh data from the Python process. Remove registrations for pages
-    // that were reprocessed before merging, so removed anchors don't survive
-    // in the cache. Fresh data takes precedence, while identifiers from pages
-    // that stayed cached are preserved.
-    let fresh = get_autorefs();
-    let updated_pages =
-        fresh.updated_pages.iter().cloned().collect::<HashSet<_>>();
-    autorefs.remove_pages(&updated_pages);
-    autorefs.merge(fresh);
-
-    // Drop registrations for pages that no longer exist.
-    autorefs.retain_pages(page_urls);
-
-    // Write merged autorefs back to cache
-    if let Ok(data) = serde_json::to_string_pretty(&autorefs) {
-        let _ = fs::create_dir_all(cache_dir);
-        let _ = fs::write(&path, data);
-    }
-
-    autorefs
-}
-
-fn get_autorefs() -> Autorefs {
-    match Python::attach(|py| {
-        let module = py.import("zensical.extensions.autorefs")?;
-        module
-            .call_method0("get_autorefs_data")?
-            .extract::<Autorefs>()
-    }) {
-        Ok(autorefs) => autorefs,
-        Err(_) => Autorefs::new(),
-    }
 }
 
 // ----------------------------------------------------------------------------
@@ -501,33 +415,25 @@ mod tests {
         let nav = Navigation {
             items: Arc::new(Vec::new()),
             homepage: None,
-            autorefs: Arc::new(Autorefs::new()),
             hash: 0,
             generation: 0,
         };
 
         let clone = nav.clone();
 
-        assert!(Arc::ptr_eq(&nav.autorefs, &clone.autorefs));
         assert!(Arc::ptr_eq(&nav.items, &clone.items));
     }
 
     #[test]
-    fn serialization_omits_internal_autorefs_state() {
-        let mut autorefs = Autorefs::new();
-        autorefs
-            .primary
-            .insert("item".to_string(), vec!["reference/#item".to_string()]);
+    fn serialization_omits_internal_generation() {
         let nav = Navigation {
             items: Arc::new(Vec::new()),
             homepage: None,
             hash: navigation_hash(&[]),
-            autorefs: Arc::new(autorefs),
             generation: 0,
         };
 
         let value = serde_json::to_value(nav).expect("invariant");
-        assert!(value.get("autorefs").is_none());
         assert!(value.get("generation").is_none());
         assert!(value.get("hash").is_some());
     }

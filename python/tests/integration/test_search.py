@@ -174,6 +174,32 @@ Not indexed.
     assert _read_index(disabled)["items"] == []
 
 
+def test_search_exclusion_attribute_is_removed_from_page(
+    tmp_path: Path,
+) -> None:
+    """Search pragmas affect the index but do not leak into final HTML."""
+    config = _write_project(tmp_path, plugins="  - search")
+    (tmp_path / "docs" / "index.md").write_text(
+        """\
+# Landing
+
+Visible body.
+
+<div data-search-exclude><p>Hidden body.</p></div>
+""",
+        encoding="utf-8",
+    )
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    index = _read_index(tmp_path)
+    assert "Visible body." in index["items"][0]["text"]
+    assert "Hidden body." not in index["items"][0]["text"]
+
+    page = (tmp_path / "site" / "index.html").read_text()
+    assert "Hidden body." in page
+    assert "data-search-exclude" not in page
+
+
 def test_search_rebuild_replaces_changed_and_removed_pages(
     tmp_path: Path,
 ) -> None:

@@ -23,9 +23,9 @@
 
 // ----------------------------------------------------------------------------
 
-//! MkDocs-compatible search item.
+//! MkDocs-compatible search items.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -51,7 +51,7 @@ pub struct SearchItem {
 // ----------------------------------------------------------------------------
 
 /// Page-local search section before site-wide facts are attached.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub(crate) struct SearchSection {
     /// Heading fragment, if present.
     pub location: Option<String>,

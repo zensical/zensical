@@ -396,3 +396,43 @@ custom_dir = "overrides"
 
     captured = capfd.readouterr()
     assert "No issues found" in captured.err
+
+
+def test_cached_template_refreshes_when_page_autoref_changes(
+    tmp_path: Path,
+) -> None:
+    """Page-local autoref facts participate in the template cache key."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    source = docs / "index.md"
+    source.write_text(
+        "# Home\n\n[First title][first-target]\n", encoding="utf-8"
+    )
+    (docs / "other.md").write_text(
+        "# Other\n\n## first-target\n\n## second-target\n",
+        encoding="utf-8",
+    )
+    config = tmp_path / "zensical.toml"
+    config.write_text(
+        """
+[project]
+site_name = "Test"
+
+[project.plugins.autorefs]
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+    zensical.build(str(config), {"clean": True, "strict": False})
+    output = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    assert 'href="other/#first-target">First title</a>' in output
+
+    # Both references occupy page-local slot zero. Only their cached facts
+    # distinguish the template inputs after the Markdown pass.
+    source.write_text(
+        "# Home\n\n[Second title][second-target]\n", encoding="utf-8"
+    )
+    zensical.build(str(config), {"clean": False, "strict": False})
+    output = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    assert 'href="other/#second-target">Second title</a>' in output
+    assert 'href="other/#first-target">First title</a>' not in output

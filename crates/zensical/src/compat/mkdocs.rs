@@ -5,5 +5,5 @@
 
 //! MkDocs compatibility modules.
 
-pub mod mkdocstrings;
-pub mod search;
+pub(crate) mod html;
+pub mod plugin;

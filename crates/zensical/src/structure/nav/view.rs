@@ -255,7 +255,6 @@ mod tests {
     use minijinja::{context, Environment};
 
     use super::*;
-    use crate::structure::markdown::Autorefs;
 
     /// Creates the same tree in immutable and page-active forms.
     fn navigation(active: bool) -> Navigation {
@@ -289,7 +288,6 @@ mod tests {
         Navigation {
             items: Arc::new(vec![root, sibling]),
             homepage: None,
-            autorefs: Arc::new(Autorefs::new()),
             hash: 42,
             generation: 0,
         }
