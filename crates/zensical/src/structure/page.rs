@@ -26,7 +26,7 @@
 //! Page.
 
 use minijinja::{context, Error, Value as TemplateValue};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::path::PathBuf;
@@ -45,6 +45,23 @@ use super::tag::Tag;
 
 // ----------------------------------------------------------------------------
 // Structs
+// ----------------------------------------------------------------------------
+
+/// Stable route facts derived from one Markdown source.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct PageRoute {
+    /// Documentation-relative source URI.
+    pub source: String,
+    /// Site-relative destination URI.
+    pub destination: String,
+    /// Encoded page URL.
+    pub url: String,
+    /// Absolute destination path.
+    pub path: String,
+}
+
+impl Value for PageRoute {}
+
 // ----------------------------------------------------------------------------
 
 /// Immutable page data shared between scheduler branches.
@@ -91,70 +108,51 @@ pub struct Page {
 // Implementations
 // ----------------------------------------------------------------------------
 
+impl PageRoute {
+    /// Computes route facts for a source identifier.
+    pub(crate) fn new(config: &Config, id: &Id) -> Self {
+        Self::from_source(config, &id.location())
+    }
+
+    /// Computes route facts for a documentation-relative source URI.
+    pub(crate) fn from_source(config: &Config, source: &str) -> Self {
+        let destination =
+            Self::destination(source, config.project.use_directory_urls);
+        let url = route_url(&destination, config.project.use_directory_urls);
+        let path = config.get_site_dir().join(&destination);
+        Self {
+            source: source.into(),
+            destination,
+            url,
+            path: path.to_string_lossy().into_owned(),
+        }
+    }
+
+    /// Computes the site-relative destination for a Markdown source.
+    pub(crate) fn destination(
+        source: &str, use_directory_urls: bool,
+    ) -> String {
+        destination(source, use_directory_urls)
+    }
+}
+
+// ----------------------------------------------------------------------------
+
 impl Page {
     /// Creates a page.
     #[allow(clippy::similar_names)]
-    pub fn new(config: &Config, id: &Id, markdown: Markdown) -> Page {
-        let root_dir = config.get_root_dir();
-
-        // Retrieve site directory and URL
-        let site_dir = config.project.site_dir.clone();
+    pub(crate) fn new(
+        config: &Config, route: PageRoute, markdown: Markdown,
+    ) -> Page {
+        // Retrieve site URL
         let site_url = config.project.site_url.clone();
 
         // Retrieve repository URL and edit URI
         let repo_url = config.project.repo_url.clone();
         let edit_uri = config.project.edit_uri.clone();
 
-        // Determine whether to use directory URLs
-        let use_directory_urls = config.project.use_directory_urls;
-        let file_uri = id.location().into_owned();
-
-        // Create identifier builder, as we need to change the context in order
-        // to copy the file over to the site directory
-        let builder = id.to_builder().context(&site_dir);
-        let id = builder.clone().build().expect("invariant");
-
-        // Next, obtain the path, and check whether it is an index file, which
-        // is true for index.md, as well as README.md, as MkDocs handles both
-        let mut path: PathBuf = id.location().to_string().into();
-        let is_index =
-            path.ends_with("index.md") || path.ends_with("README.md");
-
-        // Ensure that README.md files are treated as index files
-        if path.ends_with("README.md") {
-            path.pop();
-            path = path.join("index.md");
-        }
-
-        // If directory URLs should not be used, and the page is an index page,
-        // we need to adjust the path accordingly
-        if !use_directory_urls || is_index {
-            path.set_extension("html");
-        } else {
-            path.set_extension("");
-            path.push("index.html");
-        }
-
-        // Set computed path in id, and compute final target path - once we add
-        // more convenience function to the id crate, we can make this shorter
-        let path = path.to_string_lossy().into_owned();
-        let id = builder
-            .location(path.replace('\\', "/"))
-            .build()
-            .expect("invariant");
-
-        // Compute URL of page, and strip the index.html suffix in case
-        // directory URLs should be used. The URL is relative.
-        let url = id.as_uri().to_string();
-        let url = if use_directory_urls {
-            url.trim_end_matches("index.html").to_string()
-        } else {
-            url
-        };
-
-        // Ensure path encoding, and compute canonical URL. Note that we should
-        // definitely rethink this interface, it's a little inconvenient
-        let url = Uri::from(url.as_ref()).to_string();
+        // Compute canonical URL
+        let url = route.url;
         let canonical_url = site_url.as_ref().map(|base| {
             let base = base.trim_end_matches('/');
             format!("{base}/{url}")
@@ -165,9 +163,9 @@ impl Page {
         let edit_url = repo_url.clone().and_then(|repo_url| {
             edit_uri.clone().map(|uri| {
                 if uri.starts_with("https://") {
-                    format!("{uri}/{file_uri}")
+                    format!("{uri}/{}", route.source)
                 } else {
-                    format!("{repo_url}/{uri}/{file_uri}")
+                    format!("{repo_url}/{uri}/{}", route.source)
                 }
             })
         });
@@ -176,13 +174,12 @@ impl Page {
         // pages are populated when the navigation is created. This is also a
         // hint that it's not a good idea to centralize all propeties in a
         // single struct, but to split up the page as necessary later on.
-        let path = root_dir.join(id.to_path());
         Page {
             data: Arc::new(PageData {
                 url,
                 canonical_url,
                 edit_url,
-                path: path.to_string_lossy().into_owned(),
+                path: route.path,
                 markdown,
             }),
             ancestors: Vec::new(),
@@ -238,6 +235,35 @@ impl Page {
         }
         tags
     }
+}
+
+// ----------------------------------------------------------------------------
+
+/// Computes the site-relative destination for a Markdown source.
+fn destination(source: &str, use_directory_urls: bool) -> String {
+    let mut path = PathBuf::from(source);
+    let is_index = path.ends_with("index.md") || path.ends_with("README.md");
+    if path.ends_with("README.md") {
+        path.pop();
+        path.push("index.md");
+    }
+    if !use_directory_urls || is_index {
+        path.set_extension("html");
+    } else {
+        path.set_extension("");
+        path.push("index.html");
+    }
+    path.to_string_lossy().replace('\\', "/")
+}
+
+/// Computes the encoded URL for a site-relative destination.
+fn route_url(destination: &str, use_directory_urls: bool) -> String {
+    let url = if use_directory_urls {
+        destination.trim_end_matches("index.html")
+    } else {
+        destination
+    };
+    Uri::from(url).to_string()
 }
 
 // ----------------------------------------------------------------------------
@@ -332,6 +358,21 @@ mod tests {
         let clone = page.clone();
 
         assert!(Arc::ptr_eq(&page.data, &clone.data));
+    }
+
+    #[test]
+    fn computes_mkdocs_destinations() {
+        assert_eq!(destination("index.md", true), "index.html");
+        assert_eq!(destination("README.md", true), "index.html");
+        assert_eq!(destination("guide/README.md", true), "guide/index.html");
+        assert_eq!(destination("guide/page.md", true), "guide/page/index.html");
+        assert_eq!(destination("guide/page.md", false), "guide/page.html");
+    }
+
+    #[test]
+    fn computes_encoded_urls() {
+        assert_eq!(route_url("100%/index.html", true), "100%25/");
+        assert_eq!(route_url("100%.html", false), "100%25.html");
     }
 
     #[test]

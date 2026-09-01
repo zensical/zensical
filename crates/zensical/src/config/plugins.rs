@@ -27,6 +27,7 @@
 
 use pyo3::FromPyObject;
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -48,6 +49,8 @@ pub struct Plugins {
     pub search: SearchPlugin,
     /// Material meta plugin.
     pub meta: MetaPlugin,
+    /// Redirects plugin.
+    pub redirects: RedirectsPlugin,
     /// Offline plugin.
     pub offline: OfflinePlugin,
 }
@@ -70,6 +73,26 @@ pub struct MetaPluginConfig {
     pub enabled: bool,
     /// Name of metadata files inside the documentation tree.
     pub meta_file: String,
+}
+
+// ----------------------------------------------------------------------------
+
+/// Redirects plugin.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct RedirectsPlugin {
+    /// Plugin configuration.
+    pub config: RedirectsPluginConfig,
+}
+
+/// Redirects plugin configuration.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct RedirectsPluginConfig {
+    /// Whether redirects are enabled.
+    pub enabled: bool,
+    /// Source-to-target redirect mappings.
+    pub redirect_maps: BTreeMap<String, String>,
 }
 
 // ----------------------------------------------------------------------------

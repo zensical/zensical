@@ -181,6 +181,25 @@ class TestPluginShimming:
             "meta_file": "defaults.yml",
         }
 
+    def test_redirects_plugin_is_normalized(self, tmp_path: Path) -> None:
+        config = self._parse_yaml(
+            tmp_path,
+            plugins={"redirects": {"redirect_maps": {"old.md": "new.md"}}},
+        )
+        assert config["plugins"]["redirects"]["config"] == {
+            "enabled": True,
+            "redirect_maps": {"old.md": "new.md"},
+        }
+
+    def test_redirects_plugin_is_disabled_by_default(
+        self, tmp_path: Path
+    ) -> None:
+        config = self._parse_yaml(tmp_path, plugins=[])
+        assert config["plugins"]["redirects"]["config"] == {
+            "enabled": False,
+            "redirect_maps": {},
+        }
+
     def test_mike_plugin_defaults_with_versioned_build(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:

@@ -29,7 +29,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Deref;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock, OnceLock};
 use std::{fs, io};
@@ -42,12 +42,12 @@ use zrx::stream::{
 };
 
 use super::compat::mkdocs::plugin::{
-    self, autorefs, meta, mkdocstrings, search,
+    self, autorefs, meta, mkdocstrings, redirects, search,
 };
 use super::config::Config;
 use super::structure::markdown::Markdown;
 use super::structure::nav::Navigation;
-use super::structure::page::Page;
+use super::structure::page::{Page, PageRoute};
 use super::template::Template;
 use super::watcher::Source;
 
@@ -145,9 +145,24 @@ impl Value for SitePage {}
 
 // ----------------------------------------------------------------------------
 
+/// Markdown source paired with route facts available before rendering.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RoutedMarkdown {
+    /// Source and revision-local facts supplied by the provider.
+    input: Input,
+    /// Route derived without parsing or rendering Markdown.
+    route: PageRoute,
+}
+
+impl Value for RoutedMarkdown {}
+
+// ----------------------------------------------------------------------------
+
 /// Cached output of rendering one Markdown source.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct RenderedMarkdown {
+    /// Route computed once before Markdown rendering.
+    route: PageRoute,
     /// Rendered Markdown consumed by page construction.
     markdown: Markdown,
     /// Page-local registrations consumed during site settlement.
@@ -191,7 +206,16 @@ impl Main {
         // Set up workflow to process static assets and Markdown files.
         process_theme_assets(&self.config, &files);
         process_assets(&self.config, &files, &meta);
-        let rendered = process_markdown(&self.config, &files);
+        let markdown = route_markdown(&self.config, &files);
+
+        // Redirects depend on routes, not rendered Markdown. Settle their
+        // compact input independently so they can proceed concurrently with
+        // the Python rendering branch.
+        let routes = markdown.map(|input: &RoutedMarkdown| input.route.clone());
+        let redirects = generate_redirects(&self.config, &routes);
+        redirects::attach(&self.config, self.strict, &redirects);
+
+        let rendered = process_markdown(&self.config, &markdown);
 
         // Cross the one global settlement boundary, derive all site-wide
         // state, then expand the resulting batch into independent page work.
@@ -388,10 +412,10 @@ fn copy_file(
     io::copy(&mut from, &mut to).map(|_| ())
 }
 
-/// Create a stream to process Markdown files.
-fn process_markdown(
+/// Select Markdown sources and derive their routes before rendering.
+fn route_markdown(
     config: &Config, files: &Stream<Id, Input>,
-) -> Stream<Id, RenderedMarkdown> {
+) -> Stream<Id, RoutedMarkdown> {
     let matcher = Arc::new(
         Matcher::from_str(&format!(
             "zrs::::{}:**/*.md:",
@@ -399,63 +423,40 @@ fn process_markdown(
         ))
         .expect("invariant"),
     );
-
-    // Create pipeline to render Markdown files
-    let plugins = plugin::Settings::new(config);
     let config = config.clone();
     files
         .filter(move |id: &Id| matcher.is_match(id).expect("invariant"))
+        .map(move |id: &Id, input: &Input| RoutedMarkdown {
+            input: input.clone(),
+            route: PageRoute::new(&config, id),
+        })
+}
+
+/// Create a stream to process routed Markdown files.
+fn process_markdown(
+    config: &Config, routed: &Stream<Id, RoutedMarkdown>,
+) -> Stream<Id, RenderedMarkdown> {
+    // Create pipeline to render Markdown files
+    let plugins = plugin::Settings::new(config);
+    let config = config.clone();
+    routed
         // Render Markdown if we don't have a recent cached version at our own
         // disposal. Otherwise, just return that if the content did not change.
         // Note that we need to limit concurrency here, or we'll overwhelm the
         // Python interpreter with all tasks competing for the GIL.
-        .map(concurrent(1, move |id: &Id, source: &Input| {
+        .map(concurrent(1, move |id: &Id, routed: &RoutedMarkdown| {
             let location = id.location().into_owned();
-            let data = fs::read_to_string(&*source.path)?;
+            let data = fs::read_to_string(&*routed.input.path)?;
+            let route = routed.route.clone();
 
             let (data, page_meta) = meta::front_matter(&location, &data)?;
-            let resolved = source.metadata.resolve(&location, page_meta)?;
-
-            // Compute URL using same logic as Page::new()
-            let site_dir = config.project.site_dir.clone();
-            let use_directory_urls = config.project.use_directory_urls;
-
-            let builder = id.to_builder().context(&site_dir);
-            let url_id = builder.clone().build().expect("invariant");
-
-            let mut url_path: PathBuf = url_id.location().to_string().into();
-            let is_index = url_path.ends_with("index.md")
-                || url_path.ends_with("README.md");
-
-            if url_path.ends_with("README.md") {
-                url_path.pop();
-                url_path = url_path.join("index.md");
-            }
-
-            if !use_directory_urls || is_index {
-                url_path.set_extension("html");
-            } else {
-                url_path.set_extension("");
-                url_path.push("index.html");
-            }
-
-            let url_path = url_path.to_string_lossy().into_owned();
-            let url_id = builder
-                .location(url_path.replace('\\', "/"))
-                .build()
-                .expect("invariant");
-
-            let url = url_id.as_uri().to_string();
-            let url = if use_directory_urls {
-                url.trim_end_matches("index.html").to_string()
-            } else {
-                url
-            };
+            let resolved =
+                routed.input.metadata.resolve(&location, page_meta)?;
             // Don't cache page if it inserts (pymdownx) snippets.
             // This is a hack while waiting for CommonMark (AST) and components,
             // as well as topic-based authoring functionality.
             if SNIPPET_RE.is_match(&data) {
-                render_markdown(id, url, data, plugins, resolved)
+                render_markdown(id, route, data, plugins, resolved)
             } else {
                 cached(
                     &config,
@@ -464,11 +465,11 @@ fn process_markdown(
                         1_u8,
                         config.hash,
                         data.clone(),
-                        url.clone(),
+                        route.clone(),
                         resolved.clone(),
                     ),
-                    |(_, _, data, url, resolved)| {
-                        render_markdown(id, url, data, plugins, resolved)
+                    |(_, _, data, route, resolved)| {
+                        render_markdown(id, route, data, plugins, resolved)
                     },
                 )
             }
@@ -477,18 +478,20 @@ fn process_markdown(
 
 /// Render Markdown and collect the page-local facts produced alongside it.
 fn render_markdown(
-    id: &Id, url: String, content: String, plugins: plugin::Settings,
+    id: &Id, route: PageRoute, content: String, plugins: plugin::Settings,
     meta: meta::Resolved,
 ) -> anyhow::Result<RenderedMarkdown> {
-    let mut markdown = Markdown::new(id, url.clone(), content, meta.values())?;
+    let mut markdown =
+        Markdown::new(id, route.url.clone(), content, meta.values())?;
     let html = plugin::prepare(&mut markdown, plugins);
     let registrations = if plugins.autorefs {
-        autorefs::take_page(&url)
+        autorefs::take_page(&route.url)
     } else {
         Arc::default()
     };
     let meta = Arc::new(meta.reconcile(markdown.meta.clone()));
     Ok(RenderedMarkdown {
+        route,
         markdown,
         registrations,
         html,
@@ -501,8 +504,12 @@ fn generate_page(
     config: &Config, markdown: &Stream<Id, RenderedMarkdown>,
 ) -> Stream<Id, RenderedPage> {
     let config = config.clone();
-    markdown.map(move |id: &Id, markdown: &RenderedMarkdown| RenderedPage {
-        page: Page::new(&config, id, markdown.markdown.clone()),
+    markdown.map(move |markdown: &RenderedMarkdown| RenderedPage {
+        page: Page::new(
+            &config,
+            markdown.route.clone(),
+            markdown.markdown.clone(),
+        ),
         registrations: markdown.registrations.clone(),
         html: markdown.html.clone(),
         meta: markdown.meta.clone(),
@@ -543,12 +550,22 @@ fn generate_site(
         let nav = Navigation::new(config.project.nav.clone(), nav_pages);
         let autorefs = autorefs::assemble(&config, facts);
         let search = search::Snapshot::new(documents, nav.clone());
-        Some(Site {
+        Ok::<_, anyhow::Error>(Some(Site {
             pages: Arc::new(site_pages),
             nav,
             autorefs,
             search,
-        })
+        }))
+    })
+}
+
+/// Resolve redirects from the compact route relation.
+fn generate_redirects(
+    config: &Config, routes: &Stream<Id, PageRoute>,
+) -> Signal<Id, redirects::Snapshot> {
+    let config = config.clone();
+    routes.reduce(move |routes: &dyn Collection<Key<Id>, PageRoute>| {
+        redirects::Snapshot::new(&config, routes.iter()).map(Some)
     })
 }
 

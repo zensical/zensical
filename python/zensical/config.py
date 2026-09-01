@@ -1282,6 +1282,16 @@ def _convert_plugins(value: Any, config: dict) -> dict:
         set_default(meta, "meta_file", ".meta.yml", str)
     plugins["meta"] = meta
 
+    # Normalize redirects into typed native configuration. The enabled flag is
+    # internal; plugin presence retains MkDocs' activation semantics.
+    if "redirects" not in plugins:
+        redirects = {"enabled": False, "redirect_maps": {}}
+    else:
+        redirects = dict(plugins["redirects"] or {})
+        set_default(redirects, "enabled", True, bool)
+        set_default(redirects, "redirect_maps", {}, dict)
+    plugins["redirects"] = redirects
+
     # Define defaults for offline plugin
     offline = set_default(plugins, "offline", {"enabled": False}, dict)
     set_default(offline, "enabled", True, bool)
