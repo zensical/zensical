@@ -64,8 +64,46 @@ pub struct Plugins {
     pub tags: TagsPlugin,
     /// Literate navigation plugin.
     pub literate_nav: LiterateNavPlugin,
+    /// Awesome navigation plugin.
+    pub awesome_nav: AwesomeNavPlugin,
     /// Offline plugin.
     pub offline: OfflinePlugin,
+}
+
+// ----------------------------------------------------------------------------
+
+/// Awesome navigation plugin.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct AwesomeNavPlugin {
+    /// Plugin configuration.
+    pub config: AwesomeNavPluginConfig,
+}
+
+/// Awesome navigation plugin configuration.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct AwesomeNavPluginConfig {
+    /// Whether awesome navigation is enabled.
+    pub enabled: bool,
+    /// Folder-relative configuration file name.
+    pub filename: String,
+    /// Configurable diagnostic levels.
+    pub logs: AwesomeNavLogs,
+}
+
+/// Awesome navigation diagnostic levels.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct AwesomeNavLogs {
+    /// Configured navigation replacement diagnostic.
+    pub nav_override: Option<String>,
+    /// Root title diagnostic.
+    pub root_title: Option<String>,
+    /// Root hiding diagnostic.
+    pub root_hide: Option<String>,
+    /// Unmatched pattern diagnostic.
+    pub no_matches: Option<String>,
 }
 
 // ----------------------------------------------------------------------------

@@ -44,8 +44,8 @@ use zrx::stream::{
 use crate::compat::mkdocs::plugin::autorefs::UnresolvedAutorefs;
 use crate::compat::mkdocs::{
     plugin::{
-        self, autorefs, literate_nav, meta, minify, mkdocstrings, redirects,
-        search, tags,
+        self, autorefs, awesome_nav, literate_nav, meta, minify, mkdocstrings,
+        redirects, search, tags,
     },
     resource,
 };
@@ -276,12 +276,23 @@ impl Main {
                     )
                 })
             });
-        let nav = literate_nav::LiterateNav::new(&self.config).setup(
-            literate_nav::Dependencies {
+        let awesome_nav =
+            awesome_nav::AwesomeNav::new(&self.config, self.strict).expect(
+                "awesome-nav configuration is validated during loading",
+            );
+        let nav = if awesome_nav.is_enabled() {
+            awesome_nav.setup(awesome_nav::Dependencies {
                 sources: &sources,
                 pages: &page,
-            },
-        );
+            })
+        } else {
+            literate_nav::LiterateNav::new(&self.config).setup(
+                literate_nav::Dependencies {
+                    sources: &sources,
+                    pages: &page,
+                },
+            )
+        };
         let autorefs_input =
             rendered_page.map(|rendered: &RenderedPage| autorefs::PageInput {
                 source: rendered.page.source().clone(),

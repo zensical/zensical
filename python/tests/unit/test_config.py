@@ -250,6 +250,66 @@ class TestPluginShimming:
             "toc": {"permalink": False},
         }
 
+    @pytest.mark.parametrize("entry", ["awesome-nav", {"awesome-nav": None}])
+    def test_awesome_nav_presence_enables_defaults(
+        self, tmp_path: Path, entry: object
+    ) -> None:
+        config = self._parse_yaml(tmp_path, plugins=[entry])
+        assert config["plugins"]["awesome_nav"]["config"] == {
+            "enabled": True,
+            "filename": ".nav.yml",
+            "logs": {
+                "nav_override": None,
+                "root_title": None,
+                "root_hide": None,
+                "no_matches": None,
+            },
+        }
+
+    def test_awesome_nav_is_disabled_when_absent(
+        self, tmp_path: Path
+    ) -> None:
+        plugin = self._parse_yaml(tmp_path, plugins=[])["plugins"]
+        assert plugin["awesome_nav"]["config"]["enabled"] is False
+
+    def test_awesome_nav_normalizes_filename_and_logs(
+        self, tmp_path: Path
+    ) -> None:
+        config = self._parse_yaml(
+            tmp_path,
+            plugins={
+                "awesome-nav": {
+                    "filename": "awesome.yml",
+                    "logs": {"no_matches": "error"},
+                }
+            },
+        )
+        plugin = config["plugins"]["awesome_nav"]["config"]
+        assert plugin["filename"] == "awesome.yml"
+        assert plugin["logs"]["no_matches"] == "error"
+        assert plugin["logs"]["root_title"] is None
+
+    @pytest.mark.parametrize(
+        ("plugin", "message"),
+        [
+            ([], "configuration must be a mapping"),
+            ({"unknown": True}, "unknown awesome-nav option"),
+            ({"filename": 42}, "filename must be a string"),
+            ({"filename": ""}, "filename must not be empty"),
+            ({"logs": "warning"}, "logs must be a mapping"),
+            ({"logs": {"unknown": "info"}}, "unknown awesome-nav log"),
+            (
+                {"logs": {"no_matches": "debug"}},
+                "must be info, warning or error",
+            ),
+        ],
+    )
+    def test_awesome_nav_rejects_invalid_plugin_options(
+        self, tmp_path: Path, plugin: object, message: str
+    ) -> None:
+        with pytest.raises(cfg_module.ConfigurationError, match=message):
+            self._parse_yaml(tmp_path, plugins={"awesome-nav": plugin})
+
     def test_minify_plugin_is_normalized(self, tmp_path: Path) -> None:
         config = self._parse_yaml(
             tmp_path,

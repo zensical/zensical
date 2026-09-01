@@ -1418,6 +1418,54 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     literate_nav["mdx_configs"] = extension_configs
     plugins["literate_nav"] = literate_nav
 
+    # Normalize mkdocs-awesome-nav without importing or executing the plugin.
+    # Rust owns discovery, YAML parsing, matching and navigation resolution.
+    awesome_nav: dict[str, Any]
+    if "awesome-nav" not in plugins:
+        awesome_nav = {"enabled": False}
+    else:
+        awesome_nav_config = plugins.pop("awesome-nav")
+        if awesome_nav_config is not None and not isinstance(
+            awesome_nav_config, dict
+        ):
+            raise ConfigurationError(
+                "awesome-nav configuration must be a mapping"
+            )
+        awesome_nav = dict(awesome_nav_config or {})
+        set_default(awesome_nav, "enabled", True, bool)
+    unknown = set(awesome_nav) - {"enabled", "filename", "logs"}
+    if unknown:
+        option = sorted(unknown)[0]
+        raise ConfigurationError(f"unknown awesome-nav option: {option}")
+    set_default(awesome_nav, "filename", ".nav.yml")
+    if not isinstance(awesome_nav["filename"], str):
+        raise ConfigurationError("awesome-nav filename must be a string")
+    if not awesome_nav["filename"]:
+        raise ConfigurationError("awesome-nav filename must not be empty")
+    logs = awesome_nav.get("logs")
+    if logs is None:
+        logs = {}
+    elif not isinstance(logs, dict):
+        raise ConfigurationError("awesome-nav logs must be a mapping")
+    logs = dict(logs)
+    unknown = set(logs) - {
+        "nav_override",
+        "root_title",
+        "root_hide",
+        "no_matches",
+    }
+    if unknown:
+        option = sorted(unknown)[0]
+        raise ConfigurationError(f"unknown awesome-nav log option: {option}")
+    for name in ("nav_override", "root_title", "root_hide", "no_matches"):
+        set_default(logs, name, None)
+        if logs[name] not in (None, "info", "warning", "error"):
+            raise ConfigurationError(
+                f"awesome-nav log level '{name}' must be info, warning or error"
+            )
+    awesome_nav["logs"] = logs
+    plugins["awesome_nav"] = awesome_nav
+
     # Define defaults for offline plugin
     offline = set_default(plugins, "offline", {"enabled": False}, dict)
     set_default(offline, "enabled", True, bool)
