@@ -14,6 +14,7 @@ use crate::structure::markdown::Markdown;
 
 pub mod autorefs;
 pub mod meta;
+pub mod minify;
 pub mod mkdocstrings;
 pub mod redirects;
 pub mod search;

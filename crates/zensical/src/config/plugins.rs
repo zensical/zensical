@@ -51,6 +51,8 @@ pub struct Plugins {
     pub meta: MetaPlugin,
     /// Redirects plugin.
     pub redirects: RedirectsPlugin,
+    /// Minify plugin.
+    pub minify: MinifyPlugin,
     /// Offline plugin.
     pub offline: OfflinePlugin,
 }
@@ -93,6 +95,70 @@ pub struct RedirectsPluginConfig {
     pub enabled: bool,
     /// Source-to-target redirect mappings.
     pub redirect_maps: BTreeMap<String, String>,
+}
+
+// ----------------------------------------------------------------------------
+
+/// Minify plugin.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct MinifyPlugin {
+    /// Plugin configuration.
+    pub config: MinifyPluginConfig,
+}
+
+/// Minify plugin configuration.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct MinifyPluginConfig {
+    /// Whether the plugin is enabled.
+    pub enabled: bool,
+    /// Whether rendered HTML is minified.
+    pub minify_html: bool,
+    /// Whether selected JavaScript assets are minified.
+    pub minify_js: bool,
+    /// Whether selected CSS assets are minified.
+    pub minify_css: bool,
+    /// Whether inline JavaScript is minified.
+    pub minify_inline_js: bool,
+    /// Whether inline CSS is minified.
+    pub minify_inline_css: bool,
+    /// JavaScript asset paths or patterns.
+    pub js_files: Vec<String>,
+    /// CSS asset paths or patterns.
+    pub css_files: Vec<String>,
+    /// HTML minification options.
+    pub htmlmin_opts: HtmlMinOptions,
+    /// Whether asset names include a hash of their emitted contents.
+    pub cache_safe: bool,
+}
+
+/// HTML options accepted by mkdocs-minify-plugin.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct HtmlMinOptions {
+    /// Whether ordinary HTML comments are removed.
+    pub remove_comments: bool,
+    /// Whether newline-containing whitespace-only text is removed.
+    pub remove_empty_space: bool,
+    /// Whether all whitespace-only text is removed.
+    pub remove_all_empty_space: bool,
+    /// Whether empty attribute values are collapsed.
+    pub reduce_empty_attributes: bool,
+    /// Whether HTML boolean attribute values are collapsed.
+    pub reduce_boolean_attributes: bool,
+    /// Whether optional attribute quotes are removed.
+    pub remove_optional_attribute_quotes: bool,
+    /// Whether character references in attributes are decoded when safe.
+    pub convert_charrefs: bool,
+    /// Whether the preservation marker attribute remains in output.
+    pub keep_pre: bool,
+    /// Elements whose contents are preserved verbatim.
+    pub pre_tags: Vec<String>,
+    /// Attribute marking an element or attribute value for preservation.
+    pub pre_attr: String,
 }
 
 // ----------------------------------------------------------------------------

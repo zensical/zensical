@@ -1292,6 +1292,50 @@ def _convert_plugins(value: Any, config: dict) -> dict:
         set_default(redirects, "redirect_maps", {}, dict)
     plugins["redirects"] = redirects
 
+    # Normalize the complete mkdocs-minify-plugin configuration surface. Asset
+    # settings are retained for the dedicated copy/output stage; the inline
+    # switches are Zensical extensions handled by the final HTML pass.
+    if "minify" not in plugins:
+        minify = {"enabled": False}
+    else:
+        minify = dict(plugins["minify"] or {})
+        set_default(minify, "enabled", True, bool)
+
+    set_default(minify, "minify_html", False, bool)
+    set_default(minify, "minify_js", False, bool)
+    set_default(minify, "minify_css", False, bool)
+    set_default(minify, "minify_inline_js", False, bool)
+    set_default(minify, "minify_inline_css", False, bool)
+    set_default(minify, "cache_safe", False, bool)
+
+    for name in ("js_files", "css_files"):
+        files = minify.get(name)
+        if files is None:
+            minify[name] = []
+        elif isinstance(files, str):
+            minify[name] = [files]
+        elif isinstance(files, list):
+            minify[name] = files
+        else:
+            minify[name] = []
+
+    htmlmin_opts = minify.get("htmlmin_opts")
+    if not isinstance(htmlmin_opts, dict):
+        htmlmin_opts = {}
+    htmlmin_opts = dict(htmlmin_opts)
+    set_default(htmlmin_opts, "remove_comments", False, bool)
+    set_default(htmlmin_opts, "remove_empty_space", False, bool)
+    set_default(htmlmin_opts, "remove_all_empty_space", False, bool)
+    set_default(htmlmin_opts, "reduce_empty_attributes", True, bool)
+    set_default(htmlmin_opts, "reduce_boolean_attributes", False, bool)
+    set_default(htmlmin_opts, "remove_optional_attribute_quotes", True, bool)
+    set_default(htmlmin_opts, "convert_charrefs", True, bool)
+    set_default(htmlmin_opts, "keep_pre", False, bool)
+    set_default(htmlmin_opts, "pre_tags", ["pre", "textarea"], list)
+    set_default(htmlmin_opts, "pre_attr", "pre", str)
+    minify["htmlmin_opts"] = htmlmin_opts
+    plugins["minify"] = minify
+
     # Define defaults for offline plugin
     offline = set_default(plugins, "offline", {"enabled": False}, dict)
     set_default(offline, "enabled", True, bool)

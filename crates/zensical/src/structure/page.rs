@@ -35,7 +35,7 @@ use zensical_serve::http::Uri;
 use zrx::id::Id;
 use zrx::scheduler::Value;
 
-use crate::config::Config;
+use crate::config::{Config, Project};
 use crate::template::{Output, Template, GENERATOR};
 
 use super::dynamic::Dynamic;
@@ -195,6 +195,7 @@ impl Page {
     )]
     pub fn render_template(
         &mut self, template: &Template, config: &Config, nav: Navigation,
+        project: &Arc<Project>,
     ) -> Result<Output, Error> {
         let name = match self.meta.get("template") {
             Some(Dynamic::String(value)) => value.clone(),
@@ -214,9 +215,9 @@ impl Page {
                 generator => GENERATOR,
                 nav => TemplateValue::from_object(nav),
                 base_url => config.get_base_url(&self.url),
-                extra_css => config.project.extra_css.clone(),
-                extra_javascript => config.project.extra_javascript.clone(),
-                config => config.project.clone(),
+                extra_css => project.extra_css.clone(),
+                extra_javascript => project.extra_javascript.clone(),
+                config => project.clone(),
                 tags => self.tags(),
                 page => self,
             },

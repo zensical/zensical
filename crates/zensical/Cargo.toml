@@ -50,18 +50,27 @@ anyhow.workspace = true
 ariadne.workspace = true
 crossbeam.workspace = true
 fluent-uri.workspace = true
+globset.workspace = true
 html5gum.workspace = true
 minijinja = { workspace = true, features = [
   "json", "loader", "builtins", "urlencode"
 ] }
 minijinja-contrib = { workspace = true, features = ["html_entities"] }
 mio = { workspace = true, features = ["net", "os-poll"] }
+oxc_allocator.workspace = true
+oxc_codegen.workspace = true
+oxc_parser.workspace = true
+oxc_sourcemap.workspace = true
+oxc_span.workspace = true
 percent-encoding.workspace = true
 pyo3.workspace = true
 regex.workspace = true
 saphyr.workspace = true
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
+sha2.workspace = true
+swc_common.workspace = true
+swc_css.workspace = true
 thiserror.workspace = true
 tracing = { workspace = true, optional = true, features = [
   "max_level_trace"

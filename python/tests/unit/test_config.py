@@ -200,6 +200,55 @@ class TestPluginShimming:
             "redirect_maps": {},
         }
 
+    def test_minify_plugin_is_normalized(self, tmp_path: Path) -> None:
+        config = self._parse_yaml(
+            tmp_path,
+            plugins={
+                "minify": {
+                    "minify_html": True,
+                    "minify_inline_js": True,
+                    "js_files": "assets/app.js",
+                    "css_files": ["assets/app.css"],
+                    "htmlmin_opts": {
+                        "remove_comments": True,
+                        "pre_tags": ["pre", "textarea", "code"],
+                    },
+                }
+            },
+        )
+        assert config["plugins"]["minify"]["config"] == {
+            "enabled": True,
+            "minify_html": True,
+            "minify_js": False,
+            "minify_css": False,
+            "minify_inline_js": True,
+            "minify_inline_css": False,
+            "js_files": ["assets/app.js"],
+            "css_files": ["assets/app.css"],
+            "htmlmin_opts": {
+                "remove_comments": True,
+                "remove_empty_space": False,
+                "remove_all_empty_space": False,
+                "reduce_empty_attributes": True,
+                "reduce_boolean_attributes": False,
+                "remove_optional_attribute_quotes": True,
+                "convert_charrefs": True,
+                "keep_pre": False,
+                "pre_tags": ["pre", "textarea", "code"],
+                "pre_attr": "pre",
+            },
+            "cache_safe": False,
+        }
+
+    def test_minify_plugin_is_disabled_by_default(
+        self, tmp_path: Path
+    ) -> None:
+        config = self._parse_yaml(tmp_path, plugins=[])
+        plugin = config["plugins"]["minify"]["config"]
+        assert plugin["enabled"] is False
+        assert plugin["minify_html"] is False
+        assert plugin["htmlmin_opts"]["pre_tags"] == ["pre", "textarea"]
+
     def test_mike_plugin_defaults_with_versioned_build(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:

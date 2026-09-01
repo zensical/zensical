@@ -35,7 +35,7 @@ use std::path::PathBuf;
 // ----------------------------------------------------------------------------
 
 /// Theme settings.
-#[derive(Debug, Hash, FromPyObject, Serialize)]
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
 #[pyo3(from_item_all)]
 pub struct Theme {
     /// Theme name.
@@ -67,7 +67,7 @@ pub struct Theme {
 // ----------------------------------------------------------------------------
 
 /// Font settings.
-#[derive(Debug, Hash, FromPyObject, Serialize)]
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
 #[serde(untagged)]
 #[pyo3(from_item_all)]
 pub enum Font {
@@ -78,7 +78,7 @@ pub enum Font {
 }
 
 /// Custom fonts.
-#[derive(Debug, Hash, FromPyObject, Serialize)]
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
 #[pyo3(from_item_all)]
 pub struct CustomFont {
     /// Text font.
@@ -90,7 +90,7 @@ pub struct CustomFont {
 // ----------------------------------------------------------------------------
 
 /// Icon settings.
-#[derive(Debug, Hash, FromPyObject, Serialize)]
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
 #[pyo3(from_item_all)]
 pub struct Icon {
     /// Edit button icon.
@@ -128,7 +128,7 @@ pub struct Icon {
 // ----------------------------------------------------------------------------
 
 /// Color palette settings.
-#[derive(Debug, Hash, FromPyObject, Serialize)]
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
 #[pyo3(from_item_all)]
 pub struct Palette {
     /// Palette media query.
@@ -144,7 +144,7 @@ pub struct Palette {
 }
 
 /// Color palette toggle.
-#[derive(Debug, Hash, FromPyObject, Serialize)]
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
 #[pyo3(from_item_all)]
 pub struct PaletteToggle {
     /// Palette toggle icon.

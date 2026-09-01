@@ -29,8 +29,9 @@ use minijinja::{context, AutoEscape, Environment, Error, Value};
 use minijinja_contrib::filters::striptags;
 use serde::Serialize;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use super::config::Config;
+use super::config::{Config, Project};
 use super::structure::nav::{Navigation, NavigationView};
 
 mod filter;
@@ -93,6 +94,7 @@ impl Template<'_> {
     /// Renders the template.
     pub fn render(
         &self, name: &str, config: &Config, nav: &Navigation,
+        project: &Arc<Project>,
     ) -> Result<String, Error> {
         let template = self.env.get_template(name)?;
         let nav = NavigationView::new(nav.clone(), None);
@@ -104,9 +106,9 @@ impl Template<'_> {
             nav => Value::from_object(nav),
             pages => pages,
             base_url => config.get_base_path(),
-            extra_css => config.project.extra_css.clone(),
-            extra_javascript => config.project.extra_javascript.clone(),
-            config => config.project.clone(),
+            extra_css => project.extra_css.clone(),
+            extra_javascript => project.extra_javascript.clone(),
+            config => project.clone(),
             // MiniJinja does not allow to pass empty objects, so we create a
             // dummy page here - these won't be used in static templates
             page => context! {

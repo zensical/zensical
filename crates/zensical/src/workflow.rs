@@ -27,12 +27,12 @@
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Deref;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock, OnceLock};
-use std::{fs, io};
 use zrx::id::matcher::Matcher;
 use zrx::id::Id;
 use zrx::stream::function::Collection;
@@ -42,7 +42,7 @@ use zrx::stream::{
 };
 
 use super::compat::mkdocs::plugin::{
-    self, autorefs, meta, mkdocstrings, redirects, search,
+    self, autorefs, meta, minify, mkdocstrings, redirects, search,
 };
 use super::config::Config;
 use super::structure::markdown::Markdown;
@@ -145,6 +145,25 @@ impl Value for SitePage {}
 
 // ----------------------------------------------------------------------------
 
+/// Page-local work paired with revision-settled shared rendering facts.
+#[derive(Clone, Debug)]
+struct PageRender {
+    /// Page and its unresolved autoref slots.
+    input: SitePage,
+    /// Navigation for the current page relation.
+    nav: Navigation,
+    /// Autoref registry for the current page relation.
+    autorefs: autorefs::Registry,
+    /// Asset-projected template configuration.
+    project: Arc<crate::config::Project>,
+    /// Stable asset mapping hash for the template cache key.
+    asset_hash: u64,
+}
+
+impl Value for PageRender {}
+
+// ----------------------------------------------------------------------------
+
 /// Markdown source paired with route facts available before rendering.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct RoutedMarkdown {
@@ -204,8 +223,7 @@ impl Main {
         let meta = meta::Settings::new(&self.config);
 
         // Set up workflow to process static assets and Markdown files.
-        process_theme_assets(&self.config, &files);
-        process_assets(&self.config, &files, &meta);
+        let assets = process_assets(&self.config, &files, &meta);
         let markdown = route_markdown(&self.config, &files);
 
         // Redirects depend on routes, not rendered Markdown. Settle their
@@ -227,8 +245,8 @@ impl Main {
         let search = site.map(|site: &Site| site.search.clone());
         search::attach(&self.config, &search);
         mkdocstrings::attach(&self.config, &nav);
-        let _ = render_templates(&self.config, &files, &nav);
-        let unresolved = render_pages(&self.config, &site);
+        let _ = render_templates(&self.config, &files, &nav, &assets);
+        let unresolved = render_pages(&self.config, &site, &assets);
         validate(&self.config, self.strict, &files, &page, &unresolved);
     }
 }
@@ -328,88 +346,152 @@ fn page_hash(page: &Page, autorefs: &autorefs::References) -> u64 {
 /// Create a stream to process static assets.
 pub fn process_assets(
     config: &Config, files: &Stream<Id, Input>, meta: &meta::Settings,
-) {
+) -> Signal<Id, minify::asset::Manifest> {
+    if !minify::asset::is_enabled(config) {
+        copy_assets(config, files, meta);
+        let project = config.project.clone();
+        return files.reduce(move |_: &dyn Collection<Key<Id>, Input>| {
+            Ok::<_, anyhow::Error>(Some(minify::asset::Manifest::base(
+                project.clone(),
+            )))
+        });
+    }
+
     let extra_templates = config.project.extra_templates.clone();
+    let static_templates = config.project.theme.static_templates.clone();
     let docs_dir = config.project.docs_dir.clone();
-    let matcher = Arc::new(
+    let docs = Arc::new(
         Matcher::from_str(&format!("zrs::::{docs_dir}::")).expect("invariant"),
     );
+    let themes =
+        Arc::new(Matcher::from_str("zrs::::templates/*::").expect("invariant"));
+    let meta = meta.clone();
+    let resources = files.filter_map(move |id: &Id, input: &Input| {
+        let location = id.location().into_owned();
+        let priority =
+            if docs.is_match(id).expect("invariant") {
+                if Path::new(&location).extension().is_some_and(|extension| {
+                    extension.eq_ignore_ascii_case("md")
+                }) || meta::claims(&location, &meta)
+                    || extra_templates.contains(&location)
+                {
+                    return None;
+                }
+                0
+            } else if themes.is_match(id).expect("invariant") {
+                if Path::new(&location).extension().is_some_and(|extension| {
+                    extension.eq_ignore_ascii_case("html")
+                }) || static_templates.contains(&location)
+                {
+                    return None;
+                }
+                id.context()
+                    .strip_prefix("templates/")
+                    .and_then(|index| index.parse::<usize>().ok())
+                    .map_or(usize::MAX, |index| index + 1)
+            } else {
+                return None;
+            };
+        Some(minify::asset::Resource {
+            path: location,
+            source: input.path.clone().into(),
+            priority,
+        })
+    });
 
-    // Create pipeline to copy static assets
+    // Resolve project/theme precedence before transformation. A removed
+    // project override therefore reveals the effective theme resource in the
+    // same revision instead of briefly deleting the logical output.
+    let effective = resources.reduce_by_key(
+        |resource: &minify::asset::Resource| {
+            minify::asset::resource_key(&resource.path)
+        },
+        |resources: &dyn Collection<Key<Id>, minify::asset::Resource>| {
+            Ok::<_, anyhow::Error>(
+                resources
+                    .iter()
+                    .map(|(_, resource)| resource)
+                    .min_by(|left, right| {
+                        left.priority
+                            .cmp(&right.priority)
+                            .then_with(|| left.source.cmp(&right.source))
+                    })
+                    .cloned(),
+            )
+        },
+    );
+    minify::asset::attach(config, &effective)
+}
+
+/// Copies assets directly when no compatibility module claims them.
+fn copy_assets(
+    config: &Config, files: &Stream<Id, Input>, meta: &meta::Settings,
+) {
+    let docs_dir = config.project.docs_dir.clone();
+    let docs = Arc::new(
+        Matcher::from_str(&format!("zrs::::{docs_dir}::")).expect("invariant"),
+    );
+    let extra_templates = config.project.extra_templates.clone();
     let site_dir = config.project.site_dir.clone();
     let root_dir = config.get_root_dir();
     let meta = meta.clone();
-    let _ = files.map(move |id: &Id, from: &Input| {
-        if !matcher.is_match(id).expect("invariant") {
+    let _ = files.map(move |id: &Id, input: &Input| {
+        let location = id.location();
+        if !docs.is_match(id).expect("invariant")
+            || Path::new(location.as_ref())
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("md"))
+            || meta::claims(&location, &meta)
+            || extra_templates
+                .iter()
+                .any(|template| template == location.as_ref())
+        {
             return Ok(());
         }
-
-        // Don't copy Markdown files
-        if id.location().ends_with(".md") {
-            return Ok(());
-        }
-
-        // Metadata files are inputs, not site assets.
-        if meta::claims(&id.location(), &meta) {
-            return Ok(());
-        }
-
-        // Don't copy template files that we render later
-        if extra_templates.contains(&id.location().into_owned()) {
-            return Ok(());
-        }
-
-        // Create identifier builder, as we need to change the context in order
-        // to copy the file over to the site directory
-        let builder = id.to_builder().context(&site_dir);
-        let id = builder.build().expect("invariant");
-
-        // Compute parent path, create intermediate directories and copy files
-        let to = root_dir.join(id.to_path());
-        fs::create_dir_all(to.parent().expect("invariant"))?;
-        copy_file(&from.path, to)?;
-        Ok::<(), anyhow::Error>(())
+        let output = id
+            .to_builder()
+            .context(&site_dir)
+            .build()
+            .expect("invariant");
+        copy_asset(&input.path, root_dir.join(output.to_path()))
     });
-}
 
-/// Create a stream to process static assets in theme.
-pub fn process_theme_assets(config: &Config, files: &Stream<Id, Input>) {
-    let matcher =
+    let themes =
         Arc::new(Matcher::from_str("zrs::::templates/*::").expect("invariant"));
-
-    // Create pipeline to copy static assets
+    let static_templates = config.project.theme.static_templates.clone();
     let site_dir = config.project.site_dir.clone();
     let root_dir = config.get_root_dir();
-    let _ = files.map(move |id: &Id, from: &Input| {
-        if !matcher.is_match(id).expect("invariant") {
+    let _ = files.map(move |id: &Id, input: &Input| {
+        let location = id.location();
+        if !themes.is_match(id).expect("invariant")
+            || Path::new(location.as_ref())
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("html"))
+            || static_templates
+                .iter()
+                .any(|template| template == location.as_ref())
+        {
             return Ok(());
         }
-
-        // Don't copy templates - they will be rendered later
-        if id.location().ends_with(".html") {
-            return Ok(());
-        }
-
-        // Create identifier builder, as we need to change the context in order
-        // to copy the file over to the site directory
-        let builder = id.to_builder().context(&site_dir);
-        let id = builder.build().expect("invariant");
-
-        // Compute parent path, create intermediate directories and copy files
-        let to = root_dir.join(id.to_path());
-        fs::create_dir_all(to.parent().expect("invariant"))?;
-        copy_file(&from.path, to)?;
-        Ok::<_, anyhow::Error>(())
+        let output = id
+            .to_builder()
+            .context(&site_dir)
+            .build()
+            .expect("invariant");
+        copy_asset(&input.path, root_dir.join(output.to_path()))
     });
 }
 
-/// Copy a file to a new location, without copying its permissions.
-fn copy_file(
+/// Copies one asset without preserving source permissions.
+fn copy_asset(
     from: impl AsRef<Path>, to: impl AsRef<Path>,
-) -> Result<(), io::Error> {
+) -> anyhow::Result<()> {
+    let to = to.as_ref();
+    fs::create_dir_all(to.parent().expect("site asset has parent"))?;
     let mut from = fs::File::open(from)?;
     let mut to = fs::File::create(to)?;
-    io::copy(&mut from, &mut to).map(|_| ())
+    std::io::copy(&mut from, &mut to)?;
+    Ok(())
 }
 
 /// Select Markdown sources and derive their routes before rendering.
@@ -577,6 +659,7 @@ fn generate_nav(site: &Signal<Id, Site>) -> Signal<Id, Navigation> {
 /// Render static and extra templates.
 pub fn render_templates(
     config: &Config, files: &Stream<Id, Input>, nav: &Signal<Id, Navigation>,
+    assets: &Signal<Id, minify::asset::Manifest>,
 ) -> Stream<Id, ()> {
     let docs_dir = config.project.docs_dir.clone();
 
@@ -607,73 +690,93 @@ pub fn render_templates(
 
     // Create pipeline to render templates
     let renderer = Template::new(theme_dirs);
+    let minify = minify::Settings::new(config);
     let config = config.clone();
-    templates
-        .product(nav)
-        .map(move |template: &Input, nav: &Navigation| {
+    templates.product(nav).product(assets).map(
+        move |input: &(Input, Navigation), assets: &minify::asset::Manifest| {
+            let (template, nav) = input;
             let name =
                 Path::new(&template.path).file_name().expect("invariant");
             let site_dir = config.get_site_dir();
 
             // Render template and write to disk
-            let data =
-                renderer.render(&name.to_string_lossy(), &config, nav)?;
-            let path = site_dir.join(name);
+            let name = name.to_string_lossy();
+            let data = renderer.render(&name, &config, nav, &assets.project)?;
+            let data = minify.template(&name, data);
+            let path = site_dir.join(name.as_ref());
             fs::create_dir_all(path.parent().expect("invariant"))?;
             fs::write(path, &data)?;
             Ok::<_, anyhow::Error>(())
-        })
+        },
+    )
 }
 
 /// Render pages.
 fn render_pages(
     config: &Config, site: &Signal<Id, Site>,
+    assets: &Signal<Id, minify::asset::Manifest>,
 ) -> Stream<Id, UnresolvedAutorefs> {
-    let pages = site.flat_map(|site: &Site| {
-        site.pages
-            .iter()
-            .map(|(key, page)| {
-                (
-                    key.clone(),
-                    (page.clone(), site.nav.clone(), site.autorefs.clone()),
-                )
-            })
-            .collect::<Vec<_>>()
-    });
+    let pages = site.product(assets).flat_map(
+        |site: &Site, assets: &minify::asset::Manifest| {
+            site.pages
+                .iter()
+                .map(|(key, page)| {
+                    (
+                        key.clone(),
+                        PageRender {
+                            input: page.clone(),
+                            nav: site.nav.clone(),
+                            autorefs: site.autorefs.clone(),
+                            project: assets.project.clone(),
+                            asset_hash: assets.hash,
+                        },
+                    )
+                })
+                .collect::<Vec<_>>()
+        },
+    );
 
     let template = OnceLock::new();
     let theme_dirs = config.theme_dirs.clone();
+    let minify = minify::Settings::new(config);
     let config = config.clone();
-    pages.map(
-        move |input: &SitePage,
-              nav: &Navigation,
-              autorefs: &autorefs::Registry| {
-            let mut page = input.page.clone();
-            let references = &input.autorefs;
-            let id = page.url.clone();
+    pages.map(move |input: &PageRender| {
+        let mut page = input.input.page.clone();
+        let references = &input.input.autorefs;
+        let id = page.url.clone();
 
-            // Cache template rendering independently of autorefs, which are
-            // substituted below on every pass. Deriving a cache key for the
-            // substitution would require the same resolution scan that the
-            // substitution itself performs, so caching it can't pay off.
-            let args = (config.hash, nav.hash, page_hash(&page, references));
-            let rendered =
-                cached(&config, ("template", id), args, |(_, _, _)| {
-                    let template = template
-                        .get_or_init(|| Template::new(theme_dirs.clone()));
-                    Ok(page.render_template(template, &config, nav.clone())?)
-                })?;
+        // Cache template rendering independently of autorefs, which are
+        // substituted below on every pass. Deriving a cache key for the
+        // substitution would require the same resolution scan that the
+        // substitution itself performs, so caching it can't pay off.
+        let args = (
+            config.hash,
+            input.nav.hash,
+            input.asset_hash,
+            page_hash(&page, references),
+        );
+        let rendered =
+            cached(&config, ("template", id), args, |(_, _, _, _)| {
+                let template =
+                    template.get_or_init(|| Template::new(theme_dirs.clone()));
+                Ok(page.render_template(
+                    template,
+                    &config,
+                    input.nav.clone(),
+                    &input.project,
+                )?)
+            })?;
 
-            // Replace autorefs and retain unresolved identifiers
-            let (data, unresolved) =
-                autorefs.replace_in(rendered, references, &page.url);
+        // Replace autorefs and retain unresolved identifiers
+        let (data, unresolved) =
+            input.autorefs.replace_in(rendered, references, &page.url);
+        let data = minify.html(data);
 
-            let path = Path::new(&page.path);
-            fs::create_dir_all(path.parent().expect("invariant"))?;
-            fs::write(path, &data)?;
-            Ok::<_, anyhow::Error>(unresolved)
-        },
-    )
+        let path = Path::new(&page.path);
+        fs::create_dir_all(path.parent().expect("invariant"))?;
+        fs::write(path, &data)?;
+        Ok::<_, anyhow::Error>(unresolved)
+    })
 }
 
 /// Creates a workflow for the given config.
