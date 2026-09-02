@@ -33,12 +33,14 @@ mod api_autonav;
 mod autoapi;
 mod blog;
 mod rss;
+mod social;
 mod tags;
 
 pub use api_autonav::{ApiAutonavConfig, ApiAutonavPlugin};
 pub use autoapi::AutoApiPlugin;
 pub use blog::{BlogPlugin, BlogPluginConfig, CategorySort, ExcerptPolicy};
 pub use rss::{RssDateConfig, RssPlugin, RssPluginConfig};
+pub use social::{SocialPlugin, SocialPluginConfig, SocialPluginInstance};
 pub use tags::{
     python_bool, python_float, python_scalar, TagsListingConfig, TagsPlugin,
     TagsPluginConfig,
@@ -88,6 +90,8 @@ pub struct Plugins {
     pub blogs: BlogPlugin,
     /// RSS feed plugin instances.
     pub rss: RssPlugin,
+    /// Material social plugin instances.
+    pub social: SocialPlugin,
     /// Literate navigation plugin.
     pub literate_nav: LiterateNavPlugin,
     /// Awesome navigation plugin.

@@ -47,6 +47,7 @@ pub mod mkdocstrings;
 pub mod redirects;
 pub mod rss;
 pub mod search;
+pub mod social;
 pub mod tags;
 
 // ----------------------------------------------------------------------------

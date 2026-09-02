@@ -165,6 +165,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
         "pipeline",
         "prebuild_index",
     ),
+    "social": (),
     "table-reader": (),
     "tags": (
         "tags_compare",
@@ -1738,13 +1739,15 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     tags: list[dict[str, Any]] = []
     blogs: list[dict[str, Any]] = []
     rss: list[dict[str, Any]] = []
+    social: list[dict[str, Any]] = []
 
     def add(name: Any, data: Any) -> None:
         """Canonicalize Material aliases while preserving tag instances."""
         if not isinstance(name, str):
             raise ConfigurationError("Plugin names must be strings")
         name = name.removeprefix("material/")
-        if name not in _PLUGIN_UNSUPPORTED_OPTIONS:
+        canonical = "social" if name.startswith("social/") else name
+        if canonical not in _PLUGIN_UNSUPPORTED_OPTIONS:
             return
         if data is None:
             data = {}
@@ -1752,13 +1755,15 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             raise ConfigurationError(f"{name} configuration must be a mapping")
         else:
             data = dict(data)
-        for option in _PLUGIN_UNSUPPORTED_OPTIONS[name]:
+        for option in _PLUGIN_UNSUPPORTED_OPTIONS[canonical]:
             data.pop(option, None)
         if name == "tags":
             _reject_unknown_options("tags", data, _TAGS_SUPPORTED_OPTIONS)
             tags.append({"name": name, "config": data})
         elif name == "blog":
             blogs.append({"name": name, "config": data})
+        elif canonical == "social":
+            social.append({"name": name, "config": data})
         elif name == "rss":
             rss.append({"name": name, "config": _normalize_rss(data)})
         else:
@@ -1791,6 +1796,8 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     plugins["blogs"] = blogs
 
     plugins["rss"] = rss
+    # Preserve ordered social instances for native validation and rendering.
+    plugins["social"] = social
     # Search is enabled by default, even when it isn't explicitly configured.
     search = plugins.pop("search", {})
     _reject_unknown_options("search", search, {"enabled", "separator"})
