@@ -536,9 +536,7 @@ class TestHeadingsTreeprocessor:
     def test_register_heading(self, md: Markdown) -> None:
         """A single heading is registered under its toc-generated slug."""
         md.convert("## Foo")
-        assert get_autorefs_page_data("page")["primary"]["foo"] == [
-            "page#foo"
-        ]
+        assert get_autorefs_page_data("page")["primary"]["foo"] == ["page#foo"]
 
     @pytest.mark.parametrize(
         "md",

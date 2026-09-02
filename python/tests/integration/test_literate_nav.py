@@ -89,12 +89,8 @@ def test_resolves_markers_nested_files_wildcards_and_external_links(
 """,
         encoding="utf-8",
     )
-    (docs / "guide" / "index.md").write_text(
-        "# Overview\n", encoding="utf-8"
-    )
-    (docs / "guide" / "start.md").write_text(
-        "# Start\n", encoding="utf-8"
-    )
+    (docs / "guide" / "index.md").write_text("# Overview\n", encoding="utf-8")
+    (docs / "guide" / "start.md").write_text("# Start\n", encoding="utf-8")
     (docs / "guide" / "advanced.md").write_text(
         "# Advanced\n", encoding="utf-8"
     )
@@ -135,9 +131,7 @@ def test_resolves_configured_directory_through_nested_literate_nav(
     guide.mkdir(parents=True)
     _write_template(tmp_path)
     (docs / "index.md").write_text("# Home\n", encoding="utf-8")
-    (guide / "SUMMARY.md").write_text(
-        "* [Start](start.md)\n", encoding="utf-8"
-    )
+    (guide / "SUMMARY.md").write_text("* [Start](start.md)\n", encoding="utf-8")
     (guide / "start.md").write_text("# Start\n", encoding="utf-8")
     config = tmp_path / "mkdocs.yml"
     config.write_text(
@@ -284,9 +278,7 @@ def test_directory_wildcards_do_not_consume_files(tmp_path: Path) -> None:
     section = docs / "section2"
     section.mkdir(parents=True)
     _write_template(tmp_path)
-    (docs / "SUMMARY.md").write_text(
-        "- */\n- *.md\n", encoding="utf-8"
-    )
+    (docs / "SUMMARY.md").write_text("- */\n- *.md\n", encoding="utf-8")
     (docs / "item1.md").write_text("# Item 1\n", encoding="utf-8")
     (docs / "item2.md").write_text("# Item 2\n", encoding="utf-8")
     (section / "item.md").write_text("# Section item\n", encoding="utf-8")

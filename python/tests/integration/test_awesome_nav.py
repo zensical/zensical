@@ -106,9 +106,7 @@ nav:
         "---\ntitle: Guide landing\n---\n# Overview\n", encoding="utf-8"
     )
     (guide / "start.md").write_text("# Start\n", encoding="utf-8")
-    (guide / "draft.hidden.md").write_text(
-        "# Hidden\n", encoding="utf-8"
-    )
+    (guide / "draft.hidden.md").write_text("# Hidden\n", encoding="utf-8")
     (guide / ".nav.yml").write_text(
         """\
 use_index_title: true
@@ -361,9 +359,7 @@ def test_natural_sort_matches_upstream_numeric_and_grouped_case_order(
         (docs / name).write_text(
             f'---\ntitle: "{title}"\n---\n# Page\n', encoding="utf-8"
         )
-    (docs / ".nav.yml").write_text(
-        "sort:\n  by: title\n", encoding="utf-8"
-    )
+    (docs / ".nav.yml").write_text("sort:\n  by: title\n", encoding="utf-8")
 
     zensical.build(str(_write_config(tmp_path)), _BUILD_OPTIONS)
 
@@ -391,9 +387,7 @@ def test_deep_explicit_directory_resolves_before_its_parent(
     _write_template(tmp_path)
     (docs / "foo" / "foo.md").write_text("# Foo\n", encoding="utf-8")
     (nested / "bar.md").write_text("# Bar\n", encoding="utf-8")
-    (docs / ".nav.yml").write_text(
-        "nav: [foo, foo/bar]\n", encoding="utf-8"
-    )
+    (docs / ".nav.yml").write_text("nav: [foo, foo/bar]\n", encoding="utf-8")
 
     zensical.build(str(_write_config(tmp_path)), _BUILD_OPTIONS)
 
@@ -476,9 +470,7 @@ def test_serve_rebuilds_navigation_after_control_file_edit(
         stderr=subprocess.STDOUT,
     )
 
-    def wait_for(
-        condition: Callable[[], bool], timeout: float = 10.0
-    ) -> None:
+    def wait_for(condition: Callable[[], bool], timeout: float = 10.0) -> None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if condition():
@@ -500,9 +492,7 @@ def test_serve_rebuilds_navigation_after_control_file_edit(
         with navigation.open("r+", encoding="utf-8") as stream:
             stream.write("nav: [other.md]\n")
             stream.truncate()
-        wait_for(
-            lambda: _items_or_none(tmp_path) == [(0, "Other", "other/")]
-        )
+        wait_for(lambda: _items_or_none(tmp_path) == [(0, "Other", "other/")])
         assert process.poll() is None
     finally:
         process.terminate()
@@ -523,9 +513,7 @@ def test_awesome_nav_replaces_literate_nav_and_rejects_extglobs(
     _write_template(tmp_path)
     (docs / "index.md").write_text("# Home\n", encoding="utf-8")
     (docs / "other.md").write_text("# Other\n", encoding="utf-8")
-    (docs / "SUMMARY.md").write_text(
-        "* [Other](other.md)\n", encoding="utf-8"
-    )
+    (docs / "SUMMARY.md").write_text("* [Other](other.md)\n", encoding="utf-8")
     navigation = docs / ".nav.yml"
     navigation.write_text("nav: [index.md]\n", encoding="utf-8")
     config = _write_config(tmp_path, "awesome-nav\n  - literate-nav")
