@@ -101,10 +101,10 @@ pub struct TagsPlugin {
 
 // ----------------------------------------------------------------------------
 
-/// One named Material tags plugin instance.
+/// One Material tags plugin instance.
 #[derive(Clone, Debug, Hash, Serialize)]
 pub struct TagsPluginInstance {
-    /// Public MkDocs plugin instance name.
+    /// Canonical plugin name.
     pub name: String,
     /// Plugin configuration.
     pub config: TagsPluginConfig,
