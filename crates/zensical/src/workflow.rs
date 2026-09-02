@@ -45,7 +45,7 @@ use crate::compat::mkdocs::plugin::autorefs::UnresolvedAutorefs;
 use crate::compat::mkdocs::{
     plugin::{
         self, autorefs, awesome_nav, literate_nav, meta, minify, mkdocstrings,
-        redirects, search, tags,
+        redirects, search, social, tags,
     },
     resource,
 };
@@ -142,7 +142,7 @@ impl Deref for Input {
 }
 
 /// Page render input retained after site-wide settlement.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct SitePage {
     /// Page passed to the template renderer.
     page: Page,
@@ -167,6 +167,8 @@ struct PageRender {
     project: Arc<crate::config::Project>,
     /// Stable asset mapping hash for the template cache key.
     asset_hash: u64,
+    /// Page-local social metadata inserted after template rendering.
+    social: social::Metadata,
 }
 
 impl Value for PageRender {}
@@ -307,10 +309,16 @@ impl Main {
         });
         mkdocstrings::Mkdocstrings::new(&self.config)
             .setup(mkdocstrings::Dependencies { navigation: &nav });
+        let social = social::Social::new(&self.config, self.serve, self.strict);
+        let social_metadata = social.setup(social::Dependencies {
+            pages: &page,
+            sources: &sources,
+        });
         let _ = render_templates(&self.config, &files, &nav, &assets, &minify);
         let unresolved = render_pages(
             &self.config,
             &site_page,
+            &social_metadata,
             &nav,
             &autorefs,
             &assets,
@@ -381,12 +389,15 @@ fn validate(
 }
 
 /// Compute a hash of the page content relevant to template rendering.
-fn page_hash(page: &Page, autorefs: &autorefs::References) -> u64 {
+fn page_hash(
+    page: &Page, autorefs: &autorefs::References, social: &social::Metadata,
+) -> u64 {
     let mut hasher = DefaultHasher::new();
     page.content.hash(&mut hasher);
     page.meta.hash(&mut hasher);
     page.hash_derived_template_context(&mut hasher);
     autorefs.hash(&mut hasher);
+    social.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -588,22 +599,32 @@ fn template_output(id: &Id) -> Result<SitePath, PathError> {
 /// Render pages.
 fn render_pages(
     config: &Config, pages: &Stream<Id, SitePage>,
-    nav: &Signal<Id, Navigation>, autorefs: &Signal<Id, autorefs::Registry>,
+    social: &Stream<Id, social::Metadata>, nav: &Signal<Id, Navigation>,
+    autorefs: &Signal<Id, autorefs::Registry>,
     assets: &Signal<Id, minify::Manifest>, minify: &minify::Minify,
 ) -> Stream<Id, UnresolvedAutorefs> {
-    let pages = pages.product(nav).product(autorefs).product(assets).map(
-        |input: &((SitePage, Navigation), autorefs::Registry),
-         assets: &minify::Manifest| {
-            let ((page, nav), autorefs) = input;
-            PageRender {
-                input: page.clone(),
-                nav: nav.clone(),
-                autorefs: autorefs.clone(),
-                project: assets.project.clone(),
-                asset_hash: assets.hash,
-            }
-        },
-    );
+    let pages = (pages.clone(), social.clone())
+        .join()
+        .product(nav)
+        .product(autorefs)
+        .product(assets)
+        .map(
+            |input: &(
+                ((SitePage, social::Metadata), Navigation),
+                autorefs::Registry,
+            ),
+             assets: &minify::Manifest| {
+                let (((page, social), nav), autorefs) = input;
+                PageRender {
+                    input: page.clone(),
+                    nav: nav.clone(),
+                    autorefs: autorefs.clone(),
+                    project: assets.project.clone(),
+                    asset_hash: assets.hash,
+                    social: social.clone(),
+                }
+            },
+        );
 
     let template = OnceLock::new();
     let theme_dirs = config.theme_dirs.clone();
@@ -622,7 +643,7 @@ fn render_pages(
             config.hash,
             input.nav.hash,
             input.asset_hash,
-            page_hash(&page, references),
+            page_hash(&page, references, &input.social),
         );
         let rendered =
             cached(&config, ("template", id), args, |(_, _, _, _)| {
@@ -639,6 +660,7 @@ fn render_pages(
         // Replace autorefs and retain unresolved identifiers
         let (data, unresolved) =
             input.autorefs.replace_in(rendered, references, &page.url);
+        let data = input.social.inject(data);
         let data = minify.html(data);
 
         let path = config.output_root().join(page.destination());

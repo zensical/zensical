@@ -42,6 +42,7 @@ pub mod minify;
 pub mod mkdocstrings;
 pub mod redirects;
 pub mod search;
+pub mod social;
 pub mod tags;
 
 // ----------------------------------------------------------------------------

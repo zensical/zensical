@@ -29,8 +29,10 @@ use pyo3::FromPyObject;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
+mod social;
 mod tags;
 
+pub use social::{SocialPlugin, SocialPluginConfig, SocialPluginInstance};
 pub use tags::{
     python_bool, python_float, python_scalar, TagsListingConfig, TagsPlugin,
     TagsPluginConfig,
@@ -62,6 +64,8 @@ pub struct Plugins {
     pub minify: MinifyPlugin,
     /// Material tags plugin instances.
     pub tags: TagsPlugin,
+    /// Material social plugin instances.
+    pub social: SocialPlugin,
     /// Literate navigation plugin.
     pub literate_nav: LiterateNavPlugin,
     /// Awesome navigation plugin.

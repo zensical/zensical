@@ -1294,12 +1294,15 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     """Convert plugins configuration to something we can work with."""
     plugins: dict[str, Any] = {}
     tags: list[dict[str, Any]] = []
+    social: list[dict[str, Any]] = []
 
     def add(name: str, data: Any) -> None:
-        """Canonicalize Material aliases while preserving tag instances."""
+        """Canonicalize Material aliases and preserve multi-instance plugins."""
         name = name.removeprefix("material/")
         if name == "tags":
             tags.append({"name": name, "config": dict(data or {})})
+        elif name == "social" or name.startswith("social/"):
+            social.append({"name": name, "config": dict(data or {})})
         else:
             plugins[name] = data
 
@@ -1323,6 +1326,10 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     # lowering. Python only preserves ordered plugin instances and their raw
     # configuration, as it does for future native compatibility modules.
     plugins["tags"] = tags
+
+    # Rust owns all social defaults, validation and rendering. Python only
+    # preserves ordered plugin instances and their raw configuration.
+    plugins["social"] = social
 
     # Define defaults for search plugin
     search = set_default(plugins, "search", {}, dict)

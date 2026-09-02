@@ -94,6 +94,36 @@ impl Watcher {
             ));
         }
 
+        // Resolve custom social layout directories before source mounts are
+        // finalized. They may live outside the project root, in which case
+        // they need their own provider-relative identity context.
+        let project_root =
+            config.path.parent().expect("configuration has parent");
+        let social_layout_dirs = config
+            .project
+            .plugins
+            .social
+            .config
+            .iter()
+            .filter(|plugin| plugin.config.enabled)
+            .map(|plugin| {
+                let path = Path::new(&plugin.config.cards_layout_dir);
+                let path = if path.is_absolute() {
+                    path.to_owned()
+                } else {
+                    project_root.join(path)
+                };
+                canonical_or_clone(&path)
+            })
+            .filter(|path| path.is_dir())
+            .collect::<BTreeSet<_>>();
+        for (index, directory) in social_layout_dirs.iter().enumerate() {
+            sources.push(SourceMount::new(
+                directory.clone(),
+                format!("plugins/social/{index}"),
+            ));
+        }
+
         // Add configuration file last, or we might run into overlapping paths.
         // Note that right now, we need to monitor the whole directory. We'll
         // integrate identification generation deeper into the file agent,
@@ -123,7 +153,6 @@ impl Watcher {
             .iter()
             .map(|(path, _)| canonical_or_clone(path))
             .collect::<BTreeSet<_>>();
-
         // Initialize file agent - we use a debounce interval of 20ms, which
         // should be sufficient to correctly determine rename events
         let agent = Agent::new(Duration::from_millis(20), serve, {
@@ -284,6 +313,13 @@ impl Watcher {
             }
         }
 
+        // Custom social card layouts are runtime inputs, just like Markdown
+        // and assets. Forward their changes into the retained workflow so
+        // cards and metadata can be derived again without restarting serve.
+        for directory in social_layout_dirs {
+            agent.watch(directory)?;
+        }
+
         // Watch files used by extensions
         for (path, _) in &config.project.watched_files {
             agent.watch(path)?;
@@ -381,6 +417,21 @@ mod tests {
         assert_eq!(id.context(), ".");
         assert_eq!(id.location(), "guide/index.html");
         assert_eq!(id.as_uri().as_str(), "guide/index.html");
+    }
+
+    #[test]
+    fn external_plugin_sources_use_their_own_mount() {
+        let directory = tempdir().unwrap();
+        let layouts = directory.path().join("shared/layouts");
+        fs::create_dir_all(&layouts).unwrap();
+        let file = layouts.join("custom.yml");
+        let sources =
+            [SourceMount::new(layouts, String::from("plugins/social/0"))];
+
+        let id = to_id(&file, &sources).unwrap();
+
+        assert_eq!(id.context(), "plugins/social/0");
+        assert_eq!(id.location(), "custom.yml");
     }
 
     #[cfg(unix)]
