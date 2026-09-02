@@ -42,6 +42,7 @@ from zensical.extensions.autorefs import AutorefsExtension
 from zensical.extensions.glightbox import GlightboxExtension
 from zensical.extensions.macros import MacrosExtension
 from zensical.extensions.mkdocstrings import MkdocstringsExtension
+from zensical.extensions.table_reader import TableReaderExtension
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -505,6 +506,70 @@ class TestPluginShimming:
     def test_macros_plugin_shimmed(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins={"macros": {}})
         assert MacrosExtension.name in config["markdown_extensions"]
+
+    def test_table_reader_plugin_shimmed(self, tmp_path: Path) -> None:
+        config = self._parse_yaml(tmp_path, plugins={"table-reader": {}})
+        assert TableReaderExtension.name in config["markdown_extensions"]
+        assert MacrosExtension.name not in config["markdown_extensions"]
+        assert config["mdx_configs"][TableReaderExtension.name] == {}
+
+    def test_table_reader_options_forwarded(self, tmp_path: Path) -> None:
+        plugin = {
+            "data_path": "tables",
+            "allow_missing_files": True,
+            "select_readers": ["read_csv", "read_raw"],
+        }
+        config = self._parse_yaml(tmp_path, plugins={"table-reader": plugin})
+        assert config["mdx_configs"][TableReaderExtension.name] == plugin
+
+    def test_table_reader_shimmed_from_zensical_toml(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "docs").mkdir()
+        config_file = tmp_path / "zensical.toml"
+        config_file.write_text(
+            "[project]\n"
+            'site_name = "Test Site"\n'
+            "[project.plugins.table-reader]\n"
+            'data_path = "tables"\n'
+            "allow_missing_files = true\n"
+            'select_readers = ["read_csv", "read_raw"]\n',
+            encoding="utf-8",
+        )
+        config = parse_config(str(config_file))
+        assert TableReaderExtension.name in config["markdown_extensions"]
+        assert config["plugins"]["table-reader"]["config"] == {
+            "data_path": "tables",
+            "allow_missing_files": True,
+            "select_readers": ["read_csv", "read_raw"],
+        }
+
+    def test_disabled_table_reader_not_added(self, tmp_path: Path) -> None:
+        config = self._parse_yaml(
+            tmp_path, plugins={"table-reader": {"enabled": False}}
+        )
+        assert TableReaderExtension.name not in config["markdown_extensions"]
+        assert MacrosExtension.name not in config["markdown_extensions"]
+
+    def test_table_reader_reuses_macros_extension(self, tmp_path: Path) -> None:
+        config = self._parse_yaml(
+            tmp_path,
+            plugins={"macros": {}, "table-reader": {}},
+        )
+        assert MacrosExtension.name in config["markdown_extensions"]
+        assert TableReaderExtension.name not in config["markdown_extensions"]
+
+    def test_table_reader_data_path_outside_project_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        with pytest.raises(
+            ConfigurationError,
+            match="data_path must be within project root",
+        ):
+            self._parse_yaml(
+                tmp_path,
+                plugins={"table-reader": {"data_path": "../tables"}},
+            )
 
     def test_autorefs_standalone(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins={"autorefs": {}})
