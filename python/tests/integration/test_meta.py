@@ -71,7 +71,7 @@ plugins:
 
     zensical.build(str(config), _BUILD_OPTIONS)
 
-    output = (tmp_path / "site" / "guide" / "page" / "index.html")
+    output = tmp_path / "site" / "guide" / "page" / "index.html"
     assert json.loads(output.read_text()) == {
         "items": ["root", "guide", "page"],
         "scope": {"guide": "guide", "page": "page", "root": "root"},

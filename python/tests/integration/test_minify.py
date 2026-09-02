@@ -71,9 +71,7 @@ plugins:
 
 def test_minifies_final_html_and_inline_languages(tmp_path: Path) -> None:
     """HTML runs last while script/style use parser-backed minifiers."""
-    zensical.build(
-        str(_project(tmp_path)), {"clean": False, "strict": False}
-    )
+    zensical.build(str(_project(tmp_path)), {"clean": False, "strict": False})
     output = (tmp_path / "site" / "index.html").read_text()
 
     assert "remove this comment" not in output
@@ -101,9 +99,7 @@ def test_inline_minification_does_not_require_html_minification(
     assert "screen and (min-width:45em)" in output
 
 
-def _asset_project(
-    root: Path, *, minify: bool, cache_safe: bool
-) -> Path:
+def _asset_project(root: Path, *, minify: bool, cache_safe: bool) -> Path:
     """Create a project covering exact, glob, and configured assets."""
     docs = root / "docs"
     (docs / "assets" / "nested").mkdir(parents=True)
@@ -293,9 +289,7 @@ def _unminified_asset_project(root: Path) -> Path:
     (docs / "assets").mkdir(parents=True)
     (overrides / "assets").mkdir(parents=True)
     (docs / "index.md").write_text("# Assets\n", encoding="utf-8")
-    (docs / "assets" / "shared.txt").write_text(
-        "project\n", encoding="utf-8"
-    )
+    (docs / "assets" / "shared.txt").write_text("project\n", encoding="utf-8")
     (overrides / "assets" / "shared.txt").write_text(
         "theme\n", encoding="utf-8"
     )

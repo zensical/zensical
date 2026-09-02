@@ -167,9 +167,7 @@ Not indexed.
 
     disabled = tmp_path / "disabled"
     disabled.mkdir()
-    config = _write_project(
-        disabled, plugins="  search:\n    enabled: false"
-    )
+    config = _write_project(disabled, plugins="  search:\n    enabled: false")
     zensical.build(str(config), _BUILD_OPTIONS)
     assert _read_index(disabled)["items"] == []
 

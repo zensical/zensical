@@ -60,19 +60,12 @@ def test_redirects_generate_mkdocs_compatible_artifacts(tmp_path: Path) -> None:
     zensical.build(str(config), _BUILD_OPTIONS)
 
     old = (tmp_path / "site" / "old" / "index.html").read_text()
-    nested = (
-        tmp_path / "site" / "legacy" / "deep" / "index.html"
-    ).read_text()
-    external = (
-        tmp_path / "site" / "external" / "index.html"
-    ).read_text()
+    nested = (tmp_path / "site" / "legacy" / "deep" / "index.html").read_text()
+    external = (tmp_path / "site" / "external" / "index.html").read_text()
     assert '<link rel="canonical" href="../new/">' in old
+    assert '<link rel="canonical" href="../../guide/topic/#details">' in nested
     assert (
-        '<link rel="canonical" href="../../guide/topic/#details">' in nested
-    )
-    assert (
-        '<link rel="canonical" href="https://example.com/new?q=1">'
-        in external
+        '<link rel="canonical" href="https://example.com/new?q=1">' in external
     )
     assert "noindex" not in old
 
@@ -98,8 +91,7 @@ def test_missing_redirect_target_warns_and_strict_mode_fails(
     zensical.build(str(config), _BUILD_OPTIONS)
     assert not (tmp_path / "site" / "old" / "index.html").exists()
     assert (
-        "Redirect target 'missing.md' does not exist!"
-        in capfd.readouterr().err
+        "Redirect target 'missing.md' does not exist!" in capfd.readouterr().err
     )
 
     with pytest.raises(RuntimeError, match="strict flag is set"):
@@ -240,9 +232,11 @@ def test_serve_removes_and_restores_redirect_with_its_target(
         wait_for(lambda: not output.exists())
         target.write_text("# New again\n", encoding="utf-8")
         wait_for(
-            lambda: output.is_file()
-            and target_output.is_file()
-            and "New again" in target_output.read_text(encoding="utf-8")
+            lambda: (
+                output.is_file()
+                and target_output.is_file()
+                and "New again" in target_output.read_text(encoding="utf-8")
+            )
         )
         assert process.poll() is None
     finally:
