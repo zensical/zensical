@@ -30,17 +30,24 @@
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::needless_pass_by_value)]
 
-use crossbeam::channel::unbounded;
-use pyo3::prelude::*;
-use pyo3::Python;
+use crossbeam::channel::{unbounded, RecvTimeoutError};
+use pyo3::exceptions::PyRuntimeError;
+use pyo3::types::{PyModule, PyModuleMethods};
+use pyo3::{
+    pyfunction, pymodule, wrap_pyfunction, Bound, FromPyObject, PyResult,
+    Python,
+};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{Duration, Instant};
 use std::{fs, io, thread};
-use zrx::id::Id;
-use zrx::scheduler::Scheduler;
 
+use zrx::id::Id;
+use zrx::stream::{Change, Key};
+
+mod compat;
 mod config;
+pub mod path;
 mod python;
 mod server;
 mod structure;
@@ -48,24 +55,15 @@ mod template;
 mod watcher;
 mod workflow;
 
+use compat::mkdocs::plugin::meta;
 use config::Config;
 use server::{create_server, ServeOptions};
 use watcher::Watcher;
-use workflow::create_workflow;
+use workflow::{create_workflow, Configuration, Input};
 
 // ----------------------------------------------------------------------------
 // Enums
 // ----------------------------------------------------------------------------
-
-/// Serve options.
-#[derive(Clone, Debug, FromPyObject, PartialEq, Eq)]
-#[pyo3(from_item_all)]
-pub struct BuildOptions {
-    /// Whether to clean the cache directory before building.
-    pub clean: Option<bool>,
-    /// Whether to enable strict mode - abort the build on any warnings.
-    pub strict: Option<bool>,
-}
 
 /// Build mode.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,6 +72,20 @@ pub enum Mode {
     Build(BuildOptions),
     /// Build the project continuously.
     Serve(ServeOptions, u64),
+}
+
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
+
+/// Build options.
+#[derive(Clone, Debug, FromPyObject, PartialEq, Eq)]
+#[pyo3(from_item_all)]
+pub struct BuildOptions {
+    /// Whether to clean the cache directory before building.
+    pub clean: Option<bool>,
+    /// Whether to enable strict mode and abort on warnings.
+    pub strict: Option<bool>,
 }
 
 // ----------------------------------------------------------------------------
@@ -164,13 +176,13 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     };
 
     // Clean cache directory if requested
-    if let Mode::Build(options) = &mode {
-        if options.clean.unwrap_or(false) {
-            let cache_dir = config.get_cache_dir();
-            if cache_dir.exists() {
-                std::fs::remove_dir_all(&cache_dir)
-                    .expect("cache directory could not be removed");
-            }
+    if let Mode::Build(options) = &mode
+        && options.clean.unwrap_or(false)
+    {
+        let cache_dir = config.get_cache_dir();
+        if cache_dir.exists() {
+            std::fs::remove_dir_all(&cache_dir)
+                .expect("cache directory could not be removed");
         }
     }
 
@@ -178,9 +190,9 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     // true differential builds, which will also include cleaning up old files
     // that are not needed anymore but for now, we just remove everything, like
     // MkDocs does it, but not the directory itself, see https://t.ly/Lrjdx
-    let site_dir = config.get_site_dir();
+    let site_dir = config.output_root().as_path();
     if site_dir.exists() {
-        clear_dir(&site_dir).expect("site directory could not be cleaned");
+        clear_dir(site_dir).expect("site directory could not be cleaned");
     }
 
     // Determine if strict mode is enabled
@@ -191,19 +203,45 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         Mode::Serve(_, _) => false,
     };
 
-    // Create workspace and scheduler
-    let workflow = create_workflow(&config, strict);
-    let mut scheduler = Scheduler::<Id>::default();
-    scheduler.attach(workflow);
+    // Resolve the metadata pipeline once for the workflow and provider
+    // boundary. Provider admission remains a revision-fact workaround, so
+    // share the module-owned value across both sides.
+    let meta = meta::Meta::new(&config);
 
+    // Create workflow runner and acquire its source input
+    let workflow = create_workflow(
+        &config,
+        strict,
+        matches!(&mode, Mode::Serve(_, _)),
+        meta.clone(),
+    );
+    let mut runner = workflow
+        .runner()
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    let mut input = runner
+        .input::<Input>()
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    let configuration = runner
+        .input::<Configuration>()
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    let mut revision = configuration
+        .begin()
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    revision
+        .insert(
+            Key::<Id>::from_iter(std::iter::empty()),
+            Configuration::new(config.clone(), strict),
+        )
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    let _configuration = revision
+        .seal()
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    let _run = runner
+        .settle()
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    report_failures(&runner)?;
     // Create channel for reload notifications
     let (sender, receiver) = unbounded();
-
-    // Create session to connect file agent and scheduler - note that we must
-    // assign the agent to a variable right now, or it is dropped, and will
-    // automatically terminate. This is a temporary workaround until we could
-    // better integrate the scheduler with the agent.
-    let session = scheduler.session();
 
     // If site should be served, create HTTP server - note that we must assign
     // the agent to a variable right now or it's dropped and will automatically
@@ -229,58 +267,71 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     };
 
     let serve = matches!(mode, Mode::Serve(_, _));
-    let watcher = Watcher::new(&config, serve, session, sender, waker.clone())?;
+    let watcher = Watcher::new(&config, serve, sender, waker.clone())?;
+    let mut metadata = meta.setup(meta::Dependencies {
+        docs: config.docs_root().clone(),
+        context: config.project.docs_dir.clone(),
+    });
 
-    // Hack: the scheduler and file agent are currently not synchronized, which
-    // can lead to cases where the file agent is still busy reading the contents
-    // of the docs directory before starting to emit anything, and the scheduler
-    // starting off while having nothing to do. We need to improve communication
-    // between both parts of the system. In the meantime, we wait until the
-    // scheduler has something to do, before kicking off work.
-    while scheduler.is_empty() {
-        thread::sleep(Duration::from_millis(10));
-    }
-
-    // Start event loop after a short delay - once we tightly integrated the
-    // file agent with the scheduler, the sleep can be removed
+    // Start the event loop. Each debounced watcher batch is admitted as one
+    // source revision and fully settled before the next batch is accepted.
     println!("Build started");
     let time = Instant::now();
-    let mut maybe_err = None;
     loop {
-        match mode {
-            // Build mode - just exit when we're done
-            Mode::Build(..) => {
-                if let Err(err) =
-                    scheduler.tick_timeout(Duration::from_millis(100))
-                {
-                    maybe_err = Some(err);
-                    break;
+        match watcher.receive(Duration::from_millis(100)) {
+            Ok(changes) => {
+                let meta::Prepared { index, dependents } =
+                    metadata.prepare(&changes).map_err(|error| {
+                        PyRuntimeError::new_err(format!("{error:#}"))
+                    })?;
+                let mut revision = input
+                    .begin()
+                    .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+                for (key, source) in dependents {
+                    revision
+                        .insert(key, Input::new(source, index.clone()))
+                        .map_err(|err| {
+                            PyRuntimeError::new_err(err.to_string())
+                        })?;
                 }
-                if scheduler.is_empty() {
+                for change in changes {
+                    match change {
+                        Change::Insert(key, source) => revision
+                            .insert(key, Input::new(source, index.clone()))
+                            .map_err(|err| {
+                                PyRuntimeError::new_err(err.to_string())
+                            })?,
+                        Change::Remove(key) => {
+                            revision.remove(key).map_err(|err| {
+                                PyRuntimeError::new_err(err.to_string())
+                            })?;
+                        }
+                    }
+                }
+                input = revision
+                    .seal()
+                    .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+
+                let _run = runner
+                    .settle()
+                    .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+                report_failures(&runner)?;
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => match mode {
+                Mode::Build(..) => {
                     let elapsed = time.elapsed().as_secs_f32();
                     println!("Build finished in {elapsed:.2}s");
                     break;
                 }
-            }
-            // Serve mode - keep watching, until the watcher terminates, which
-            // happens if the configuration file changed. After we've integrated
-            // the scheduler with the agent, we can remove this temporary hack
-            // and have immediate reloading.
-            Mode::Serve(..) => {
-                if let Err(err) =
-                    scheduler.tick_timeout(Duration::from_millis(100))
-                {
-                    maybe_err = Some(err);
-                    break;
-                }
-                if watcher.is_terminated() {
+                Mode::Serve(..) => {
                     // Wake the server
                     if let Some(waker) = &waker {
                         waker.wake()?;
                     }
                     return Ok(true);
                 }
-            }
+            },
         }
 
         // Allow Python to handle signals (e.g., Ctrl+C)
@@ -290,21 +341,25 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         }
     }
 
-    // Exit with error, if any
-    if let Some(err) = maybe_err {
-        println!("{err}");
-        // Walk the error source chain so the root cause (e.g. a missing icon
-        // name) is visible instead of only the outermost template error.
-        let mut cause: &dyn std::error::Error = &err;
-        while let Some(source) = cause.source() {
-            println!("  caused by: {source}");
-            cause = source;
-        }
-        std::process::exit(1);
-    }
-
     // All good
     Ok(false)
+}
+
+/// Returns the first unresolved operator failure owned by the workflow.
+fn report_failures(runner: &zrx::stream::Runner<Id>) -> PyResult<()> {
+    if let Some(failure) = unresolved_failures(runner).first() {
+        return Err(PyRuntimeError::new_err(failure.clone()));
+    }
+    Ok(())
+}
+
+/// Formats unresolved operator failures owned by the workflow.
+fn unresolved_failures(runner: &zrx::stream::Runner<Id>) -> Vec<String> {
+    runner
+        .errors()
+        .iter()
+        .map(|failure| format!("{:#}", failure.error()))
+        .collect()
 }
 
 // ----------------------------------------------------------------------------
@@ -360,9 +415,34 @@ fn zensical(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::fs;
     use tempfile::tempdir;
+    use zrx::id::Id;
+    use zrx::stream::{Key, Workflow};
+
+    use super::{clear_dir, unresolved_failures};
+
+    #[test]
+    fn unresolved_operator_failures_are_returned_to_python() {
+        let workflow = Workflow::<Id>::build(|workflow| {
+            let input = workflow.input::<u64>();
+            let output = input.map(|_: &u64| -> anyhow::Result<u64> {
+                anyhow::bail!("broken callback")
+            });
+            workflow.output(&output);
+        });
+        let mut runner = workflow.runner().unwrap();
+        let input = runner.input::<u64>().unwrap();
+        let mut revision = input.begin().unwrap();
+        revision
+            .insert(Key::from_iter(std::iter::empty()), 1)
+            .unwrap();
+        let _input = revision.seal().unwrap();
+        let _run = runner.settle().unwrap();
+
+        assert_eq!(runner.errors().len(), 1);
+        assert_eq!(unresolved_failures(&runner), ["broken callback"]);
+    }
 
     #[test]
     fn clear_dir_removes_non_hidden_file() {

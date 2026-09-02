@@ -91,8 +91,8 @@ macro_rules! define_and_impl_header {
         /// While the HTTP specification allows those specific headers to appear
         /// multiple times, our implementation only supports setting them once.
         ///
-        /// [`Request`]: crate::connection::request::Request
-        /// [`Response`]: crate::connection::response::Response
+        /// [`Request`]: crate::http::Request
+        /// [`Response`]: crate::http::Response
         #[allow(dead_code)]
         #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
         pub enum Header {

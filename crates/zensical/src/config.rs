@@ -32,7 +32,11 @@ use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
 use zrx::path::PathExt;
+
+use crate::config::plugins::TagsPlugin;
+use crate::path::{OutputRoot, SourceRoot};
 
 mod error;
 pub mod extra;
@@ -63,6 +67,12 @@ pub struct Config {
     pub project: Arc<Project>,
     /// Theme directories.
     pub theme_dirs: Vec<PathBuf>,
+    /// Canonical documentation source root.
+    docs_root: SourceRoot,
+    /// Canonical site output root.
+    output_root: OutputRoot,
+    /// Resolved Python Markdown extensions after compatibility shims.
+    markdown_extensions: Arc<[String]>,
     /// Configuration hash.
     pub hash: u64,
 }
@@ -80,8 +90,17 @@ impl Config {
     where
         P: AsRef<Path>,
     {
-        let path = path.as_ref();
-        Python::attach(|py| {
+        // Resolve the configuration itself before Python interprets relative
+        // paths. This keeps Python configuration loading and Rust filesystem
+        // roots anchored to the same directory when the file is a symlink.
+        let path = path.as_ref().canonicalize()?;
+        let value = path.to_str().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "configuration path must be valid UTF-8",
+            )
+        })?;
+        let (project, markdown_extensions) = Python::attach(|py| {
             // Reset global data in compatibility modules
             py.import("zensical.extensions.autorefs")?
                 .call_method0("reset")?;
@@ -93,68 +112,73 @@ impl Config {
             // in configuration. For TOML, this is technically not necessary,
             // but we'll move it through the same pipeline for consistency.
             let module = py.import("zensical.config")?;
-            let config = module
-                .call_method1("parse_config", (path.to_string_lossy(),))?
-                .extract::<Project>()?;
+            let config = module.call_method1("parse_config", (value,))?;
+            let markdown_extensions = config
+                .get_item("markdown_extensions")?
+                .extract::<Vec<String>>()?;
+
+            // Validate raw native tags configuration before derived project
+            // extraction can replace its precise diagnostic with generic
+            // nested-field context from PyO3.
+            config
+                .get_item("plugins")?
+                .get_item("tags")?
+                .extract::<TagsPlugin>()?;
+            let project = config.extract::<Project>()?;
 
             // Return configuration and theme directory
-            Ok::<_, PyErr>(config)
+            Ok::<_, PyErr>((project, markdown_extensions))
+        })?;
+
+        // Merge theme directories, giving precedence to custom directory over
+        // the main theme directory to allow for overrides.
+        let iter = project.theme_dirs.clone().into_iter();
+        let theme_dirs = iter
+            .map(|path| path.canonicalize().expect("invariant"))
+            .collect();
+
+        // Precompute hash
+        let hash = {
+            let mut hasher = DefaultHasher::default();
+            project.hash(&mut hasher);
+            hasher.finish()
+        };
+
+        // Resolve physical roots once. Logical source and output paths are
+        // joined to these canonical roots at filesystem boundaries.
+        let root = path.parent().expect("configuration has parent");
+        let docs_dir = root.join(&project.docs_dir);
+        fs::create_dir_all(&docs_dir)?;
+        let docs_root = SourceRoot::open(docs_dir)?;
+        let output_root = OutputRoot::prepare(root.join(&project.site_dir))?;
+
+        // Return configuration
+        Ok(Config {
+            path,
+            project: Arc::new(project),
+            theme_dirs,
+            docs_root,
+            output_root,
+            markdown_extensions: markdown_extensions.into(),
+            hash,
         })
-        .map_err(Into::into)
-        .and_then(|project| {
-            // Merge theme directories, giving precedence to custom directory
-            // over the main theme directory to allow for overrides
-            let iter = project.theme_dirs.clone().into_iter();
-            let theme_dirs = iter
-                .map(|path| path.canonicalize().expect("invariant"))
-                .collect();
-
-            // Precompute hash
-            let hash = {
-                let mut hasher = DefaultHasher::default();
-                project.hash(&mut hasher);
-                hasher.finish()
-            };
-
-            // Return configuration
-            Ok(Config {
-                path: path.canonicalize()?,
-                project: Arc::new(project),
-                theme_dirs,
-                hash,
-            })
-        })
     }
 
-    /// Returns the directory the configuration file is located in.
-    pub fn get_root_dir(&self) -> PathBuf {
-        let mut path = self.path.clone();
-        path.pop();
-        path
+    /// Returns whether a resolved Python Markdown extension is active.
+    pub fn has_markdown_extension(&self, name: &str) -> bool {
+        self.markdown_extensions
+            .iter()
+            .any(|extension| extension == name)
     }
 
-    /// Returns the docs directory, resolved relative to the configuration file.
-    pub fn get_docs_dir(&self) -> PathBuf {
-        let mut path = self.path.clone();
-        path.pop();
-
-        // Ensure directory exists
-        let path = path.join(&self.project.docs_dir);
-        fs::create_dir_all(&path)
-            .and_then(|()| path.canonicalize())
-            .expect("invariant")
+    /// Returns the canonical documentation source root.
+    pub fn docs_root(&self) -> &SourceRoot {
+        &self.docs_root
     }
 
-    /// Returns the site directory, resolved relative to the configuration file.
-    pub fn get_site_dir(&self) -> PathBuf {
-        let mut path = self.path.clone();
-        path.pop();
-
-        // Ensure directory exists
-        let path = path.join(&self.project.site_dir);
-        fs::create_dir_all(&path)
-            .and_then(|()| path.canonicalize())
-            .expect("invariant")
+    /// Returns the canonical site output root.
+    pub fn output_root(&self) -> &OutputRoot {
+        &self.output_root
     }
 
     /// Returns the cache directory, resolved relative to the configuration file.
@@ -181,10 +205,7 @@ impl Config {
     where
         P: AsRef<Path>,
     {
-        PathBuf::from(".")
-            .relative_to(path)
-            .to_string_lossy()
-            .replace('\\', "/")
+        relative_base_url(path)
     }
 
     /// Returns the base path, derived from the site URL if available.
@@ -209,6 +230,21 @@ impl Config {
             base.trim_end_matches('/').to_string()
         }
     }
+}
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
+/// Computes the relative root used by page and fragment template contexts.
+pub fn relative_base_url<P>(path: P) -> String
+where
+    P: AsRef<Path>,
+{
+    PathBuf::from(".")
+        .relative_to(path)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 // ----------------------------------------------------------------------------

@@ -25,34 +25,28 @@
 
 //! Navigation.
 
-use std::fs;
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-
-use ahash::{HashMap, HashSet};
+use ahash::HashMap;
 use pyo3::types::{PyAny, PyAnyMethods};
-use pyo3::{Bound, FromPyObject, PyResult, Python};
+use pyo3::{Bound, FromPyObject, PyResult};
 use serde::Serialize;
-use zrx::id::Id;
-use zrx::scheduler::{Key, Value};
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Arc;
 
-use crate::structure::markdown::Autorefs;
+use zrx::scheduler::Value;
+
+use crate::path::SourcePath;
 
 use super::page::Page;
 
 mod item;
 mod iter;
+mod plan;
+mod view;
 
 pub use item::NavigationItem;
 use iter::Iter;
-
-// ----------------------------------------------------------------------------
-// Constants
-// ----------------------------------------------------------------------------
-
-/// Lock serializing collection and caching of global autorefs data.
-static AUTOREFS_CACHE_LOCK: Mutex<()> = Mutex::new(());
+pub use plan::{Plan, PlanItem};
+pub use view::NavigationView;
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -71,10 +65,6 @@ pub struct Navigation {
     pub items: Arc<Vec<NavigationItem>>,
     /// Homepage, if defined.
     pub homepage: Option<NavigationItem>,
-    /// Autorefs (mkdocstrings), kept internal to the rendering pipeline.
-    #[pyo3(from_py_with = extract_shared_autorefs)]
-    #[serde(skip)]
-    pub autorefs: Arc<Autorefs>,
     /// Precomputed navigation-structure hash.
     pub hash: u64,
     /// Site snapshot generation this navigation was created from.
@@ -88,32 +78,20 @@ pub struct Navigation {
 
 impl Navigation {
     /// Creates a navigation from the given items.
-    pub fn new(
-        cache_dir: PathBuf, mut items: Vec<NavigationItem>,
-        pages: Vec<(Key<Id>, Page)>,
-    ) -> Self {
-        let page_urls = pages
-            .iter()
-            .map(|(_, page)| page.url.clone())
-            .collect::<HashSet<_>>();
-
-        // Fetch and cache autorefs once, used by both branches below
-        let autorefs = get_autorefs_cached(&cache_dir, &page_urls);
-
+    pub fn new(items: Vec<NavigationItem>, pages: Vec<Page>) -> Self {
         if items.is_empty() {
-            let mut nav = Self::from(pages);
-            nav.autorefs = Arc::new(autorefs);
-            return nav;
+            return Self::from(pages);
         }
+        Self::from_plan(items, pages)
+    }
 
+    /// Creates navigation from an explicit plan, including an empty one.
+    fn from_plan(mut items: Vec<NavigationItem>, pages: Vec<Page>) -> Self {
         // Create a map of pages for easy lookup, so we can resolve titles and
         // icons from the file location of the respective page.
         let pages = pages
             .into_iter()
-            .map(|(id, page)| {
-                let id = id[0].location().to_string();
-                (id, page)
-            })
+            .map(|page| (page.source().to_string(), page))
             .collect::<HashMap<_, _>>();
 
         // Since a navigation structure is given, we just need to add titles and
@@ -161,20 +139,19 @@ impl Navigation {
         if homepage.is_none() {
             // However, if we couldn't find anything, but there's still an index
             // page, we check if it's out of navigation, and if so, use it
-            if let Some(page) = pages.get("index.md") {
-                if !Iter::new(&items)
+            if let Some(page) = pages.get("index.md")
+                && !Iter::new(&items)
                     .any(|item| item.url.as_deref() == Some(&page.url))
-                {
-                    homepage = Some(NavigationItem {
-                        title: Some(page.title.clone()),
-                        url: Some(page.url.clone()),
-                        canonical_url: page.canonical_url.clone(),
-                        meta: Some(page.meta.clone()),
-                        children: Vec::new(),
-                        is_index: true,
-                        active: false,
-                    });
-                }
+            {
+                homepage = Some(NavigationItem {
+                    title: Some(page.title.clone()),
+                    url: Some(page.url.clone()),
+                    canonical_url: page.canonical_url.clone(),
+                    meta: Some(page.meta.clone()),
+                    children: Vec::new(),
+                    is_index: true,
+                    active: false,
+                });
             }
         }
 
@@ -185,47 +162,8 @@ impl Navigation {
         Self {
             items: Arc::new(items),
             homepage,
-            autorefs: Arc::new(autorefs),
             hash,
             generation: 0,
-        }
-    }
-
-    /// Returns a copy of the navigation with the active item set based on the
-    /// current URL. This mirrors MkDocs' behavior of setting the "active"
-    /// state on navigation items, which is then used for styling.
-    ///
-    /// Note that this does not modify the navigation in place, but returns a
-    /// new instance with the active state set. This is important, as we need
-    /// to keep the original navigation structure intact for other pages.
-    pub fn with_active(self, page: &Page) -> Self {
-        /// Recursively set active state on navigation items.
-        fn recurse(items: &mut [NavigationItem], url: &str) -> bool {
-            for item in items.iter_mut() {
-                if item.url.as_deref() == Some(url) {
-                    item.active = true;
-                    return true;
-                }
-
-                // If we haven't found the item yet, recurse into children
-                if recurse(&mut item.children, url) {
-                    item.active = true;
-                    return true;
-                }
-            }
-            false
-        }
-
-        // Set active state starting from the root
-        let mut items = self.items;
-        let items_mut = Arc::<Vec<NavigationItem>>::make_mut(&mut items);
-        recurse(items_mut, &page.url);
-        Self {
-            items,
-            homepage: self.homepage,
-            autorefs: self.autorefs,
-            hash: self.hash,
-            generation: self.generation,
         }
     }
 
@@ -234,6 +172,11 @@ impl Navigation {
     /// Note that only the ancestors, not the page itself is returned, which
     /// again, mirrors MkDocs' behavior, and is necessary for breadcrumbs.
     pub fn ancestors(&self, page: &Page) -> Vec<NavigationItem> {
+        self.ancestors_for_url(&page.url)
+    }
+
+    /// Returns ancestors of a page URL without requiring the complete page.
+    pub fn ancestors_for_url(&self, url: &str) -> Vec<NavigationItem> {
         // Recursively find ancestors of the page with the given URL.
         fn recurse<'a>(
             items: &'a [NavigationItem], url: &str,
@@ -262,7 +205,7 @@ impl Navigation {
         // Clone the ancestors into owned items and reverse them, so we start
         // at the ancestor closest to the page, not the root itself
         let mut items: Vec<&NavigationItem> = Vec::new();
-        let _ = recurse(&self.items, &page.url, &mut items);
+        let _ = recurse(&self.items, url, &mut items);
         items.into_iter().rev().cloned().collect()
     }
 
@@ -311,40 +254,33 @@ impl Value for Navigation {}
 
 // ----------------------------------------------------------------------------
 
-impl From<Vec<(Key<Id>, Page)>> for Navigation {
+impl From<Vec<Page>> for Navigation {
     /// Creates a navigation from pages.
     ///
     /// This mirrors the functionality of auto-populated navigation that MkDocs
     /// provides. In the future, we intend to refactor this into a more flexible
     /// system that allows for custom and modular navigation structures, but for
     /// now, compatibility is key.
-    fn from(pages: Vec<(Key<Id>, Page)>) -> Self {
+    fn from(pages: Vec<Page>) -> Self {
         let mut items: Vec<NavigationItem> = Vec::new();
 
-        // Convert chunk into a vector for easier processing, and sort pages by
-        // the exact same method that MkDocs uses
-        let mut pages = Vec::from_iter(pages);
-        pages.sort_by_key(|(id, _)| file_sort_key(&id[0]));
+        // Sort pages by the exact same method that MkDocs uses.
+        let mut pages = pages;
+        pages.sort_by_key(|page| source_sort_key(page.source()));
 
         // There can only be pages, no URLs, since we're auto-populating the
         // navigation from the files in the docs directory
-        for (id, page) in pages {
-            let location = id[0].location();
-
-            // Split location into components at slashes
-            let mut components = location
-                .split('/')
-                .map(ToString::to_string)
-                .collect::<Vec<_>>();
-
-            // Extract file, and check, whether it's an index file
-            let file = components.pop().expect("invariant");
+        for page in pages {
+            let source = page.source();
+            let file = source.file_name();
 
             // Now, first obtain the subsection in which we need to insert the
             // page. If there are no parents, we insert it at the top level.
             let mut section = &mut items;
-            for component in components {
-                let title = to_title(&component);
+            for component in
+                source.parent().iter().flat_map(SourcePath::components)
+            {
+                let title = to_title(component);
 
                 // Next, we try to find an existing section with the same title.
                 // If we find one, we descend into it, otherwise, we create.
@@ -377,16 +313,10 @@ impl From<Vec<(Key<Id>, Page)>> for Navigation {
                 canonical_url: page.canonical_url.clone(),
                 meta: Some(page.meta.clone()),
                 children: Vec::new(),
-                is_index: is_index(&file),
+                is_index: is_index(file),
                 active: false,
             });
         }
-
-        // Start from empty autorefs — Navigation::new() overrides this with
-        // the cached+merged result when called through the normal build path.
-        // Fetching from Python here would consume the updated-pages tracking
-        // outside of the cache lock, silently losing update flags.
-        let autorefs = Autorefs::new();
 
         // Precompute hash
         let hash = navigation_hash(&items);
@@ -394,7 +324,6 @@ impl From<Vec<(Key<Id>, Page)>> for Navigation {
         // Determine homepage and return navigation
         Self {
             homepage: items.iter().find(|item| item.is_index).cloned(),
-            autorefs: Arc::new(autorefs),
             items: Arc::new(items),
             hash,
             generation: 0,
@@ -418,19 +347,15 @@ impl<'a> IntoIterator for &'a Navigation {
 // Functions
 // ----------------------------------------------------------------------------
 
-// Returns a key that replicates MkDocs' navigation sorting behavior, ordering
-// by parents, then putting the index page first, then sorting by name
-pub(crate) fn file_sort_key(id: &Id) -> (Vec<String>, bool, String) {
-    let location = id.location();
-
-    // Split location into components at slashes
-    let mut components = location
-        .split('/')
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
-
-    // Extract file, and check, whether it's an index file
-    let file = components.pop().expect("invariant");
+/// Returns the MkDocs navigation sort key for one validated source path.
+pub fn source_sort_key(source: &SourcePath) -> (Vec<String>, bool, String) {
+    let file = source.file_name().to_owned();
+    let components = source
+        .parent()
+        .iter()
+        .flat_map(SourcePath::components)
+        .map(ToOwned::to_owned)
+        .collect();
     (components, !is_index(&file), file)
 }
 
@@ -447,7 +372,7 @@ fn navigation_hash(items: &[NavigationItem]) -> u64 {
 }
 
 /// Computes a page title from a file name, replicating MkDocs' behavior.
-pub(crate) fn to_title(component: &str) -> String {
+pub fn to_title(component: &str) -> String {
     let title = component.trim_end_matches(".md").replace(['-', '_'], " ");
     let first = title.chars().next().unwrap_or_default();
 
@@ -460,62 +385,10 @@ pub(crate) fn to_title(component: &str) -> String {
     }
 }
 
-fn extract_shared_autorefs(
-    value: &Bound<'_, PyAny>,
-) -> PyResult<Arc<Autorefs>> {
-    value.extract::<Autorefs>().map(Arc::new)
-}
-
 fn extract_shared_items(
     value: &Bound<'_, PyAny>,
 ) -> PyResult<Arc<Vec<NavigationItem>>> {
     value.extract::<Vec<NavigationItem>>().map(Arc::new)
-}
-
-fn get_autorefs_cached(
-    cache_dir: &Path, page_urls: &HashSet<String>,
-) -> Autorefs {
-    let _guard = AUTOREFS_CACHE_LOCK.lock().expect("invariant");
-    let path = cache_dir.join("autorefs.json");
-
-    // Load previously cached autorefs, falling back to empty if unavailable
-    let mut autorefs = fs::read(&path)
-        .ok()
-        .and_then(|data| serde_json::from_slice::<Autorefs>(&data).ok())
-        .unwrap_or_default();
-
-    // Fetch fresh data from the Python process. Remove registrations for pages
-    // that were reprocessed before merging, so removed anchors don't survive
-    // in the cache. Fresh data takes precedence, while identifiers from pages
-    // that stayed cached are preserved.
-    let fresh = get_autorefs();
-    let updated_pages =
-        fresh.updated_pages.iter().cloned().collect::<HashSet<_>>();
-    autorefs.remove_pages(&updated_pages);
-    autorefs.merge(fresh);
-
-    // Drop registrations for pages that no longer exist.
-    autorefs.retain_pages(page_urls);
-
-    // Write merged autorefs back to cache
-    if let Ok(data) = serde_json::to_string_pretty(&autorefs) {
-        let _ = fs::create_dir_all(cache_dir);
-        let _ = fs::write(&path, data);
-    }
-
-    autorefs
-}
-
-fn get_autorefs() -> Autorefs {
-    match Python::attach(|py| {
-        let module = py.import("zensical.extensions.autorefs")?;
-        module
-            .call_method0("get_autorefs_data")?
-            .extract::<Autorefs>()
-    }) {
-        Ok(autorefs) => autorefs,
-        Err(_) => Autorefs::new(),
-    }
 }
 
 // ----------------------------------------------------------------------------
@@ -524,40 +397,36 @@ fn get_autorefs() -> Autorefs {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::sync::Arc;
+
+    use crate::path::SourcePath;
+
+    use super::{navigation_hash, source_sort_key, to_title, Navigation};
 
     #[test]
     fn test_clone_shares_immutable_data() {
         let nav = Navigation {
             items: Arc::new(Vec::new()),
             homepage: None,
-            autorefs: Arc::new(Autorefs::new()),
             hash: 0,
             generation: 0,
         };
 
         let clone = nav.clone();
 
-        assert!(Arc::ptr_eq(&nav.autorefs, &clone.autorefs));
         assert!(Arc::ptr_eq(&nav.items, &clone.items));
     }
 
     #[test]
-    fn serialization_omits_internal_autorefs_state() {
-        let mut autorefs = Autorefs::new();
-        autorefs
-            .primary
-            .insert("item".to_string(), vec!["reference/#item".to_string()]);
+    fn serialization_omits_internal_generation() {
         let nav = Navigation {
             items: Arc::new(Vec::new()),
             homepage: None,
             hash: navigation_hash(&[]),
-            autorefs: Arc::new(autorefs),
             generation: 0,
         };
 
         let value = serde_json::to_value(nav).expect("invariant");
-        assert!(value.get("autorefs").is_none());
         assert!(value.get("generation").is_none());
         assert!(value.get("hash").is_some());
     }
@@ -567,5 +436,19 @@ mod tests {
     fn test_to_title() {
         assert_eq!(to_title("hello-world"), "Hello world");
         assert_eq!(to_title("编译器笔记"), "编译器笔记");
+    }
+
+    #[test]
+    fn source_sorting_places_index_before_siblings() {
+        let mut sources = [
+            "guide/zebra.md".parse::<SourcePath>().unwrap(),
+            "guide/index.md".parse().unwrap(),
+            "guide/café.md".parse().unwrap(),
+        ];
+        sources.sort_by_key(source_sort_key);
+
+        assert_eq!(sources[0].as_str(), "guide/index.md");
+        assert_eq!(sources[1].as_str(), "guide/café.md");
+        assert_eq!(sources[2].as_str(), "guide/zebra.md");
     }
 }

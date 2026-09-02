@@ -25,7 +25,7 @@
 
 //! Snippet range.
 
-use pyo3::prelude::*;
+use pyo3::FromPyObject;
 
 // ----------------------------------------------------------------------------
 // Structs

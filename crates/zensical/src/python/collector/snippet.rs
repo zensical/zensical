@@ -25,9 +25,11 @@
 
 //! Snippet.
 
-use pyo3::prelude::*;
+use pyo3::types::PyAnyMethods;
+use pyo3::{FromPyObject, PyErr, PyResult, Python};
 use std::slice::Iter;
 use std::str::FromStr;
+
 use zrx::stream::Value;
 
 mod file;

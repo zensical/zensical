@@ -43,7 +43,7 @@ use super::validation::Validation;
 // ----------------------------------------------------------------------------
 
 /// Project settings.
-#[derive(Debug, Hash, FromPyObject, Serialize)]
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
 #[pyo3(from_item_all)]
 pub struct Project {
     /// Project root directory.

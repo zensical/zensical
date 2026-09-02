@@ -25,8 +25,9 @@
 
 //! Middleware.
 
-use super::Middleware;
 use crate::handler::{Result, Scope};
+
+use super::Middleware;
 
 // ----------------------------------------------------------------------------
 // Traits

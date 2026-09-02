@@ -30,6 +30,7 @@ use mio::Waker;
 use pyo3::FromPyObject;
 use std::sync::Arc;
 use std::{fs, thread};
+
 use zensical_serve::handler::Stack;
 use zensical_serve::middleware;
 use zensical_serve::server::{Result, Server};
@@ -62,7 +63,7 @@ pub struct ServeOptions {
 pub fn create_server(
     config: &Config, receiver: Receiver<String>, options: ServeOptions,
 ) -> Arc<Waker> {
-    let site_dir = config.get_site_dir();
+    let site_dir = config.output_root().as_path().to_owned();
     fs::create_dir_all(&site_dir).expect("site directory could not be created");
 
     // Create a one shot channel to extract waker - this is currently necessary,

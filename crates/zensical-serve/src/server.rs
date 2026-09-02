@@ -137,13 +137,13 @@ where
     pub fn poll(
         &mut self, receiver: Option<&Receiver<String>>,
     ) -> Result<bool> {
-        if let Err(err) = self.events.poll(Some(Duration::from_secs(10))) {
-            if !matches!(
+        if let Err(err) = self.events.poll(Some(Duration::from_secs(10)))
+            && !matches!(
                 err,
                 Error::Io(ref io) if io.kind() == ErrorKind::Interrupted
-            ) {
-                return Err(err);
-            }
+            )
+        {
+            return Err(err);
         }
 
         // Check if we need to clean up timed out connections

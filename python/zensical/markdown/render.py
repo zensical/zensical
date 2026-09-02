@@ -23,43 +23,20 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import date, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-import yaml
 from markdown import Markdown
-from yaml import SafeLoader
 
 from zensical.config import get_config
 from zensical.extensions.autorefs import set_autorefs_page
 from zensical.extensions.context import ContextExtension, Page
 from zensical.extensions.links import LinksExtension
-from zensical.extensions.search import SearchExtension
-
-if TYPE_CHECKING:
-    from zensical.extensions.search import SearchProcessor
-
-# ----------------------------------------------------------------------------
-# Constants
-# ----------------------------------------------------------------------------
 
 
-FRONT_MATTER_RE = re.compile(
-    r"^-{3}[ \r\t]*?\n(.*?\r?\n)(?:\.{3}|-{3})[ \r\t]*\n",
-    re.UNICODE | re.DOTALL,
-)
-"""
-Regex pattern to extract front matter.
-"""
-
-
-# ----------------------------------------------------------------------------
-# Functions
-# ----------------------------------------------------------------------------
-
-
-def render(content: str, path: str, url: str) -> dict:
+def render(content: str, path: str, url: str, metadata: str = "{}") -> dict:
     """Render Markdown and return HTML.
 
     This function returns rendered HTML as well as the table of contents and
@@ -67,19 +44,10 @@ def render(content: str, path: str, url: str) -> dict:
     in order to support the specific syntax of Python Markdown. We're working
     on moving the entire rendering chain to Rust.
     """
-    # First, extract metadata - the Python Markdown parser brings a metadata
-    # extension, but the implementation is broken, as it does not support full
-    # YAML syntax, e.g. lists. Thus, we just parse the metadata with YAML.
-    meta: dict = {}
-    if match := FRONT_MATTER_RE.match(content):
-        try:
-            meta = yaml.load(match.group(1), SafeLoader)
-            if isinstance(meta, dict):
-                content = content[match.end() :].lstrip("\n")
-            else:
-                meta = {}
-        except Exception:  # noqa: BLE001
-            pass
+    # Metadata inheritance and front matter are resolved in Rust before this
+    # boundary. JSON keeps the call explicit and avoids reconstructing Python
+    # objects one value at a time through the FFI.
+    meta: dict = json.loads(metadata)
 
     # Create page context and set it for autorefs.
     # We can stop setting the page if/when we vendor mkdocstrings.
@@ -110,14 +78,11 @@ def render(content: str, path: str, url: str) -> dict:
         extension_configs=config["mdx_configs"],
     )
 
-    # Note: mkdocstrings and markdown-exec do not need to propagate
-    # the links and search extensions to their inner Markdown instances:
-    # their postprocessors run last and can see inner layer contents.
-    # More importantly, inner layers *must not* run the links and search
-    # extensions: the inner links treeprocessor would transform links once,
-    # and the outer links postprocessor would transform them again.
-    # The search postprocessor would run twice for generated content,
-    # incurring a performance cost.
+    # Note: mkdocstrings and markdown-exec do not need to propagate the links
+    # extension to their inner Markdown instances. Its postprocessor runs last
+    # and can see inner layer contents. More importantly, inner layers *must
+    # not* run the extension: the inner treeprocessor would transform links
+    # once, and the outer postprocessor would transform them again.
 
     # Register links extension, which is equivalent to MkDocs' path resolution
     # Markdown extension. This is a bandaid, until we move this to Rust
@@ -125,10 +90,6 @@ def render(content: str, path: str, url: str) -> dict:
         use_directory_urls=config["use_directory_urls"], path=path
     )
     links.extendMarkdown(md)
-
-    # Register search extension, which extracts text for search indexing
-    search_extension = SearchExtension()
-    search_extension.extendMarkdown(md)
 
     # Inform markdown-exec that it runs through Zensical.
     try:
@@ -141,11 +102,6 @@ def render(content: str, path: str, url: str) -> dict:
     # Convert content to HTML
     content = md.convert(content)
 
-    # Obtain search index data, unless page is excluded
-    search_processor: SearchProcessor = md.postprocessors["search"]
-    if meta.get("search", {}).get("exclude", False):
-        search_processor.data = []
-
     # Sanitize metadata before passing it to Rust
     meta = {k: _sanitize(v) for k, v in meta.items()}
 
@@ -154,15 +110,11 @@ def render(content: str, path: str, url: str) -> dict:
         "meta": meta,
         "title": "",
         "content": content,
-        "search": search_processor.data,
         "toc": [_convert_toc(item) for item in getattr(md, "toc_tokens", [])],
     }
 
 
 def _sanitize(value: Any) -> Any:
-    # We currently don't have a null value for metadata in the Rust runtime
-    if value is None:
-        return ""
     if isinstance(value, (date, datetime)):
         return value.isoformat()
     if isinstance(value, dict):

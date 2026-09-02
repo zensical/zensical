@@ -85,6 +85,12 @@ class LinksTreeprocessor(Treeprocessor):
                 el.set(key, url)
 
 
+# Python-Markdown's `toc` treeprocessor invokes every postprocessor while
+# rendering each heading and the generated table of contents, before Markdown
+# invokes them again for the complete document. Thus, this processor can run
+# several times against the same HTML stash. Since the stash grows by appending
+# blocks, a cursor both prevents rewriting URLs more than once and avoids
+# repeatedly scanning the already processed prefix.
 class LinksPostprocessor(Postprocessor):
     """Rewrites relative links in stashed raw HTML blocks.
 
@@ -103,16 +109,16 @@ class LinksPostprocessor(Postprocessor):
         super().__init__(md)
         self._path = path
         self._use_directory_urls = use_directory_urls
-        self._processed: set[int] = set()
+        self._cursor = 0
 
     def run(self, text: str) -> str:
         """Rewrite `href` and `src` attributes of stashed HTML blocks."""
-        for i, raw in enumerate(self.md.htmlStash.rawHtmlBlocks):
-            if i not in self._processed:
-                self.md.htmlStash.rawHtmlBlocks[i] = _RE.sub(
-                    self._maybe_process, raw
-                )
-                self._processed.add(i)
+        blocks = self.md.htmlStash.rawHtmlBlocks
+        while self._cursor < len(blocks):
+            blocks[self._cursor] = _RE.sub(
+                self._maybe_process, blocks[self._cursor]
+            )
+            self._cursor += 1
 
         # Return text unmodified, as we only need to modify the stashed raw HTML
         # blocks, which will later be reinstated by the raw HTML postprocessor
@@ -156,7 +162,9 @@ class LinksExtension(Extension):
         """Register Markdown extension."""
         md.registerExtension(self)
 
-        # Register treeprocessor - run before `inline` (priority 20)
+        # Match MkDocs' `relpath` priority. This runs after `inline` (20),
+        # which creates links and images, and after the earlier-registered
+        # `unescape` (0), which restores escaped characters in their URLs.
         treeprocessor = LinksTreeprocessor(
             md, self.path, self.use_directory_urls
         )
@@ -166,7 +174,7 @@ class LinksExtension(Extension):
         postprocessor = LinksPostprocessor(
             md, self.path, self.use_directory_urls
         )
-        md.postprocessors.register(postprocessor, postprocessor.name, 29)
+        md.postprocessors.register(postprocessor, postprocessor.name, 31)
 
 
 # -----------------------------------------------------------------------------

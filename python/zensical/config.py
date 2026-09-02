@@ -31,7 +31,7 @@ import pickle
 from importlib.metadata import EntryPoint, entry_points
 from importlib.util import find_spec
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any
+from typing import IO, TYPE_CHECKING, Any, cast
 from urllib.parse import urljoin, urlparse
 
 import yaml
@@ -1246,22 +1246,84 @@ def _convert_markdown_extensions(value: Any) -> tuple[list[str], dict]:
     return mdx_exts, mdx_configs
 
 
+def _convert_plugin_markdown_extensions(
+    value: Any,
+) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    """Normalize a plugin-local Python-Markdown configuration.
+
+    Unlike the site renderer, plugin-local Markdown parsers do not inherit
+    Zensical's default extensions. This mirrors MkDocs' MarkdownExtensions
+    configuration option while retaining extension names and configuration in
+    Python, where callable values remain usable.
+    """
+    markdown_extensions: list[str] = []
+    mdx_configs: dict[str, dict[str, Any]] = {}
+    if value is None:
+        return markdown_extensions, mdx_configs
+    items: Any = value.items() if isinstance(value, dict) else value
+    for item in items:
+        if isinstance(item, tuple):
+            extension, extension_config = item
+        elif isinstance(item, dict):
+            if len(item) != 1:
+                raise ConfigurationError(
+                    "Markdown extension mappings must contain one entry"
+                )
+            extension, extension_config = next(iter(item.items()))
+        elif isinstance(item, str):
+            extension, extension_config = item, {}
+        else:
+            raise ConfigurationError(
+                "Markdown extensions must be strings or mappings"
+            )
+        if not isinstance(extension, str):
+            raise ConfigurationError("Markdown extension names must be strings")
+        if extension_config is None:
+            extension_config = {}
+        if not isinstance(extension_config, dict):
+            raise ConfigurationError(
+                "Markdown extension configurations must be mappings"
+            )
+        normalized_config = cast("dict[str, Any]", extension_config)
+        markdown_extensions.append(extension)
+        mdx_configs[extension] = normalized_config
+    return markdown_extensions, mdx_configs
+
+
 def _convert_plugins(value: Any, config: dict) -> dict:
     """Convert plugins configuration to something we can work with."""
-    plugins = {}
+    plugins: dict[str, Any] = {}
+    tags: list[dict[str, Any]] = []
+
+    def add(name: str, data: Any) -> None:
+        """Preserve tags instances while retaining legacy map semantics."""
+        if name in ("tags", "material/tags") or name.startswith(
+            ("tags/", "material/tags/")
+        ):
+            tags.append({"name": name, "config": dict(data or {})})
+        else:
+            plugins[name] = data
 
     # Plugins can be defined as a dict
     if isinstance(value, dict):
-        plugins.update(value)
+        for name, data in value.items():
+            add(name, data)
 
     # Plugins can also be defined as a list
     else:
         for item in value:
             if isinstance(item, dict):
-                name, data = item.popitem()
-                plugins[name] = data
+                name, data = next(iter(item.items()))
+                if not isinstance(name, str):
+                    raise ConfigurationError("Plugin names must be strings")
+                add(name, data)
             elif isinstance(item, str):
-                plugins[item] = {}
+                add(item, {})
+
+    # Rust owns all tags defaults, validation, scalar coercion and callable
+    # lowering. Python only preserves ordered plugin instances and their raw
+    # configuration, as it does for future native compatibility modules.
+    plugins["tags"] = tags
 
     # Define defaults for search plugin
     search = set_default(plugins, "search", {}, dict)
@@ -1269,6 +1331,112 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     set_default(
         search, "separator", '[\\s\\-_,:!=\\[\\]()\\\\"`/]+|\\.(?!\\d)', str
     )
+
+    # Consume Material's public plugin name and normalize it to the internal
+    # identifier extracted into typed Rust configuration.
+    present, meta = _pop_plugin_config(plugins, "material/meta")
+    set_default(meta, "enabled", present, bool)
+    set_default(meta, "meta_file", ".meta.yml", str)
+    plugins["meta"] = meta
+
+    # Normalize redirects into typed native configuration. The enabled flag is
+    # internal; plugin presence retains MkDocs' activation semantics.
+    present, redirects = _pop_plugin_config(plugins, "redirects")
+    set_default(redirects, "enabled", present, bool)
+    set_default(redirects, "redirect_maps", {}, dict)
+    plugins["redirects"] = redirects
+
+    # Normalize the complete mkdocs-minify-plugin configuration surface. Asset
+    # settings are retained for the dedicated copy/output stage; the inline
+    # switches are Zensical extensions handled by the final HTML pass.
+    present, minify = _pop_plugin_config(plugins, "minify")
+    set_default(minify, "enabled", present, bool)
+    set_default(minify, "minify_html", False, bool)
+    set_default(minify, "minify_js", False, bool)
+    set_default(minify, "minify_css", False, bool)
+    set_default(minify, "minify_inline_js", False, bool)
+    set_default(minify, "minify_inline_css", False, bool)
+    set_default(minify, "cache_safe", False, bool)
+
+    for name in ("js_files", "css_files"):
+        files = minify.get(name)
+        if files is None:
+            minify[name] = []
+        elif isinstance(files, str):
+            minify[name] = [files]
+        elif isinstance(files, list):
+            minify[name] = files
+        else:
+            minify[name] = []
+
+    htmlmin_opts = minify.get("htmlmin_opts")
+    if not isinstance(htmlmin_opts, dict):
+        htmlmin_opts = {}
+    htmlmin_opts = dict(htmlmin_opts)
+    set_default(htmlmin_opts, "remove_comments", False, bool)
+    set_default(htmlmin_opts, "remove_empty_space", False, bool)
+    set_default(htmlmin_opts, "remove_all_empty_space", False, bool)
+    set_default(htmlmin_opts, "reduce_empty_attributes", True, bool)
+    set_default(htmlmin_opts, "reduce_boolean_attributes", False, bool)
+    set_default(htmlmin_opts, "remove_optional_attribute_quotes", True, bool)
+    set_default(htmlmin_opts, "convert_charrefs", True, bool)
+    set_default(htmlmin_opts, "keep_pre", False, bool)
+    set_default(htmlmin_opts, "pre_tags", ["pre", "textarea"], list)
+    set_default(htmlmin_opts, "pre_attr", "pre", str)
+    minify["htmlmin_opts"] = htmlmin_opts
+    plugins["minify"] = minify
+
+    # Normalize mkdocs-literate-nav without importing or executing the plugin.
+    # Python retains extension objects and callables for the narrow Markdown
+    # rendering boundary; Rust owns discovery and navigation resolution.
+    present, literate_nav = _pop_plugin_config(plugins, "literate-nav")
+    set_default(literate_nav, "enabled", present, bool)
+    set_default(literate_nav, "nav_file", "SUMMARY.md", str)
+    set_default(literate_nav, "implicit_index", False, bool)
+    set_default(literate_nav, "tab_length", 4, int)
+    extensions, extension_configs = _convert_plugin_markdown_extensions(
+        literate_nav.get("markdown_extensions", [])
+    )
+    literate_nav["markdown_extensions"] = extensions
+    literate_nav["mdx_configs"] = extension_configs
+    plugins["literate_nav"] = literate_nav
+
+    # Normalize mkdocs-awesome-nav without importing or executing the plugin.
+    # Rust owns discovery, YAML parsing, matching and navigation resolution.
+    present, awesome_nav = _pop_plugin_config(plugins, "awesome-nav")
+    set_default(awesome_nav, "enabled", present, bool)
+    unknown = set(awesome_nav) - {"enabled", "filename", "logs"}
+    if unknown:
+        option = sorted(unknown)[0]
+        raise ConfigurationError(f"unknown awesome-nav option: {option}")
+    set_default(awesome_nav, "filename", ".nav.yml")
+    if not isinstance(awesome_nav["filename"], str):
+        raise ConfigurationError("awesome-nav filename must be a string")
+    if not awesome_nav["filename"]:
+        raise ConfigurationError("awesome-nav filename must not be empty")
+    logs = awesome_nav.get("logs")
+    if logs is None:
+        logs = {}
+    elif not isinstance(logs, dict):
+        raise ConfigurationError("awesome-nav logs must be a mapping")
+    logs = dict(logs)
+    unknown = set(logs) - {
+        "nav_override",
+        "root_title",
+        "root_hide",
+        "no_matches",
+    }
+    if unknown:
+        option = sorted(unknown)[0]
+        raise ConfigurationError(f"unknown awesome-nav log option: {option}")
+    for name in ("nav_override", "root_title", "root_hide", "no_matches"):
+        set_default(logs, name, None)
+        if logs[name] not in (None, "info", "warning", "error"):
+            raise ConfigurationError(
+                f"awesome-nav log level '{name}' must be info, warning or error"
+            )
+    awesome_nav["logs"] = logs
+    plugins["awesome_nav"] = awesome_nav
 
     # Define defaults for offline plugin
     offline = set_default(plugins, "offline", {"enabled": False}, dict)
@@ -1320,3 +1488,17 @@ def _convert_plugins(value: Any, config: dict) -> dict:
 
     # Return plugins
     return plugins
+
+
+def _pop_plugin_config(
+    plugins: dict[str, Any], name: str
+) -> tuple[bool, dict[str, Any]]:
+    """Consume one optional mapping while preserving presence semantics."""
+    if name not in plugins:
+        return False, {}
+    value = plugins.pop(name)
+    if value is None:
+        return True, {}
+    if not isinstance(value, dict):
+        raise ConfigurationError(f"{name} configuration must be a mapping")
+    return True, dict(value)

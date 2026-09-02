@@ -23,29 +23,8 @@
 
 // ----------------------------------------------------------------------------
 
-//! Search item.
+//! MkDocs compatibility modules.
 
-use pyo3::FromPyObject;
-use serde::{Deserialize, Serialize};
-
-// ----------------------------------------------------------------------------
-// Structs
-// ----------------------------------------------------------------------------
-
-/// Search item.
-#[derive(Clone, Debug, PartialEq, Eq, FromPyObject, Serialize, Deserialize)]
-#[pyo3(from_item_all)]
-pub struct SearchItem {
-    /// Search location.
-    pub location: Option<String>,
-    /// Section level
-    pub level: u32,
-    /// Section title.
-    pub title: String,
-    /// Section text.
-    pub text: String,
-    /// Section path.
-    pub path: Vec<String>,
-    /// Section tags.
-    pub tags: Vec<String>,
-}
+pub mod html;
+pub mod plugin;
+pub mod resource;

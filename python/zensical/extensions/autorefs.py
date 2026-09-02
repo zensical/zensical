@@ -27,7 +27,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from html import escape
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 from xml.etree.ElementTree import Element
 
 from markdown.core import Markdown
@@ -58,9 +58,11 @@ if TYPE_CHECKING:
 
 
 HTAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
-AUTOREF_RE = re.compile(
-    r"<autoref (?P<attrs>.*?)>(?P<title>.*?)</autoref>", flags=re.DOTALL
-)
+
+# URL order determines which target wins when several are equally
+# suitable. Dict keys give us that order plus constant-time lookups.
+OrderedSet: TypeAlias = dict[str, None]
+URLMap: TypeAlias = dict[str, OrderedSet]
 
 
 # ----------------------------------------------------------------------------
@@ -84,28 +86,62 @@ class AutorefsStore:
         self.scan_toc: bool = True
         self.record_backlinks: bool = False
 
-        self._primary_url_map: dict[str, list[str]] = {}
-        self._secondary_url_map: dict[str, list[str]] = {}
+        self._primary_url_map: URLMap = {}
+        self._secondary_url_map: URLMap = {}
         self._abs_url_map: dict[str, str] = {}
         self._title_map: dict[str, str] = {}
-        self._updated_pages: set[str] = set()
         self._page_registrations: dict[str, set[tuple[bool, str, str]]] = {}
 
     def set_page(self, page: Page) -> None:
         """Set the current page and discard its previous registrations."""
         self.current_page = page
-        self._updated_pages.add(page.url)
-        for primary, identifier, url in self._page_registrations.pop(
-            page.url, set()
-        ):
-            url_map = (
-                self._primary_url_map if primary else self._secondary_url_map
-            )
-            urls = url_map[identifier]
-            urls.remove(url)
+        self.pop_page(page.url)
+
+    def pop_page(self, page_url: str) -> dict[str, Any]:
+        """Remove and return registrations owned by one page."""
+        registrations = self._page_registrations.pop(page_url, set())
+        primary = self._pop_urls(self._primary_url_map, registrations, True)
+        secondary = self._pop_urls(
+            self._secondary_url_map, registrations, False
+        )
+        urls = {
+            url
+            for values in (primary, secondary)
+            for entries in values.values()
+            for url in entries
+        }
+        titles = {
+            url: self._title_map.pop(url)
+            for url in urls
+            if url in self._title_map
+        }
+        return {
+            "primary": primary,
+            "secondary": secondary,
+            "titles": titles,
+        }
+
+    @staticmethod
+    def _pop_urls(
+        url_map: URLMap,
+        registrations: set[tuple[bool, str, str]],
+        primary: bool,
+    ) -> dict[str, list[str]]:
+        """Remove registered URLs from one URL map, preserving their order."""
+        selected: dict[str, set[str]] = {}
+        for is_primary, identifier, url in registrations:
+            if is_primary == primary:
+                selected.setdefault(identifier, set()).add(url)
+
+        result: dict[str, list[str]] = {}
+        for identifier, selected_urls in selected.items():
+            urls = url_map.get(identifier, {})
+            result[identifier] = [url for url in urls if url in selected_urls]
+            for url in selected_urls:
+                urls.pop(url, None)
             if not urls:
-                del url_map[identifier]
-            self._title_map.pop(url, None)
+                url_map.pop(identifier, None)
+        return result
 
     def register_anchor(
         self,
@@ -118,11 +154,7 @@ class AutorefsStore:
     ) -> None:
         url = f"{page.url}#{anchor or identifier}"
         url_map = self._primary_url_map if primary else self._secondary_url_map
-        if identifier in url_map:
-            if url not in url_map[identifier]:
-                url_map[identifier].append(url)
-        else:
-            url_map[identifier] = [url]
+        url_map.setdefault(identifier, {})[url] = None
         self._page_registrations.setdefault(page.url, set()).add(
             (primary, identifier, url)
         )
@@ -266,7 +298,7 @@ class AutorefsInlineProcessor(ReferenceInlineProcessor):
     def _make_tag(
         self, identifier: str, text: str, *, slug: str | None = None
     ) -> Element:
-        """Create a tag that can be matched by `AUTO_REF_RE`."""
+        """Create a tag that can be resolved after site settlement."""
         el = Element("autoref")
         if self.hook:
             identifier = self.hook.expand_identifier(identifier)
@@ -436,25 +468,22 @@ def get_autorefs_store() -> AutorefsStore:
     return AUTOREFS
 
 
-def get_autorefs_data() -> dict[str, Any]:
-    """Get autorefs data.
+def get_autorefs_page_data(page_url: str) -> dict[str, Any]:
+    """Take page-local autorefs data.
 
-    This function is called from Rust to replace the `<autoref>`
-    elements written in the HTML output by both the autorefs
-    Markdown extension (for manual cross-references) and the
-    mkdocstrings extension (for automatic cross-references).
+    Rust combines these registrations into the settled URL registry used to
+    resolve `<autoref>` elements emitted by autorefs and mkdocstrings.
     """
     if AUTOREFS:
-        updated_pages = list(AUTOREFS._updated_pages)
-        AUTOREFS._updated_pages.clear()
-        return {
-            "primary": AUTOREFS._primary_url_map,
-            "secondary": AUTOREFS._secondary_url_map,
-            "inventory": AUTOREFS._abs_url_map,
-            "titles": AUTOREFS._title_map,
-            "updated_pages": updated_pages,
-        }
-    return {}
+        return AUTOREFS.pop_page(page_url)
+    return {"primary": {}, "secondary": {}, "titles": {}}
+
+
+def get_autorefs_inventory_data() -> dict[str, str] | None:
+    """Return global inventory URLs if Markdown rendering initialized them."""
+    if AUTOREFS is None:
+        return None
+    return AUTOREFS._abs_url_map
 
 
 def set_autorefs_page(page: Page) -> None:

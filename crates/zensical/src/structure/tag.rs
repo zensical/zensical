@@ -25,7 +25,8 @@
 
 //! Tag.
 
-use pyo3::FromPyObject;
+use pyo3::types::{PyAny, PyAnyMethods};
+use pyo3::{Bound, FromPyObject, PyResult};
 use serde::Serialize;
 
 // ----------------------------------------------------------------------------
@@ -33,8 +34,48 @@ use serde::Serialize;
 // ----------------------------------------------------------------------------
 
 /// Tag.
-#[derive(Clone, Debug, PartialEq, Eq, FromPyObject, Serialize)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, FromPyObject, Serialize)]
 pub struct Tag {
     /// Tag name.
     pub name: String,
+    /// Parent tag, if this tag belongs to a hierarchy.
+    pub parent: Option<TagNode>,
+    /// Primary listing URL, if any.
+    pub url: Option<String>,
+    /// Whether presentation classifies the tag as hidden.
+    pub hidden: bool,
+    /// Every matching listing URL in preference order.
+    pub links: Vec<TagLink>,
+}
+
+/// Template-visible tag node without listing references.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, FromPyObject, Serialize)]
+pub struct TagNode {
+    /// Cumulative tag name.
+    pub name: String,
+    /// Parent tag, if this tag belongs to a hierarchy.
+    #[pyo3(default, from_py_with = extract_parent)]
+    pub parent: Option<Box<TagNode>>,
+    /// Whether presentation classifies the tag as hidden.
+    pub hidden: bool,
+}
+
+/// Link from a page tag to one listing.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, FromPyObject, Serialize)]
+pub struct TagLink {
+    /// Listing page title.
+    pub title: String,
+    /// Listing tag URL.
+    pub url: String,
+}
+
+// ----------------------------------------------------------------------------
+
+/// Extracts an optional recursive tag parent from a Python tag object.
+fn extract_parent(value: &Bound<'_, PyAny>) -> PyResult<Option<Box<TagNode>>> {
+    if value.is_none() {
+        Ok(None)
+    } else {
+        value.extract().map(Box::new).map(Some)
+    }
 }

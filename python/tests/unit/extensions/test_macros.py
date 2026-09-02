@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+from io import StringIO
 from typing import TYPE_CHECKING
 
 import pandas
@@ -539,10 +540,17 @@ class TestTableHelpers:
     def test_convert_to_md_table_omits_index_by_default(self) -> None:
         # Custom index values must not leak into the output.
         # Verifies that the `index=False` default is applied.
-        df: DataFrame = pandas.DataFrame({"X": [1, 2]}, index=[100, 200])
+        df: DataFrame = pandas.DataFrame(
+            {"X": [1, 2]}, index=pandas.Index([100, 200])
+        )
         result = _convert_to_md_table(df)
         assert "100" not in result
         assert "200" not in result
+
+    def test_convert_to_md_table_requires_string_output(self) -> None:
+        df: DataFrame = pandas.DataFrame({"X": [1, 2]})
+        with pytest.raises(ValueError, match="produced no output"):
+            _convert_to_md_table(df, buf=StringIO())
 
 
 # ---------------------------------------------------------------------------

@@ -25,13 +25,14 @@
 
 //! MiniJinja template engine.
 
-use minijinja::{context, AutoEscape, Environment, Error};
+use minijinja::{context, AutoEscape, Environment, Error, ErrorKind, Value};
 use minijinja_contrib::filters::striptags;
 use serde::Serialize;
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use super::config::Config;
-use super::structure::nav::Navigation;
+use super::config::{Config, Project};
+use super::structure::nav::{Navigation, NavigationView};
 
 mod filter;
 mod loader;
@@ -45,12 +46,11 @@ pub use output::Output;
 // Structs
 // ----------------------------------------------------------------------------
 
-/// MiniJinja template.
+/// MiniJinja templates.
+#[derive(Clone)]
 pub struct Template<'a> {
     /// Template environment
     env: Environment<'a>,
-    /// Template name.
-    name: String,
 }
 
 // ----------------------------------------------------------------------------
@@ -58,10 +58,9 @@ pub struct Template<'a> {
 // ----------------------------------------------------------------------------
 
 impl Template<'_> {
-    /// Creates a template.
-    pub fn new<S, D>(name: S, dirs: D) -> Self
+    /// Creates a template environment.
+    pub fn new<D>(dirs: D) -> Self
     where
-        S: Into<String>,
         D: IntoIterator<Item = PathBuf>,
     {
         let mut env = Environment::new();
@@ -78,34 +77,54 @@ impl Template<'_> {
 
         // Reset auto-escaping, as we don't want to escape HTML in templates
         env.set_auto_escape_callback(|_| AutoEscape::None);
-        Self { env, name: name.into() }
+        Self { env }
     }
 
     /// Renders the template with the given context.
-    pub fn render_with_context<C>(&self, context: C) -> Result<String, Error>
+    pub fn render_with_context<C>(
+        &self, name: &str, context: C,
+    ) -> Result<String, Error>
     where
         C: Serialize,
     {
-        let template = self.env.get_template(&self.name)?;
+        let template = self.env.get_template(name)?;
         template.render(context)
+    }
+
+    /// Renders an overrideable fragment with a native fallback template.
+    pub fn render_fragment<C>(
+        &self, name: &str, fallback: &str, context: C,
+    ) -> Result<String, Error>
+    where
+        C: Serialize,
+    {
+        match self.env.get_template(name) {
+            Ok(template) => template.render(context),
+            Err(error) if error.kind() == ErrorKind::TemplateNotFound => {
+                self.env.render_str(fallback, context)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Renders the template.
     pub fn render(
-        &self, config: &Config, nav: &Navigation,
+        &self, name: &str, config: &Config, nav: &Navigation,
+        project: &Arc<Project>,
     ) -> Result<String, Error> {
-        let template = self.env.get_template(&self.name)?;
-        let pages = nav.iter().collect::<Vec<_>>();
+        let template = self.env.get_template(name)?;
+        let nav = NavigationView::new(nav.clone(), None);
+        let pages = nav.pages();
 
         // Create context and render template
         template.render(context! {
             generator => GENERATOR,
-            nav => nav,
+            nav => Value::from_object(nav),
             pages => pages,
             base_url => config.get_base_path(),
-            extra_css => config.project.extra_css.clone(),
-            extra_javascript => config.project.extra_javascript.clone(),
-            config => config.project.clone(),
+            extra_css => project.extra_css.clone(),
+            extra_javascript => project.extra_javascript.clone(),
+            config => project.clone(),
             // MiniJinja does not allow to pass empty objects, so we create a
             // dummy page here - these won't be used in static templates
             page => context! {

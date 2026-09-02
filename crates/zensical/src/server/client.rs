@@ -30,7 +30,7 @@ use zensical_serve::http::{Header, Request, Response, Status};
 use zensical_serve::middleware::Middleware;
 
 // ----------------------------------------------------------------------------
-// Structs
+// Constants
 // ----------------------------------------------------------------------------
 
 /// Livereload client script.
@@ -122,13 +122,13 @@ impl Middleware for Client {
         let mut res = next.handle(req);
 
         // In case an HTML file is served, inject the client script
-        if let Some(value) = res.headers.get(Header::ContentType) {
-            if value.contains("text/html") {
-                append_client(&mut res.body, &uri);
+        if let Some(value) = res.headers.get(Header::ContentType)
+            && value.contains("text/html")
+        {
+            append_client(&mut res.body, &uri);
 
-                // Update content length
-                res.headers.insert(Header::ContentLength, res.body.len());
-            }
+            // Update content length
+            res.headers.insert(Header::ContentLength, res.body.len());
         }
 
         // Never cache JavaScript or CSS files, so reloading works smoothly

@@ -41,6 +41,8 @@ mod builder;
 
 use builder::Builder;
 
+type EventHandler = Box<dyn FnMut(Vec<Result<Event>>) -> Result>;
+
 // ----------------------------------------------------------------------------
 // Enums
 // ----------------------------------------------------------------------------
@@ -64,7 +66,7 @@ pub struct Handler {
     receiver: Receiver<Action>, // replace with vector of handlers?
     /// Event handler.
     #[allow(clippy::struct_field_names)]
-    handler: Box<dyn FnMut(Result<Event>) -> Result>,
+    handler: EventHandler,
     /// File monitor.
     monitor: Monitor,
     /// File manager.
@@ -130,7 +132,7 @@ impl Handler {
 
                 // Handle errors
                 if let Err(err) = res {
-                    (self.handler)(Err(err.into()))?;
+                    (self.handler)(vec![Err(err.into())])?;
                 }
             }
 
@@ -148,7 +150,7 @@ impl Handler {
                     self.queue.extend(filter(event.kind, event.paths));
                 });
                 if let Err(err) = res {
-                    (self.handler)(Err(err.into()))?;
+                    (self.handler)(vec![Err(err.into())])?;
                 }
             }
 
@@ -156,12 +158,14 @@ impl Handler {
             // when the queue isn't empty, and nothing happened for a time
             recv(wait.map_or_else(never, after)) -> _ => {
                 let paths = mem::take(&mut self.queue);
+                let mut results = Vec::new();
                 for path in paths {
                     // Process paths one-by-one to ensure correct order - this
                     // is a temporary workaround for the ordering issues
-                    for res in self.manager.handle([path]) {
-                        (self.handler)(res)?;
-                    }
+                    results.extend(self.manager.handle([path]));
+                }
+                if !results.is_empty() {
+                    (self.handler)(results)?;
                 }
             }
         }

@@ -25,28 +25,43 @@
 
 //! Page.
 
-use minijinja::{context, Error};
-use serde::Serialize;
+use minijinja::{context, Error, Value as TemplateValue};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
 use std::ops::Deref;
-use std::path::PathBuf;
 use std::sync::Arc;
+
 use zensical_serve::http::Uri;
 use zrx::id::Id;
 use zrx::scheduler::Value;
 
-use crate::config::Config;
+use crate::config::{Config, Project};
+use crate::path::{PathError, SitePath, SourcePath};
 use crate::template::{Output, Template, GENERATOR};
 
 use super::dynamic::Dynamic;
 use super::markdown::Markdown;
-use super::nav::{Navigation, NavigationItem};
-use super::search::SearchItem;
+use super::nav::{Navigation, NavigationItem, NavigationView};
 use super::tag::Tag;
-use super::toc::Section;
 
 // ----------------------------------------------------------------------------
 // Structs
+// ----------------------------------------------------------------------------
+
+/// Stable route facts derived from one Markdown source.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageRoute {
+    /// Documentation-relative source URI.
+    pub source: SourcePath,
+    /// Site-relative destination URI.
+    pub destination: SitePath,
+    /// Encoded page URL.
+    pub url: String,
+}
+
+impl Value for PageRoute {}
+
 // ----------------------------------------------------------------------------
 
 /// Immutable page data shared between scheduler branches.
@@ -54,26 +69,25 @@ use super::toc::Section;
 /// Page values are cloned by the scheduler as they fan out into navigation,
 /// search, validation, and rendering branches. Keeping the immutable payload
 /// behind an [`Arc`] makes those clones constant-sized.
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct PageData {
+    /// Validated documentation-relative source used by internal consumers.
+    #[serde(skip)]
+    source: SourcePath,
+    /// Validated site-relative output used by the writer.
+    #[serde(skip)]
+    destination: SitePath,
     /// Page target URL.
     pub url: String,
     /// Page canonical URL.
     pub canonical_url: Option<String>,
     /// Page edit URL.
     pub edit_url: Option<String>,
-    /// Page title.
-    pub title: String,
-    /// Page metadata.
-    pub meta: PageMeta,
     /// Page file system path.
     pub path: String,
-    /// Page content.
-    pub content: String,
-    /// Table of contents.
-    pub toc: Vec<Section>,
-    /// Search index.
-    pub search: Vec<SearchItem>,
+    /// Rendered Markdown shared with the upstream value.
+    #[serde(flatten)]
+    markdown: Markdown,
 }
 
 /// Page.
@@ -94,76 +108,57 @@ pub struct Page {
     pub previous_page: Option<NavigationItem>,
     /// Next page.
     pub next_page: Option<NavigationItem>,
+    /// Dynamic page-level template variables supplied by compatibility modules.
+    #[serde(skip)]
+    template_variables: Option<BTreeMap<String, Vec<Tag>>>,
 }
 
 // ----------------------------------------------------------------------------
 // Implementations
 // ----------------------------------------------------------------------------
 
+impl PageRoute {
+    /// Computes route facts for a source identifier.
+    pub fn new(config: &Config, id: &Id) -> Result<Self, PathError> {
+        Self::from_source(config, id.location().parse()?)
+    }
+
+    /// Computes route facts for a documentation-relative source URI.
+    pub fn from_source(
+        config: &Config, source: SourcePath,
+    ) -> Result<Self, PathError> {
+        let destination =
+            Self::destination(&source, config.project.use_directory_urls)?;
+        let url = route_url(&destination, config.project.use_directory_urls);
+        Ok(Self { source, destination, url })
+    }
+
+    /// Computes the site-relative destination for a Markdown source.
+    pub fn destination(
+        source: &SourcePath, use_directory_urls: bool,
+    ) -> Result<SitePath, PathError> {
+        destination(source, use_directory_urls)
+    }
+}
+
+// ----------------------------------------------------------------------------
+
 impl Page {
     /// Creates a page.
     #[allow(clippy::similar_names)]
-    pub fn new(config: &Config, id: &Id, markdown: Markdown) -> Page {
-        let root_dir = config.get_root_dir();
-
-        // Retrieve site directory and URL
-        let site_dir = config.project.site_dir.clone();
+    pub fn new(config: &Config, route: PageRoute, markdown: Markdown) -> Page {
+        let path = config.output_root().join(&route.destination);
+        let source = route.source;
+        let destination = route.destination;
+        // Retrieve site URL
         let site_url = config.project.site_url.clone();
 
         // Retrieve repository URL and edit URI
         let repo_url = config.project.repo_url.clone();
         let edit_uri = config.project.edit_uri.clone();
 
-        // Determine whether to use directory URLs
-        let use_directory_urls = config.project.use_directory_urls;
-        let file_uri = id.location().into_owned();
-
-        // Create identifier builder, as we need to change the context in order
-        // to copy the file over to the site directory
-        let builder = id.to_builder().context(&site_dir);
-        let id = builder.clone().build().expect("invariant");
-
-        // Next, obtain the path, and check whether it is an index file, which
-        // is true for index.md, as well as README.md, as MkDocs handles both
-        let mut path: PathBuf = id.location().to_string().into();
-        let is_index =
-            path.ends_with("index.md") || path.ends_with("README.md");
-
-        // Ensure that README.md files are treated as index files
-        if path.ends_with("README.md") {
-            path.pop();
-            path = path.join("index.md");
-        }
-
-        // If directory URLs should not be used, and the page is an index page,
-        // we need to adjust the path accordingly
-        if !use_directory_urls || is_index {
-            path.set_extension("html");
-        } else {
-            path.set_extension("");
-            path.push("index.html");
-        }
-
-        // Set computed path in id, and compute final target path - once we add
-        // more convenience function to the id crate, we can make this shorter
-        let path = path.to_string_lossy().into_owned();
-        let id = builder
-            .location(path.replace('\\', "/"))
-            .build()
-            .expect("invariant");
-
-        // Compute URL of page, and strip the index.html suffix in case
-        // directory URLs should be used. The URL is relative.
-        let url = id.as_uri().to_string();
-        let url = if use_directory_urls {
-            url.trim_end_matches("index.html").to_string()
-        } else {
-            url
-        };
-
-        // Ensure path encoding, and compute canonical URL. Note that we should
-        // definitely rethink this interface, it's a little inconvenient
-        let url = Uri::from(url.as_ref()).to_string();
+        // Compute canonical URL
+        let url = route.url;
         let canonical_url = site_url.as_ref().map(|base| {
             let base = base.trim_end_matches('/');
             format!("{base}/{url}")
@@ -174,9 +169,9 @@ impl Page {
         let edit_url = repo_url.clone().and_then(|repo_url| {
             edit_uri.clone().map(|uri| {
                 if uri.starts_with("https://") {
-                    format!("{uri}/{file_uri}")
+                    format!("{uri}/{source}")
                 } else {
-                    format!("{repo_url}/{uri}/{file_uri}")
+                    format!("{repo_url}/{uri}/{source}")
                 }
             })
         });
@@ -185,22 +180,23 @@ impl Page {
         // pages are populated when the navigation is created. This is also a
         // hint that it's not a good idea to centralize all propeties in a
         // single struct, but to split up the page as necessary later on.
-        let path = root_dir.join(id.to_path());
         Page {
             data: Arc::new(PageData {
+                source,
+                destination,
                 url,
-                title: markdown.title,
-                meta: markdown.meta,
                 canonical_url,
                 edit_url,
-                content: markdown.content,
-                toc: markdown.toc,
-                search: markdown.search,
-                path: path.to_string_lossy().into_owned(),
+                path: path
+                    .to_str()
+                    .expect("configured output path is valid UTF-8")
+                    .into(),
+                markdown,
             }),
             ancestors: Vec::new(),
             previous_page: None,
             next_page: None,
+            template_variables: None,
         }
     }
 
@@ -210,32 +206,37 @@ impl Page {
         tracing::instrument(skip_all, fields(url = %self.url))
     )]
     pub fn render_template(
-        &mut self, config: &Config, nav: Navigation,
+        &mut self, template: &Template, config: &Config, nav: Navigation,
+        project: &Arc<Project>,
     ) -> Result<Output, Error> {
-        let name = self.meta.get("template").map(ToString::to_string);
-        let template = Template::new(
-            name.unwrap_or(String::from("main.html")),
-            config.theme_dirs.clone(),
-        );
+        let name = match self.meta.get("template") {
+            Some(Dynamic::String(value)) => value.clone(),
+            _ => "main.html".into(),
+        };
 
-        // Set active page in navigation and compute ancestors, as well as next
-        // and previous page, all of which we need for rendering navigation
-        let nav = nav.with_active(self);
+        // Compute page relations from the immutable navigation.
         self.ancestors = nav.ancestors(self);
         self.previous_page = nav.previous_page(self);
         self.next_page = nav.next_page(self);
 
-        // Create context and render template
-        let output = template.render_with_context(context! {
-            generator => GENERATOR,
-            nav => nav,
-            base_url => config.get_base_url(&self.url),
-            extra_css => config.project.extra_css.clone(),
-            extra_javascript => config.project.extra_javascript.clone(),
-            config => config.project.clone(),
-            tags => self.tags(),
-            page => self,
-        })?;
+        // Add the page-local active overlay without cloning the navigation tree.
+        let nav = NavigationView::new(nav, Some(&self.url));
+        let variables = self.template_variables.clone().unwrap_or_else(|| {
+            BTreeMap::from([(String::from("tags"), self.tags())])
+        });
+        let output = template.render_with_context(
+            &name,
+            context! {
+                generator => GENERATOR,
+                nav => TemplateValue::from_object(nav),
+                base_url => config.get_base_url(&self.url),
+                extra_css => project.extra_css.clone(),
+                extra_javascript => project.extra_javascript.clone(),
+                config => project.clone(),
+                page => self,
+                .. TemplateValue::from_serialize(&variables),
+            },
+        )?;
 
         Ok(Output::from(output))
     }
@@ -245,10 +246,45 @@ impl Page {
         let mut tags = Vec::new();
         if let Some(Dynamic::List(values)) = self.meta.get("tags") {
             for name in values {
-                tags.push(Tag { name: name.to_string() });
+                tags.push(Tag {
+                    name: name.to_string(),
+                    parent: None,
+                    url: None,
+                    hidden: false,
+                    links: Vec::new(),
+                });
             }
         }
         tags
+    }
+
+    /// Returns the validated site-relative page output.
+    pub fn destination(&self) -> &SitePath {
+        &self.destination
+    }
+
+    /// Returns the validated documentation-relative page source.
+    pub fn source(&self) -> &SourcePath {
+        &self.source
+    }
+
+    /// Adds module-derived template context to a page-render cache key.
+    pub fn hash_derived_template_context<H: Hasher>(&self, state: &mut H) {
+        self.template_variables.hash(state);
+    }
+
+    /// Replaces page-local content, table of contents, and template variables.
+    pub fn apply_derived(
+        &mut self, content: Option<String>,
+        toc: Option<Vec<crate::structure::toc::Section>>,
+        variables: BTreeMap<String, Vec<Tag>>,
+    ) {
+        if content.is_some() || toc.is_some() {
+            Arc::make_mut(&mut self.data)
+                .markdown
+                .replace_derived(content, toc);
+        }
+        self.template_variables = Some(variables);
     }
 }
 
@@ -257,6 +293,37 @@ impl Page {
 // ----------------------------------------------------------------------------
 
 impl Value for Page {}
+
+// ----------------------------------------------------------------------------
+
+impl PartialEq for PageData {
+    fn eq(&self, other: &Self) -> bool {
+        self.url == other.url
+            && self.source == other.source
+            && self.destination == other.destination
+            && self.canonical_url == other.canonical_url
+            && self.edit_url == other.edit_url
+            && self.title == other.title
+            && self.meta == other.meta
+            && self.path == other.path
+            && self.content == other.content
+            && self.toc == other.toc
+    }
+}
+
+impl Eq for PageData {}
+
+// ----------------------------------------------------------------------------
+
+impl Deref for PageData {
+    type Target = Markdown;
+
+    /// Dereferences to rendered Markdown data.
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.markdown
+    }
+}
 
 // ----------------------------------------------------------------------------
 
@@ -271,11 +338,49 @@ impl Deref for Page {
 }
 
 // ----------------------------------------------------------------------------
-// Type alises
+// Type aliases
 // ----------------------------------------------------------------------------
 
 /// Page metadata.
 pub type PageMeta = BTreeMap<String, Dynamic>;
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
+/// Computes the site-relative destination for a Markdown source.
+fn destination(
+    source: &SourcePath, use_directory_urls: bool,
+) -> Result<SitePath, PathError> {
+    let parent = source.parent();
+    let name = source.file_name();
+    let is_index = matches!(name, "index.md" | "README.md");
+    let stem = if name == "README.md" {
+        "index"
+    } else {
+        source.file_stem()
+    };
+    let output = if use_directory_urls && !is_index {
+        format!("{stem}/index.html")
+    } else {
+        format!("{stem}.html")
+    };
+    let destination = match parent {
+        Some(parent) => format!("{parent}/{output}"),
+        None => output,
+    };
+    destination.parse()
+}
+
+/// Computes the encoded URL for a site-relative destination.
+fn route_url(destination: &SitePath, use_directory_urls: bool) -> String {
+    let url = if use_directory_urls {
+        destination.as_str().trim_end_matches("index.html")
+    } else {
+        destination.as_str()
+    };
+    Uri::from(url).to_string()
+}
 
 // ----------------------------------------------------------------------------
 // Tests
@@ -283,24 +388,34 @@ pub type PageMeta = BTreeMap<String, Dynamic>;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use serde_json::json;
+    use std::sync::Arc;
+
+    use super::{destination, route_url, Page, PageData, PageRoute};
 
     fn page() -> Page {
+        let markdown = serde_json::from_value(json!({
+            "title": "Home",
+            "meta": {},
+            "content": "<h1>Home</h1>",
+            "toc": [],
+            "search": [],
+        }))
+        .unwrap();
         Page {
             data: Arc::new(PageData {
+                source: "index.md".parse().unwrap(),
+                destination: "index.html".parse().unwrap(),
                 url: String::from("/"),
                 canonical_url: None,
                 edit_url: None,
-                title: String::from("Home"),
-                meta: PageMeta::new(),
                 path: String::from("site/index.html"),
-                content: String::from("<h1>Home</h1>"),
-                toc: Vec::new(),
-                search: Vec::new(),
+                markdown,
             }),
             ancestors: Vec::new(),
             previous_page: None,
             next_page: None,
+            template_variables: None,
         }
     }
 
@@ -313,11 +428,67 @@ mod tests {
     }
 
     #[test]
+    fn computes_mkdocs_destinations() {
+        let cases = [
+            ("index.md", true, "index.html"),
+            ("README.md", true, "index.html"),
+            ("guide/README.md", true, "guide/index.html"),
+            ("guide/index.md", true, "guide/index.html"),
+            ("guide/page.md", true, "guide/page/index.html"),
+            ("myindex.md", true, "myindex/index.html"),
+            ("guide/page.md", false, "guide/page.html"),
+            ("guide/README.md", false, "guide/index.html"),
+            ("café/100%.md", true, "café/100%/index.html"),
+        ];
+        for (source, directory_urls, expected) in cases {
+            let source = source.parse().unwrap();
+            assert_eq!(
+                destination(&source, directory_urls).unwrap().as_str(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn computes_encoded_urls() {
+        let cases = [
+            ("100%/index.html", true, "100%25/"),
+            ("100%.html", false, "100%25.html"),
+            ("café/index.html", true, "caf%C3%A9/"),
+            ("myindex/index.html", true, "myindex/"),
+        ];
+        for (destination, directory_urls, expected) in cases {
+            assert_eq!(
+                route_url(&destination.parse().unwrap(), directory_urls),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn route_serialization_contains_only_logical_facts() {
+        let route = PageRoute {
+            source: "guide/café.md".parse().unwrap(),
+            destination: "guide/café/index.html".parse().unwrap(),
+            url: "guide/caf%C3%A9/".into(),
+        };
+        let value = serde_json::to_value(&route).unwrap();
+
+        assert_eq!(value["source"], "guide/café.md");
+        assert_eq!(value["destination"], "guide/café/index.html");
+        assert_eq!(value["url"], "guide/caf%C3%A9/");
+        assert!(value.get("path").is_none());
+        assert_eq!(serde_json::from_value::<PageRoute>(value).unwrap(), route);
+    }
+
+    #[test]
     fn serialization_keeps_flat_page_shape() {
         let value = serde_json::to_value(page()).unwrap();
 
         assert_eq!(value["url"], "/");
         assert_eq!(value["title"], "Home");
+        assert!(value.get("source").is_none());
+        assert!(value.get("destination").is_none());
         assert!(value.get("data").is_none());
     }
 }

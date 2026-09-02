@@ -25,9 +25,9 @@
 
 //! MiniJinja template output.
 
+use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 
-use serde::{Deserialize, Serialize};
 use zrx::stream::Value;
 
 // ----------------------------------------------------------------------------
@@ -51,6 +51,16 @@ impl From<String> for Output {
     #[inline]
     fn from(value: String) -> Self {
         Self(value)
+    }
+}
+
+// ----------------------------------------------------------------------------
+
+impl From<Output> for String {
+    /// Returns the output as a string.
+    #[inline]
+    fn from(value: Output) -> Self {
+        value.0
     }
 }
 

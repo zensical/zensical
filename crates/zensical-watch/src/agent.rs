@@ -84,7 +84,7 @@ impl Agent {
     /// Panics if thread creation fails.
     pub fn new<F>(timeout: Duration, mode: bool, f: F) -> Self
     where
-        F: FnMut(Result<Event>) -> Result + Send + 'static,
+        F: FnMut(Vec<Result<Event>>) -> Result + Send + 'static,
     {
         let (sender, receiver) = unbounded();
         let h = move || -> Result<()> {

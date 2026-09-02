@@ -27,47 +27,61 @@
 
 use anyhow::Result;
 use pyo3::types::{PyAnyMethods, PyTracebackMethods};
-use pyo3::{FromPyObject, Python};
+use pyo3::{FromPyObject, PyErr, Python};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::sync::{Mutex, OnceLock};
+use std::ops::Deref;
+use std::sync::Arc;
+
 use zrx::id::Id;
 use zrx::stream::Value;
 
+use crate::path::SourcePath;
 use crate::structure::dynamic::Dynamic;
 use crate::structure::nav::to_title;
-use crate::structure::search::SearchItem;
 use crate::structure::toc::Section;
-
-mod autorefs;
-
-pub use autorefs::{Autorefs, UnresolvedAutorefs};
-
-// ----------------------------------------------------------------------------
-// Constants
-// ----------------------------------------------------------------------------
-
-/// Global lock for rendering Markdown, to ensure thread safety of the Python
-static RENDER_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 // ----------------------------------------------------------------------------
 // Structs
 // ----------------------------------------------------------------------------
 
 /// Markdown.
-#[derive(Clone, Debug, FromPyObject, Serialize, Deserialize)]
-#[pyo3(from_item_all)]
+///
+/// The rendered payload is shared with the page derived from it. This keeps
+/// the stream callback borrowed while making the Markdown-to-page handoff a
+/// constant-sized clone.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Markdown {
+    /// Immutable rendered Markdown data.
+    #[serde(flatten)]
+    data: Arc<MarkdownData>,
+}
+
+/// Immutable rendered Markdown data.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MarkdownData {
     /// Markdown metadata.
     pub meta: BTreeMap<String, Dynamic>,
     /// Markdown content.
     pub content: String,
-    /// Search index.
-    pub search: Vec<SearchItem>,
     /// Page title extracted from Markdown.
     pub title: String,
     /// Table of contents.
     pub toc: Vec<Section>,
+}
+
+/// Markdown data returned by the Python renderer.
+#[derive(FromPyObject)]
+#[pyo3(from_item_all)]
+struct RenderedMarkdown {
+    /// Markdown metadata.
+    meta: BTreeMap<String, Dynamic>,
+    /// Markdown content.
+    content: String,
+    /// Page title extracted from Markdown.
+    title: String,
+    /// Table of contents.
+    toc: Vec<Section>,
 }
 
 // ----------------------------------------------------------------------------
@@ -77,36 +91,75 @@ pub struct Markdown {
 impl Markdown {
     /// Renders Markdown using Python Markdown.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
-    pub fn new(id: &Id, url: String, content: String) -> Result<Markdown> {
+    pub fn new(
+        id: &Id, url: String, content: String, meta: BTreeMap<String, Dynamic>,
+    ) -> Result<Markdown> {
         let id = id.clone();
-        let guard = RENDER_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let meta = serde_json::to_string(&meta)?;
         let res = Python::attach(|py| {
             let module = py.import("zensical.markdown.render")?;
             module
-                .call_method1("render", (content, id.location(), url))?
-                .extract::<Markdown>()
+                .call_method1("render", (content, id.location(), url, meta))?
+                .extract::<RenderedMarkdown>()
         })
-        .map_err(|err| {
-            Python::attach(|py| {
-                let traceback = err
-                    .traceback(py)
-                    .and_then(|tb| tb.format().ok())
-                    .unwrap_or_default();
-                anyhow::anyhow!("Python error: {err}\n{traceback}")
-            })
-        });
+        .map_err(python_error);
 
-        // Explicitly drop the lock guard here, so we're sure to hold it just
-        // until after Python finished executing the rendering logic
-        drop(guard);
-        res.map(|markdown| Markdown {
-            title: extract_title(&id, &markdown),
-            meta: markdown.meta,
-            content: markdown.content,
-            search: markdown.search,
-            toc: markdown.toc,
+        res.map(|data| {
+            let mut data = MarkdownData {
+                meta: data.meta,
+                content: data.content,
+                title: data.title,
+                toc: data.toc,
+            };
+            data.title = extract_title(&id, &data);
+            Markdown { data: Arc::new(data) }
         })
     }
+
+    /// Replaces rendered HTML, cloning shared facts only when necessary.
+    pub fn replace_content(&mut self, content: String) {
+        Arc::make_mut(&mut self.data).content = content;
+    }
+
+    /// Applies optional derived HTML and TOC values with one copy-on-write.
+    pub fn replace_derived(
+        &mut self, content: Option<String>, toc: Option<Vec<Section>>,
+    ) {
+        if content.is_none() && toc.is_none() {
+            return;
+        }
+        let data = Arc::make_mut(&mut self.data);
+        if let Some(content) = content {
+            data.content = content;
+        }
+        if let Some(toc) = toc {
+            data.toc = toc;
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+
+/// Extracts literate navigation with its plugin-local Markdown configuration.
+#[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
+pub fn render_literate_nav(content: &str) -> Result<String> {
+    Python::attach(|py| {
+        py.import("zensical.compat.literate_nav")?
+            .call_method1("render", (content,))?
+            .extract::<String>()
+    })
+    .map_err(python_error)
+}
+
+/// Adds the formatted Python traceback to one boundary error.
+fn python_error(err: PyErr) -> anyhow::Error {
+    Python::attach(|py| {
+        let traceback = err
+            .traceback(py)
+            .and_then(|tb| tb.format().ok())
+            .unwrap_or_default();
+        anyhow::anyhow!("Python error: {err}\n{traceback}")
+    })
 }
 
 // ----------------------------------------------------------------------------
@@ -114,6 +167,18 @@ impl Markdown {
 // ----------------------------------------------------------------------------
 
 impl Value for Markdown {}
+
+// ----------------------------------------------------------------------------
+
+impl Deref for Markdown {
+    type Target = MarkdownData;
+
+    /// Dereferences to immutable rendered Markdown data.
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
 
 // ----------------------------------------------------------------------------
 
@@ -137,8 +202,10 @@ impl Eq for Markdown {}
 ///
 /// We'll fix this in our modular navigation proposal that will make title
 /// handling much more flexible in the near future.
-fn extract_title(id: &Id, markdown: &Markdown) -> String {
-    if let Some(value) = markdown.meta.get("title") {
+fn extract_title(id: &Id, markdown: &MarkdownData) -> String {
+    if let Some(value) = markdown.meta.get("title")
+        && !matches!(value, Dynamic::Null)
+    {
         return value.to_string();
     }
 
@@ -148,16 +215,55 @@ fn extract_title(id: &Id, markdown: &Markdown) -> String {
         return item.title.clone();
     }
 
-    // As a last resort, use the file name
-    let location = id.location();
+    // As a last resort, use the provider-relative file name.
+    let source = id
+        .location()
+        .parse::<SourcePath>()
+        .expect("Markdown source identity is canonical");
+    to_title(source.file_name())
+}
 
-    // Split location into components at slashes
-    let mut components = location
-        .split('/')
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
 
-    // Extract file, and return title
-    let file = components.pop().expect("invariant");
-    to_title(&file)
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    use super::{Markdown, MarkdownData};
+
+    fn markdown() -> Markdown {
+        Markdown {
+            data: Arc::new(MarkdownData {
+                meta: BTreeMap::new(),
+                content: String::from("<h1>Home</h1>"),
+                title: String::from("Home"),
+                toc: Vec::new(),
+            }),
+        }
+    }
+
+    #[test]
+    fn clone_shares_immutable_data() {
+        let markdown = markdown();
+        let clone = markdown.clone();
+
+        assert!(Arc::ptr_eq(&markdown.data, &clone.data));
+    }
+
+    #[test]
+    fn serialization_keeps_flat_markdown_shape() {
+        let value = serde_json::to_value(markdown()).unwrap();
+
+        assert_eq!(value["content"], "<h1>Home</h1>");
+        assert_eq!(value["title"], "Home");
+        assert!(value.get("data").is_none());
+        assert!(value.get("search").is_none());
+
+        let markdown: Markdown = serde_json::from_value(value).unwrap();
+        assert_eq!(markdown.content, "<h1>Home</h1>");
+        assert_eq!(markdown.title, "Home");
+    }
 }

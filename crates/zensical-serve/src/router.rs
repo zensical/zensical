@@ -33,12 +33,10 @@ use super::handler::{Error, Result, Scope, TryIntoHandler};
 use super::http::Method;
 use super::middleware::{Middleware, TryIntoMiddleware};
 
-// Re-export for convenient usage with routers
-pub use super::handler::matcher::Params;
-
 mod action;
 mod routes;
 
+pub use super::handler::matcher::Params;
 pub use action::Action;
 use routes::Routes;
 
@@ -406,7 +404,7 @@ impl TryIntoMiddleware for Router {
 
         // Join the parent scope with the scope derived from the router's base
         // path, which is then used for constructing routes and stacks
-        let scope = scope.join(path);
+        let scope = join_scope(scope, path);
 
         // Transform builders into middlewares - routers can host builders for
         // stacks and routes, both of which are converted into middlewares, and
@@ -486,4 +484,18 @@ impl Default for Router {
             path: String::from("/"),
         }
     }
+}
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
+/// Joins a router base path with its parent scope.
+fn join_scope(scope: &Scope, route: Route) -> Scope {
+    // Preserve the parent prefix before appending the router-local base path.
+    let route = match &scope.route {
+        Some(parent) => parent.append(route),
+        None => route,
+    };
+    Scope { route: Some(route) }
 }

@@ -23,7 +23,7 @@
 
 // ----------------------------------------------------------------------------
 
-//! tbd
+//! Middleware for serving a site below a base path.
 
 use std::borrow::Cow;
 use std::str::FromStr;
@@ -38,9 +38,9 @@ use crate::middleware::Middleware;
 // Structs
 // ----------------------------------------------------------------------------
 
-/// tbd
+/// Middleware that redirects and removes a configured request base path.
 pub struct BasePath {
-    // Base path.
+    /// Base path removed from matching requests.
     base: Route,
 }
 
@@ -88,7 +88,7 @@ impl Middleware for BasePath {
 }
 
 // ----------------------------------------------------------------------------
-// Helpers
+// Functions
 // ----------------------------------------------------------------------------
 
 fn strip_base_path(path: &str, base: &str) -> Option<String> {
@@ -107,9 +107,10 @@ fn strip_base_path(path: &str, base: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use crate::http::{Request, Response};
+    use crate::middleware::Middleware;
+
+    use super::BasePath;
 
     #[test]
     fn strips_base_path_once() {

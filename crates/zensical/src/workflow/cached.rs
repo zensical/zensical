@@ -29,6 +29,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::io::{BufWriter, Write};
+
 use zrx::scheduler::Value;
 
 use crate::config::Config;
@@ -95,8 +97,10 @@ where
     // Compute artifact and convert into report - note that we need to properly
     // handle encoding and file I/O errors here as well
     f(args).inspect(|data| {
-        serde_json::to_string_pretty(&Cached { data, hash })
-            .map(|content| fs::write(path, content).expect("invariant"))
+        let file = fs::File::create(path).expect("invariant");
+        let mut writer = BufWriter::new(file);
+        serde_json::to_writer(&mut writer, &Cached { data, hash })
             .expect("invariant");
+        writer.flush().expect("invariant");
     })
 }

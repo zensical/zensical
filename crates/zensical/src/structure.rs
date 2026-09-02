@@ -29,6 +29,5 @@ pub mod dynamic;
 pub mod markdown;
 pub mod nav;
 pub mod page;
-pub mod search;
 pub mod tag;
 pub mod toc;

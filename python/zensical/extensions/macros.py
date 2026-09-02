@@ -589,7 +589,10 @@ def _convert_to_md_table(df: DataFrame, **kwargs: Any) -> str:
     df = df.map(lambda s: escape_pipes(s) if isinstance(s, str) else s)
     kwargs.setdefault("index", False)
     kwargs.setdefault("tablefmt", "pipe")
-    return df.to_markdown(**kwargs)
+    result = df.to_markdown(**kwargs)
+    if result is None:
+        raise ValueError("Markdown table conversion produced no output")
+    return result
 
 
 def _param_names(func: Callable) -> list[str]:

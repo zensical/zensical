@@ -108,6 +108,27 @@ def _make_custom_dir(
     return custom
 
 
+def test_symlinked_config_anchors_relative_paths_to_its_target(
+    tmp_path: Path,
+) -> None:
+    """Python and Rust resolve project roots from the same config path."""
+    project = tmp_path / "project"
+    project.mkdir()
+    config = _make_yml_project(project)
+    alias_dir = tmp_path / "alias"
+    alias_dir.mkdir()
+    alias = alias_dir / "mkdocs.yml"
+    try:
+        alias.symlink_to(config)
+    except OSError as error:
+        pytest.skip(f"symbolic links unavailable: {error}")
+
+    _build(alias)
+
+    assert (project / "site" / "index.html").is_file()
+    assert not (alias_dir / "site").exists()
+
+
 # ---------------------------------------------------------------------------
 # Theme loading: both zensical.toml and mkdocs.yml
 # ---------------------------------------------------------------------------

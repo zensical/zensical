@@ -29,7 +29,13 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from tests.unit.extensions.conftest import soup
-from zensical.extensions.autorefs import get_autorefs_store, reset
+from zensical.extensions.autorefs import (
+    get_autorefs_inventory_data,
+    get_autorefs_page_data,
+    get_autorefs_store,
+    reset,
+)
+from zensical.extensions.context import Page
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -78,6 +84,66 @@ def _reset_autorefs_store() -> Generator[None, None, None]:
     reset()
     yield
     reset()
+
+
+# ---------------------------------------------------------------------------
+# Store
+# ---------------------------------------------------------------------------
+
+
+class TestStore:
+    """Tests for page-local fact extraction from the transient store."""
+
+    def test_page_data_is_taken_without_consuming_inventory(self) -> None:
+        """Page registrations leave the global inventory available."""
+        store = get_autorefs_store()
+        page = Page(url="guide/", path="guide.md", meta={})
+        store.set_page(page)
+        store.register_anchor(page, "target", title="Target")
+        store.register_anchor(page, "alias", anchor="target", primary=False)
+        store.register_url("external", "https://example.com/external")
+
+        assert get_autorefs_page_data("guide/") == {
+            "primary": {"target": ["guide/#target"]},
+            "secondary": {"alias": ["guide/#target"]},
+            "titles": {"guide/#target": "Target"},
+        }
+        assert get_autorefs_page_data("guide/") == {
+            "primary": {},
+            "secondary": {},
+            "titles": {},
+        }
+        assert get_autorefs_inventory_data() == {
+            "external": "https://example.com/external"
+        }
+
+    def test_urls_are_ordered_and_unique(self) -> None:
+        """Candidate URLs preserve registration order without duplicates."""
+        store = get_autorefs_store()
+        page = Page("page", "page.html")
+
+        store.register_anchor(page, "identifier", "first")
+        store.register_anchor(page, "identifier", "second")
+        store.register_anchor(page, "identifier", "first")
+
+        assert get_autorefs_page_data("page")["primary"] == {
+            "identifier": ["page#first", "page#second"]
+        }
+
+    def test_page_registrations_remove_urls(self) -> None:
+        """Reprocessing a page removes its previously registered URLs."""
+        store = get_autorefs_store()
+        first_page = Page("first", "first.html")
+        second_page = Page("second", "second.html")
+        store.register_anchor(first_page, "identifier", "anchor")
+        store.register_anchor(second_page, "identifier", "anchor")
+
+        store.set_page(first_page)
+
+        assert get_autorefs_page_data("first")["primary"] == {}
+        assert get_autorefs_page_data("second")["primary"] == {
+            "identifier": ["second#anchor"]
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -377,8 +443,7 @@ class TestAnchorsTreeprocessor:
                 [](){#alias10}
             """),
         )
-        store = get_autorefs_store()
-        assert store._primary_url_map == {
+        assert get_autorefs_page_data("page")["primary"] == {
             "foo": ["page#heading-foo"],
             "heading-foo": ["page#heading-foo"],
             "bar": ["page#bar"],
@@ -436,8 +501,7 @@ class TestAnchorsTreeprocessor:
                 ## Heading baz
             """),
         )
-        store = get_autorefs_store()
-        assert store._primary_url_map == {
+        assert get_autorefs_page_data("page")["primary"] == {
             "heading-foo": ["page#heading-foo"],
             "heading-bar": ["page#heading-bar"],
             "heading-baz": ["page#heading-baz"],
@@ -472,9 +536,9 @@ class TestHeadingsTreeprocessor:
     def test_register_heading(self, md: Markdown) -> None:
         """A single heading is registered under its toc-generated slug."""
         md.convert("## Foo")
-        store = get_autorefs_store()
-        assert "foo" in store._primary_url_map
-        assert store._primary_url_map["foo"] == ["page#foo"]
+        assert get_autorefs_page_data("page")["primary"]["foo"] == [
+            "page#foo"
+        ]
 
     @pytest.mark.parametrize(
         "md",

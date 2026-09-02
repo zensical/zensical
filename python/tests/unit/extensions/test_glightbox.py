@@ -30,6 +30,8 @@ import pytest
 from tests.unit.extensions.conftest import soup
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from markdown import Markdown
 
 # ---------------------------------------------------------------------------
@@ -46,6 +48,24 @@ def _glightbox(**kwargs: object) -> dict[str, Any]:
             }
         }
     }
+
+
+class _TrackingBlocks(list[str]):
+    """Track indexes read from stashed blocks."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.visited: list[int] = []
+
+    def __iter__(self) -> Iterator[str]:
+        for index, value in enumerate(super().__iter__()):
+            self.visited.append(index)
+            yield value
+
+    def __getitem__(self, index: Any) -> Any:
+        if isinstance(index, int):
+            self.visited.append(index)
+        return super().__getitem__(index)
 
 
 # ---------------------------------------------------------------------------
@@ -388,3 +408,34 @@ class TestPostprocessor:
     def test_raw_html_skip_class_not_wrapped(self, md: Markdown) -> None:
         html = soup(md.convert('<img src="raw.png" class="off-glb" />'))
         assert html.select_one("a.glightbox") is None
+
+    @pytest.mark.parametrize(
+        "md",
+        [pytest.param(_glightbox(), id="default")],
+        indirect=["md"],
+    )
+    def test_toc_does_not_rescan_stash(
+        self, md: Markdown, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """TOC rendering does not cause processed blocks to be scanned again."""
+        blocks = _TrackingBlocks()
+        md.htmlStash.rawHtmlBlocks = blocks
+        processor = md.postprocessors["glightbox"]
+        original = processor.run
+        visits: list[list[int]] = []
+
+        def run(text: str) -> str:
+            start = len(blocks.visited)
+            text = original(text)
+            visits.append(blocks.visited[start:])
+            return text
+
+        monkeypatch.setattr(processor, "run", run)
+        html = soup(
+            md.convert('# One\n\n## Two\n\n## Three\n\n<img src="raw.png" />')
+        )
+
+        assert len(visits) > 1
+        assert visits[0] == list(range(len(blocks)))
+        assert all(not visited for visited in visits[1:])
+        assert len(html.select("a.glightbox")) == 1
