@@ -127,6 +127,39 @@ def test_builds_listings_references_toc_and_search_without_export(
     assert not (tmp_path / "site" / "tags.json").exists()
 
 
+def test_inherits_tags_from_meta_file(tmp_path: Path) -> None:
+    """Tags supplied by Material meta participate in page tag mappings."""
+    _write_project(tmp_path)
+    config = tmp_path / "zensical.toml"
+    config.write_text(
+        """\
+[project]
+site_name = "Tags"
+
+[project.theme]
+custom_dir = "overrides"
+
+[project.plugins.search]
+
+[project.plugins.tags]
+tags_hierarchy = true
+
+[project.plugins.meta]
+""",
+        encoding="utf-8",
+    )
+    guide = tmp_path / "docs" / "guide"
+    (guide / ".meta.yml").write_text("tags: [Inherited]\n", encoding="utf-8")
+    (guide / "rust.md").write_text(
+        "---\ntitle: Rust page\n---\n# Rust\n", encoding="utf-8"
+    )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    output = (tmp_path / "site" / "guide" / "rust" / "index.html").read_text()
+    assert '<tag name="Inherited"' in output
+
+
 def test_inline_selection_and_literal_html_discovery(tmp_path: Path) -> None:
     """Inline filters apply while escaped examples remain ordinary content."""
     config = _write_project(tmp_path)

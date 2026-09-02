@@ -172,9 +172,10 @@ class TestPluginShimming:
         assert GlightboxExtension.name in config["markdown_extensions"]
 
     @pytest.mark.parametrize(
-        "entry", ["material/meta", {"material/meta": None}]
+        "entry",
+        ["meta", {"meta": None}, "material/meta", {"material/meta": None}],
     )
-    def test_material_meta_presence_enables_defaults(
+    def test_meta_presence_enables_defaults(
         self, tmp_path: Path, entry: object
     ) -> None:
         config = self._parse_yaml(tmp_path, plugins=[entry])
@@ -195,22 +196,28 @@ class TestPluginShimming:
         }
         assert config["plugins_hash"] == cfg_module._hash(config["plugins"])
 
+    def test_material_offline_alias_is_normalized(self, tmp_path: Path) -> None:
+        config = self._parse_yaml(tmp_path, plugins=["material/offline"])
+        assert "material/offline" not in config["plugins"]
+        assert config["plugins"]["offline"]["config"]["enabled"] is True
+        assert config["use_directory_urls"] is False
+
     @pytest.mark.parametrize(
-        "name",
+        ("name", "canonical"),
         [
-            "material/meta",
-            "redirects",
-            "minify",
-            "literate-nav",
-            "awesome-nav",
+            ("material/meta", "meta"),
+            ("redirects", "redirects"),
+            ("minify", "minify"),
+            ("literate-nav", "literate-nav"),
+            ("awesome-nav", "awesome-nav"),
         ],
     )
     def test_native_plugin_configuration_must_be_a_mapping(
-        self, tmp_path: Path, name: str
+        self, tmp_path: Path, name: str, canonical: str
     ) -> None:
         with pytest.raises(
             cfg_module.ConfigurationError,
-            match=rf"{name} configuration must be a mapping",
+            match=rf"{canonical} configuration must be a mapping",
         ):
             self._parse_yaml(tmp_path, plugins={name: []})
 
@@ -397,7 +404,7 @@ class TestPluginShimming:
             plugins=[
                 {"tags": {"listings_directive": "$tags"}},
                 {
-                    "material/tags/private": {
+                    "material/tags": {
                         "filters": {"include": ["private/**"]},
                         "tags_name_property": "labels",
                     }
@@ -407,7 +414,7 @@ class TestPluginShimming:
         instances = config["plugins"]["tags"]["config"]
         assert [instance["name"] for instance in instances] == [
             "tags",
-            "material/tags/private",
+            "tags",
         ]
         assert instances[0]["config"]["listings_directive"] == "$tags"
         assert instances[1]["config"]["filters"] == {

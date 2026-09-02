@@ -83,7 +83,7 @@ pub struct Dependencies<'a> {
 struct Instance {
     /// Stable configuration-order identity.
     id: usize,
-    /// Public MkDocs plugin instance name.
+    /// Canonical plugin name.
     name: String,
     /// Fully normalized compatibility configuration.
     config: Arc<TagsPluginConfig>,
