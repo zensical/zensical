@@ -304,7 +304,9 @@ def get_theme_dir(name: str) -> str:
 
 def get_custom_theme_dir(path: str, config_path: str) -> str:
     """Return the custom theme directory."""
-    theme_dir = os.path.join(os.path.dirname(config_path), path)
+    theme_dir = os.path.normpath(
+        os.path.join(os.path.dirname(config_path), path)
+    )
 
     # Validate that custom theme directory exists
     if not os.path.isdir(theme_dir):
