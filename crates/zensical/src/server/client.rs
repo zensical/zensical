@@ -47,7 +47,10 @@ static CLIENT: &str = concat!(
     "    document.title = state ? \"Waiting for connection\" : title;\n",
     "  }\n",
     "  function connect() {\n",
-    "    const socket = new WebSocket(`ws://${window.location.host}`);\n",
+    "    const url = new URL(window.location.href);\n",
+    "    url.protocol = url.protocol === \"https:\" ? \"wss:\" : \"ws:\";\n",
+    "    url.hash = \"\";\n",
+    "    const socket = new WebSocket(url.href);\n",
     "    pending(true);\n",
     "    socket.addEventListener(\"message\", ev => {\n",
     "      if (ev.data.endsWith(\".css\")) {\n",
@@ -63,7 +66,7 @@ static CLIENT: &str = concat!(
     "      if (ev.data.endsWith(\".js\")) {\n",
     "        window.location.reload()\n",
     "      }\n",
-    "      if (ev.data == decodeURI(window.location.pathname)) {\n",
+    "      if (ev.data == path) {\n",
     "        window.location.reload()\n",
     "      }\n",
     "    });\n",
@@ -82,6 +85,23 @@ static CLIENT: &str = concat!(
     "  connect()\n",
     "})()\n"
 );
+
+/// Appends the livereload client for the requested path.
+fn append_client(body: &mut Vec<u8>, path: &str) {
+    let path = serde_json::to_string(path)
+        .expect("request path could not be serialized")
+        .replace('&', "\\u0026")
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029");
+
+    body.extend(b"<script type=\"module\">const path = ");
+    body.extend(path.as_bytes());
+    body.extend(b";\n");
+    body.extend(CLIENT.as_bytes());
+    body.extend(b"</script>");
+}
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -105,9 +125,7 @@ impl Middleware for Client {
         if let Some(value) = res.headers.get(Header::ContentType)
             && value.contains("text/html")
         {
-            res.body.extend(b"<script type=\"module\">");
-            res.body.extend(CLIENT.as_bytes());
-            res.body.extend(b"</script>");
+            append_client(&mut res.body, &uri);
 
             // Update content length
             res.headers.insert(Header::ContentLength, res.body.len());
@@ -124,9 +142,7 @@ impl Middleware for Client {
         // the system into a coherent flow.
         if res.status == Status::NotFound {
             res.body.clear();
-            res.body.extend(b"<script type=\"module\">");
-            res.body.extend(CLIENT.as_bytes());
-            res.body.extend(b"</script>");
+            append_client(&mut res.body, &uri);
 
             // Update content length
             res.headers.insert(Header::ContentType, "text/html");
@@ -135,5 +151,53 @@ impl Middleware for Client {
 
         // Return response
         res
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use std::str;
+
+    use zensical_serve::http::Response;
+
+    use super::*;
+
+    #[test]
+    fn client_uses_browser_scheme_host_and_path() {
+        let req = Request::new().uri("/preview/guide/");
+        let next = |_: Request| {
+            Response::new()
+                .header(Header::ContentType, "text/html")
+                .body("content")
+        };
+        let res = Client.process(req, &next);
+        let body = str::from_utf8(&res.body).unwrap();
+
+        assert!(body.contains("const path = \"/preview/guide/\";"));
+        assert!(body.contains("new URL(window.location.href)"));
+        assert!(body.contains("? \"wss:\" : \"ws:\""));
+        assert!(body.contains("new WebSocket(url.href)"));
+        assert!(!body.contains("`ws://${window.location.host}`"));
+        let length = res.body.len().to_string();
+        assert_eq!(
+            res.headers.get(Header::ContentLength),
+            Some(length.as_str())
+        );
+    }
+
+    #[test]
+    fn client_safely_encodes_server_visible_path() {
+        let req = Request::new().uri("/</script>?ignored=true");
+        let res = Client.process(req, &|_: Request| {
+            Response::new().status(Status::NotFound)
+        });
+        let body = str::from_utf8(&res.body).unwrap();
+
+        assert!(body.contains("const path = \"/\\u003c/script\\u003e\";"));
+        assert_eq!(body.matches("</script>").count(), 1);
     }
 }
