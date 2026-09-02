@@ -44,8 +44,8 @@ all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 
 [workspace.dependencies]
-zensical-serve = { version = "0.0.5", path = "crates/zensical-serve" }
-zensical-watch = { version = "0.0.5", path = "crates/zensical-watch" }
+zensical-serve = { version = "0.0.6", path = "crates/zensical-serve" }
+zensical-watch = { version = "0.0.6", path = "crates/zensical-watch" }
 
 ahash = "0.8"
 anyhow = "1.0.102"
