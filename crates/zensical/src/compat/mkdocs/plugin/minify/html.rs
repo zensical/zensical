@@ -246,6 +246,23 @@ mod tests {
     }
 
     #[test]
+    fn separates_self_closing_tags_from_unquoted_attribute_values() {
+        let input = concat!(
+            r#"<svg><path d="M0 0"/>"#,
+            r#"<circle cx="12" cy="8" r="2"/>"#,
+            r#"<path d="M1 1"/></svg>"#,
+        );
+        assert_eq!(
+            minify(input, &options(), false, false),
+            concat!(
+                r#"<svg><path d="M0 0"/>"#,
+                r#"<circle cx=12 cy=8 r=2 />"#,
+                r#"<path d="M1 1"/></svg>"#,
+            )
+        );
+    }
+
+    #[test]
     fn minifies_supported_inline_languages() {
         let input = r#"<script> const value = 1 + 2; </script>
 <script type="application/ld+json"> { "value": 3 } </script>
