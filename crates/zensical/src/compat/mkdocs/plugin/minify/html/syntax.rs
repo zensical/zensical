@@ -148,17 +148,19 @@ pub fn escape_text(output: &mut String, value: &str) {
 }
 
 /// Serializes an attribute value with minimal safe quoting.
+///
+/// Returns whether the serialized value is unquoted.
 pub fn serialize_attribute_value(
     output: &mut String, value: &str, remove_quotes: bool,
     preserve_references: bool,
-) {
+) -> bool {
     if remove_quotes && !value.is_empty() && value.chars().all(is_unquoted) {
         if preserve_references {
             output.push_str(value);
         } else {
             escape_ampersands(output, value);
         }
-        return;
+        return true;
     }
 
     let single = value.matches('\'').count();
@@ -174,6 +176,7 @@ pub fn serialize_attribute_value(
         }
     }
     output.push(quote);
+    false
 }
 
 /// Escapes ampersands in an attribute value.
