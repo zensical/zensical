@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -517,3 +518,20 @@ class TestGetThemeDir:
     def test_get_theme_dir_unknown_raises(self) -> None:
         with pytest.raises(ConfigurationError):
             get_theme_dir("definitely-not-a-real-theme-xyzzy")
+
+    @pytest.mark.skipif(
+        os.name != "nt",
+        reason="Windows-specific path normalization",
+    )
+    def test_custom_theme_dir_normalizes_posix_separators(
+        self, tmp_path: Path
+    ) -> None:
+        custom_dir = tmp_path / "a" / "overrides"
+        custom_dir.mkdir(parents=True)
+
+        theme_dir = cfg_module.get_custom_theme_dir(
+            "a/overrides", str(tmp_path / "mkdocs.yml")
+        )
+
+        assert theme_dir.endswith(r"a\overrides")
+        assert theme_dir == str(custom_dir)
