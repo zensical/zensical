@@ -85,6 +85,8 @@ pub struct PageData {
     pub edit_url: Option<String>,
     /// Page file system path.
     pub path: String,
+    /// Effective page title, including an explicit navigation title.
+    pub title: String,
     /// Rendered Markdown shared with the upstream value.
     #[serde(flatten)]
     markdown: Markdown,
@@ -146,7 +148,9 @@ impl PageRoute {
 impl Page {
     /// Creates a page.
     #[allow(clippy::similar_names)]
-    pub fn new(config: &Config, route: PageRoute, markdown: Markdown) -> Page {
+    pub fn new(
+        config: &Config, route: PageRoute, markdown: Markdown, title: String,
+    ) -> Page {
         let path = config.output_root().join(&route.destination);
         let source = route.source;
         let destination = route.destination;
@@ -191,6 +195,7 @@ impl Page {
                     .to_str()
                     .expect("configured output path is valid UTF-8")
                     .into(),
+                title,
                 markdown,
             }),
             ancestors: Vec::new(),
@@ -285,6 +290,13 @@ impl Page {
                 .replace_derived(content, toc);
         }
         self.template_variables = Some(variables);
+    }
+
+    /// Applies the title assigned to this page by navigation.
+    pub(crate) fn apply_navigation_title(&mut self, title: &str) {
+        if title != self.title {
+            title.clone_into(&mut Arc::make_mut(&mut self.data).title);
+        }
     }
 }
 
@@ -410,6 +422,7 @@ mod tests {
                 canonical_url: None,
                 edit_url: None,
                 path: String::from("site/index.html"),
+                title: String::from("Home"),
                 markdown,
             }),
             ancestors: Vec::new(),

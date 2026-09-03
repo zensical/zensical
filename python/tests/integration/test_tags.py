@@ -145,6 +145,30 @@ def test_builds_listings_references_toc_and_search_without_export(
     assert not (tmp_path / "site" / "tags.json").exists()
 
 
+def test_navigation_titles_flow_through_listings_and_search(
+    tmp_path: Path,
+) -> None:
+    """Title-sensitive plugin outputs consume finalized page titles."""
+    config = _write_project(tmp_path)
+    with config.open("a", encoding="utf-8") as file:
+        file.write(
+            "nav:\n"
+            "  - Catalog: index.md\n"
+            "  - Configured Rust: guide/rust.md\n"
+            "  - Python: guide/python.md\n"
+        )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    listing = (tmp_path / "site" / "index.html").read_text()
+    search = json.loads((tmp_path / "site" / "search.json").read_text())
+    assert "Configured Rust" in listing
+    assert "Rust page" not in listing
+    assert any(
+        item["path"][-1] == "Configured Rust" for item in search["items"]
+    )
+
+
 def test_inherits_tags_from_meta_file(tmp_path: Path) -> None:
     """Tags supplied by Material meta participate in page tag mappings."""
     _write_project(tmp_path)

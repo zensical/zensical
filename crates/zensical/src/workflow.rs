@@ -53,7 +53,7 @@ use crate::config::Config;
 use crate::path::{PathError, SitePath, SourcePath};
 use crate::python::{Anchors, Issues, References, SharedReferences};
 use crate::structure::markdown::Markdown;
-use crate::structure::nav::Navigation;
+use crate::structure::nav::{Navigation, NavigationResolution};
 use crate::structure::page::{Page, PageRoute};
 use crate::template::Template;
 use crate::watcher::Source;
@@ -193,6 +193,8 @@ struct RenderedMarkdown {
     route: PageRoute,
     /// Rendered Markdown consumed by page construction.
     markdown: Markdown,
+    /// Page title derived from metadata, Markdown, or source name.
+    title: String,
     /// Page-local registrations consumed during site settlement.
     registrations: Arc<autorefs::Facts>,
     /// Facts extracted by the shared MkDocs-compatible HTML pass.
@@ -256,10 +258,45 @@ impl Main {
         let plugins = plugin::Settings::new(&self.config, self.serve);
         let rendered = process_markdown(&self.config, &plugins, &markdown);
 
-        // Construct pages, apply any module-owned settlement, then retain
-        // page-local products as relations. Only genuinely site-wide facts
-        // cross a settlement boundary.
-        let rendered_page = generate_page(&self.config, &rendered);
+        // Construct pages before resolving navigation, which needs the titles
+        // derived from Markdown for entries without an explicit title.
+        let provisional = generate_page(&self.config, &rendered);
+        let provisional_page =
+            provisional.map(|rendered: &RenderedPage| rendered.page.clone());
+        // Autorefs only consumes registrations gathered during Markdown
+        // rendering, so keep it independent of finalized navigation titles.
+        let autorefs_input =
+            provisional.map(|rendered: &RenderedPage| autorefs::PageInput {
+                source: rendered.page.source().clone(),
+                facts: rendered.registrations.clone(),
+            });
+        let autorefs = plugins
+            .autorefs
+            .setup(autorefs::Dependencies { pages: &autorefs_input });
+        let awesome_nav =
+            awesome_nav::AwesomeNav::new(&self.config, self.strict).expect(
+                "awesome-nav configuration is validated during loading",
+            );
+        let resolution = if awesome_nav.is_enabled() {
+            awesome_nav.setup(awesome_nav::Dependencies {
+                sources: &sources,
+                pages: &provisional_page,
+            })
+        } else {
+            literate_nav::LiterateNav::new(&self.config).setup(
+                literate_nav::Dependencies {
+                    sources: &sources,
+                    pages: &provisional_page,
+                },
+            )
+        };
+        let nav = resolution
+            .map(|value: &NavigationResolution| value.navigation.clone());
+        // MkDocs assigns configured navigation titles when constructing Page
+        // objects, before metadata and Markdown fallbacks are evaluated. Our
+        // navigation is resolved later, so apply that highest-precedence title
+        // once the complete navigation is available.
+        let rendered_page = apply_navigation_titles(&provisional, &resolution);
         let rendered_page = apply_tags(&plugins.tags, &rendered_page);
         let page =
             rendered_page.map(|rendered: &RenderedPage| rendered.page.clone());
@@ -276,31 +313,6 @@ impl Main {
                     )
                 })
             });
-        let awesome_nav =
-            awesome_nav::AwesomeNav::new(&self.config, self.strict).expect(
-                "awesome-nav configuration is validated during loading",
-            );
-        let nav = if awesome_nav.is_enabled() {
-            awesome_nav.setup(awesome_nav::Dependencies {
-                sources: &sources,
-                pages: &page,
-            })
-        } else {
-            literate_nav::LiterateNav::new(&self.config).setup(
-                literate_nav::Dependencies {
-                    sources: &sources,
-                    pages: &page,
-                },
-            )
-        };
-        let autorefs_input =
-            rendered_page.map(|rendered: &RenderedPage| autorefs::PageInput {
-                source: rendered.page.source().clone(),
-                facts: rendered.registrations.clone(),
-            });
-        let autorefs = plugins
-            .autorefs
-            .setup(autorefs::Dependencies { pages: &autorefs_input });
         plugins.search.setup(search::Dependencies {
             documents: &search_document,
             navigation: &nav,
@@ -323,6 +335,22 @@ impl Main {
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
+
+/// Applies explicit navigation titles to their pages.
+fn apply_navigation_titles(
+    pages: &Stream<Id, RenderedPage>,
+    resolution: &Signal<Id, NavigationResolution>,
+) -> Stream<Id, RenderedPage> {
+    pages.product(resolution).map(
+        |rendered: &RenderedPage, resolution: &NavigationResolution| {
+            let mut rendered = rendered.clone();
+            if let Some(title) = resolution.title(rendered.page.source()) {
+                rendered.page.apply_navigation_title(title);
+            }
+            rendered
+        },
+    )
+}
 
 /// Create a stream to collect references from all Markdown files.
 fn collect_references(
@@ -496,13 +524,14 @@ fn render_markdown(
     id: &Id, route: PageRoute, content: String, plugins: plugin::Settings,
     meta: meta::Resolved,
 ) -> anyhow::Result<RenderedMarkdown> {
-    let mut markdown =
+    let (mut markdown, title) =
         Markdown::new(id, route.url.clone(), content, meta.values())?;
     let html = plugin::prepare(&mut markdown, &route.source, &plugins)?;
     let registrations = plugins.autorefs.take_page(&route.url);
     Ok(RenderedMarkdown {
         route,
         markdown,
+        title,
         registrations,
         html,
     })
@@ -518,6 +547,7 @@ fn generate_page(
             &config,
             markdown.route.clone(),
             markdown.markdown.clone(),
+            markdown.title.clone(),
         ),
         registrations: markdown.registrations.clone(),
         html: markdown.html.clone(),

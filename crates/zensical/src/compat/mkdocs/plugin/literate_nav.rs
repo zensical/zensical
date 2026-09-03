@@ -36,7 +36,7 @@ use zrx::stream::{Key, Signal, Stream, Value};
 
 use crate::config::Config;
 use crate::path::SourcePath;
-use crate::structure::nav::{Navigation, NavigationItem};
+use crate::structure::nav::{Navigation, NavigationItem, NavigationResolution};
 use crate::structure::page::Page;
 use crate::watcher::Source;
 
@@ -127,7 +127,7 @@ impl LiterateNav {
     /// Installs navigation discovery, settlement, and compilation.
     pub fn setup(
         &self, dependencies: Dependencies<'_>,
-    ) -> Signal<Id, Navigation> {
+    ) -> Signal<Id, NavigationResolution> {
         let settings = self.settings.clone();
         let documents = dependencies.sources.filter_map({
             let settings = settings.clone();
@@ -177,16 +177,18 @@ impl LiterateNav {
                 if settings.enabled {
                     resolver::resolve(&settings, &docs.0, pages.0.as_ref())
                 } else {
-                    Ok(Navigation::new(
+                    Ok(Navigation::resolve(
                         settings.configured.clone(),
                         pages.0.as_ref().clone(),
                     ))
                 }
             },
         );
-        navigation.reduce(|navigation: &dyn Collection<Key<Id>, Navigation>| {
-            navigation.values().next().cloned()
-        })
+        navigation.reduce(
+            |navigation: &dyn Collection<Key<Id>, NavigationResolution>| {
+                navigation.values().next().cloned()
+            },
+        )
     }
 }
 

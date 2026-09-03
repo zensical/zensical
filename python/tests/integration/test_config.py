@@ -129,6 +129,76 @@ def test_symlinked_config_anchors_relative_paths_to_its_target(
     assert not (alias_dir / "site").exists()
 
 
+def test_navigation_title_precedes_metadata_and_heading(tmp_path: Path) -> None:
+    """Configured titles have the same highest precedence as in MkDocs."""
+    config = _make_yml_project(
+        tmp_path,
+        yml_extra=(
+            "  custom_dir: overrides\nnav:\n  - Configured title: index.md"
+        ),
+    )
+    (tmp_path / "docs" / "index.md").write_text(
+        "---\ntitle: Metadata title\n---\n\n# Heading title\n",
+        encoding="utf-8",
+    )
+    custom = _make_custom_dir(tmp_path)
+    (custom / "main.html").write_text("{{ page.title }}", encoding="utf-8")
+
+    _build(config)
+
+    assert (tmp_path / "site" / "index.html").read_text() == "Configured title"
+
+
+@pytest.mark.parametrize(
+    ("navigation", "expected"),
+    [
+        ("  - index.md\n  - Later: index.md", "Hello"),
+        ("  - First: index.md\n  - Second: index.md", "First"),
+    ],
+)
+def test_first_navigation_occurrence_owns_page_title(
+    tmp_path: Path, navigation: str, expected: str
+) -> None:
+    """Duplicate pages retain the title assigned by their first occurrence."""
+    config = _make_yml_project(
+        tmp_path,
+        yml_extra=(f"  custom_dir: overrides\nnav:\n{navigation}"),
+    )
+    custom = _make_custom_dir(tmp_path)
+    (custom / "main.html").write_text("{{ page.title }}", encoding="utf-8")
+
+    _build(config)
+
+    assert (tmp_path / "site" / "index.html").read_text() == expected
+
+
+def test_only_root_index_page_becomes_navigation_homepage(
+    tmp_path: Path,
+) -> None:
+    """Nested index paths and similarly named links are never the homepage."""
+    config = _make_yml_project(
+        tmp_path,
+        yml_extra=(
+            "  custom_dir: overrides\n"
+            "nav:\n"
+            "  - Guide: guide/index.md\n"
+            "  - Website: https://example.com/index.md"
+        ),
+    )
+    guide = tmp_path / "docs" / "guide"
+    guide.mkdir()
+    (guide / "index.md").write_text("# Guide\n", encoding="utf-8")
+    custom = _make_custom_dir(tmp_path)
+    (custom / "main.html").write_text(
+        "{{ nav.homepage.title if nav.homepage else 'none' }}",
+        encoding="utf-8",
+    )
+
+    _build(config)
+
+    assert (tmp_path / "site" / "index.html").read_text() == "Hello"
+
+
 # ---------------------------------------------------------------------------
 # Theme loading: both zensical.toml and mkdocs.yml
 # ---------------------------------------------------------------------------

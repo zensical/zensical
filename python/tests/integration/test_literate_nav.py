@@ -140,6 +140,40 @@ plugins:
     ]
 
 
+def test_explicit_page_title_precedes_metadata_and_heading(
+    tmp_path: Path,
+) -> None:
+    """Literate navigation supplies the same page-title precedence as MkDocs."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    overrides = tmp_path / "overrides"
+    overrides.mkdir()
+    (overrides / "main.html").write_text("{{ page.title }}", encoding="utf-8")
+    (docs / "index.md").write_text(
+        "---\ntitle: Metadata title\n---\n\n# Heading title\n",
+        encoding="utf-8",
+    )
+    (docs / "SUMMARY.md").write_text(
+        "* [Configured title](index.md)\n", encoding="utf-8"
+    )
+    config = tmp_path / "mkdocs.yml"
+    config.write_text(
+        """\
+site_name: Literate navigation
+theme:
+  name: material
+  custom_dir: overrides
+plugins:
+  - literate-nav
+""",
+        encoding="utf-8",
+    )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    assert (tmp_path / "site" / "index.html").read_text() == "Configured title"
+
+
 def test_resolves_configured_directory_through_nested_literate_nav(
     tmp_path: Path,
 ) -> None:

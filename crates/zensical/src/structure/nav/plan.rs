@@ -25,7 +25,7 @@
 
 //! Navigation plans before rendered page facts are attached.
 
-use super::{is_index, Navigation, NavigationItem};
+use super::{Navigation, NavigationItem, NavigationResolution};
 use crate::structure::page::Page;
 
 // ----------------------------------------------------------------------------
@@ -73,7 +73,7 @@ impl Plan {
     }
 
     /// Attaches rendered page facts and creates the final navigation.
-    pub fn compile(self, pages: Vec<Page>) -> Navigation {
+    pub fn compile(self, pages: Vec<Page>) -> NavigationResolution {
         Navigation::from_plan(
             self.items.into_iter().map(PlanItem::into_item).collect(),
             pages,
@@ -97,7 +97,7 @@ impl PlanItem {
         match self {
             Self::Reference { title, target } => NavigationItem {
                 title,
-                is_index: is_index(&target),
+                is_index: false,
                 url: Some(target),
                 canonical_url: None,
                 meta: None,
@@ -130,26 +130,35 @@ mod tests {
 
     #[test]
     fn lowers_references_sections_and_links() {
-        let navigation = Plan::new(vec![
+        let resolution = Plan::new(vec![
             PlanItem::reference(None, "index.md"),
             PlanItem::section(
                 "Guide",
-                vec![PlanItem::reference(Some("Start".into()), "guide.md")],
+                vec![
+                    PlanItem::reference(None, "guide/index.md"),
+                    PlanItem::reference(Some("Start".into()), "guide.md"),
+                ],
             ),
-            PlanItem::reference(Some("Website".into()), "https://example.com"),
+            PlanItem::reference(
+                Some("Website".into()),
+                "https://example.com/index.md",
+            ),
         ])
         .compile(Vec::new());
+        let navigation = resolution.navigation;
 
         assert_eq!(navigation.items[0].url.as_deref(), Some("index.md"));
-        assert!(navigation.items[0].is_index);
+        assert!(!navigation.items[0].is_index);
         assert_eq!(navigation.items[1].title.as_deref(), Some("Guide"));
+        assert!(!navigation.items[1].children[0].is_index);
         assert_eq!(
-            navigation.items[1].children[0].title.as_deref(),
+            navigation.items[1].children[1].title.as_deref(),
             Some("Start")
         );
         assert_eq!(
             navigation.items[2].url.as_deref(),
-            Some("https://example.com")
+            Some("https://example.com/index.md")
         );
+        assert!(!navigation.items[2].is_index);
     }
 }

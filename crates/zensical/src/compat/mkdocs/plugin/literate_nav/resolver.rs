@@ -32,7 +32,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use crate::path::SourcePath;
 use crate::structure::markdown::render_literate_nav;
 use crate::structure::nav::{
-    source_sort_key, to_title, Navigation, NavigationItem, Plan, PlanItem,
+    source_sort_key, to_title, NavigationItem, NavigationResolution, Plan,
+    PlanItem,
 };
 use crate::structure::page::Page;
 
@@ -465,7 +466,7 @@ impl<'a> Resolver<'a> {
 /// Resolves native literate navigation and attaches rendered page facts.
 pub fn resolve(
     settings: &Settings, documents: &BTreeMap<String, String>, pages: &[Page],
-) -> Result<Navigation> {
+) -> Result<NavigationResolution> {
     let plan = Resolver::new(settings, documents, pages).resolve()?;
     Ok(plan.compile(pages.to_vec()))
 }
