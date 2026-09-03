@@ -360,8 +360,8 @@ pub fn source_sort_key(source: &SourcePath) -> (Vec<String>, bool, String) {
 }
 
 /// Returns whether the given file name is an index file.
-fn is_index(component: &str) -> bool {
-    component == "index.md" || component == "README.md"
+fn is_index(path: &str) -> bool {
+    matches!(path.rsplit('/').next(), Some("index.md" | "README.md"))
 }
 
 /// Hash the navigation structure that can affect page templates.

@@ -52,7 +52,7 @@ def _write_template(root: Path) -> None:
 {% macro render(items, depth) %}
 {% for item in items %}
 <item depth="{{ depth }}" title="{{ item.title or '' }}"
-      url="{{ item.url or '' }}" />
+      url="{{ item.url or '' }}" index="{{ item.is_index }}" />
 {{ render(item.children, depth + 1) }}
 {% endfor %}
 {% endmacro %}
@@ -79,6 +79,17 @@ def _items_or_none(root: Path) -> list[tuple[int, str, str]] | None:
         return _items(root)
     except (FileNotFoundError, StopIteration):
         return None
+
+
+def _index_flags(root: Path) -> list[bool]:
+    """Extract whether each normalized navigation item is an index page."""
+    output_path = root / "site" / "index.html"
+    if not output_path.exists():
+        output_path = next((root / "site").rglob("*.html"))
+    soup = BeautifulSoup(output_path.read_text(), "html.parser")
+    return [
+        str(item["index"]).lower() == "true" for item in soup.find_all("item")
+    ]
 
 
 def _write_config(root: Path, plugin: str = "awesome-nav") -> Path:
@@ -216,6 +227,59 @@ def test_default_navigation_prefers_index_over_readme(tmp_path: Path) -> None:
         (0, "Index", ""),
         (0, "Other", "other/"),
     ]
+
+
+def test_nested_index_is_classified_for_theme_section_merging(
+    tmp_path: Path,
+) -> None:
+    """Nested index paths retain the index marker used by Material's theme."""
+    docs = tmp_path / "docs"
+    section = docs / "tech-stack"
+    section.mkdir(parents=True)
+    _write_template(tmp_path)
+    (section / "index.md").write_text(
+        "# Tech-Stack Home Page Title\n", encoding="utf-8"
+    )
+    (section / "page.md").write_text("# Page\n", encoding="utf-8")
+    (section / ".nav.yaml").write_text(
+        "title: Tech-Stack\nnav: ['*']\n", encoding="utf-8"
+    )
+
+    zensical.build(
+        str(_write_config(tmp_path, "awesome-nav:\n      filename: .nav.yaml")),
+        _BUILD_OPTIONS,
+    )
+
+    assert _items(tmp_path) == [
+        (0, "Tech-Stack", ""),
+        (1, "Tech-Stack Home Page Title", "tech-stack/"),
+        (1, "Page", "tech-stack/page/"),
+    ]
+    assert _index_flags(tmp_path) == [False, True, False]
+
+
+def test_explicit_page_title_precedes_metadata_and_heading(
+    tmp_path: Path,
+) -> None:
+    """Awesome Nav titles become MkDocs-compatible page titles."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    overrides = tmp_path / "overrides"
+    overrides.mkdir()
+    (overrides / "main.html").write_text(
+        "{{ page.title }}", encoding="utf-8"
+    )
+    (docs / "index.md").write_text(
+        "---\ntitle: Metadata title\n---\n\n# Heading title\n",
+        encoding="utf-8",
+    )
+    (docs / ".nav.yml").write_text(
+        "nav:\n  - Configured title: index.md\n", encoding="utf-8"
+    )
+
+    zensical.build(str(_write_config(tmp_path)), _BUILD_OPTIONS)
+
+    assert (tmp_path / "site" / "index.html").read_text() == "Configured title"
 
 
 def test_pattern_options_hide_directories_flatten_and_sort_by_metadata(

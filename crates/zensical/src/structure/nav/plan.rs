@@ -134,7 +134,10 @@ mod tests {
             PlanItem::reference(None, "index.md"),
             PlanItem::section(
                 "Guide",
-                vec![PlanItem::reference(Some("Start".into()), "guide.md")],
+                vec![
+                    PlanItem::reference(None, "guide/index.md"),
+                    PlanItem::reference(Some("Start".into()), "guide.md"),
+                ],
             ),
             PlanItem::reference(Some("Website".into()), "https://example.com"),
         ])
@@ -143,8 +146,9 @@ mod tests {
         assert_eq!(navigation.items[0].url.as_deref(), Some("index.md"));
         assert!(navigation.items[0].is_index);
         assert_eq!(navigation.items[1].title.as_deref(), Some("Guide"));
+        assert!(navigation.items[1].children[0].is_index);
         assert_eq!(
-            navigation.items[1].children[0].title.as_deref(),
+            navigation.items[1].children[1].title.as_deref(),
             Some("Start")
         );
         assert_eq!(

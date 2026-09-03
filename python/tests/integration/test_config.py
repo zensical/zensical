@@ -129,6 +129,28 @@ def test_symlinked_config_anchors_relative_paths_to_its_target(
     assert not (alias_dir / "site").exists()
 
 
+def test_navigation_title_precedes_metadata_and_heading(tmp_path: Path) -> None:
+    """Configured titles have the same highest precedence as in MkDocs."""
+    config = _make_yml_project(
+        tmp_path,
+        yml_extra=(
+            "  custom_dir: overrides\n"
+            "nav:\n"
+            "  - Configured title: index.md"
+        ),
+    )
+    (tmp_path / "docs" / "index.md").write_text(
+        "---\ntitle: Metadata title\n---\n\n# Heading title\n",
+        encoding="utf-8",
+    )
+    custom = _make_custom_dir(tmp_path)
+    (custom / "main.html").write_text("{{ page.title }}", encoding="utf-8")
+
+    _build(config)
+
+    assert (tmp_path / "site" / "index.html").read_text() == "Configured title"
+
+
 # ---------------------------------------------------------------------------
 # Theme loading: both zensical.toml and mkdocs.yml
 # ---------------------------------------------------------------------------

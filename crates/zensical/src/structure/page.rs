@@ -26,6 +26,7 @@
 //! Page.
 
 use minijinja::{context, Error, Value as TemplateValue};
+use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
@@ -69,13 +70,11 @@ impl Value for PageRoute {}
 /// Page values are cloned by the scheduler as they fan out into navigation,
 /// search, validation, and rendering branches. Keeping the immutable payload
 /// behind an [`Arc`] makes those clones constant-sized.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 pub struct PageData {
     /// Validated documentation-relative source used by internal consumers.
-    #[serde(skip)]
     source: SourcePath,
     /// Validated site-relative output used by the writer.
-    #[serde(skip)]
     destination: SitePath,
     /// Page target URL.
     pub url: String,
@@ -85,8 +84,9 @@ pub struct PageData {
     pub edit_url: Option<String>,
     /// Page file system path.
     pub path: String,
+    /// Effective page title, including an explicit navigation title.
+    pub title: String,
     /// Rendered Markdown shared with the upstream value.
-    #[serde(flatten)]
     markdown: Markdown,
 }
 
@@ -191,6 +191,7 @@ impl Page {
                     .to_str()
                     .expect("configured output path is valid UTF-8")
                     .into(),
+                title: markdown.title.clone(),
                 markdown,
             }),
             ancestors: Vec::new(),
@@ -286,6 +287,13 @@ impl Page {
         }
         self.template_variables = Some(variables);
     }
+
+    /// Applies the title assigned to this page by navigation.
+    pub(crate) fn apply_navigation_title(&mut self, title: &str) {
+        if title != self.title {
+            title.clone_into(&mut Arc::make_mut(&mut self.data).title);
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -293,6 +301,26 @@ impl Page {
 // ----------------------------------------------------------------------------
 
 impl Value for Page {}
+
+// ----------------------------------------------------------------------------
+
+impl Serialize for PageData {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("PageData", 8)?;
+        state.serialize_field("url", &self.url)?;
+        state.serialize_field("canonical_url", &self.canonical_url)?;
+        state.serialize_field("edit_url", &self.edit_url)?;
+        state.serialize_field("path", &self.path)?;
+        state.serialize_field("meta", &self.meta)?;
+        state.serialize_field("content", &self.content)?;
+        state.serialize_field("title", &self.title)?;
+        state.serialize_field("toc", &self.toc)?;
+        state.end()
+    }
+}
 
 // ----------------------------------------------------------------------------
 
@@ -410,6 +438,7 @@ mod tests {
                 canonical_url: None,
                 edit_url: None,
                 path: String::from("site/index.html"),
+                title: String::from("Home"),
                 markdown,
             }),
             ancestors: Vec::new(),

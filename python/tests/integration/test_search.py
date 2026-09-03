@@ -112,7 +112,7 @@ def test_search_artifacts_match_mkdocs_contract(tmp_path: Path) -> None:
                 "level": 1,
                 "title": "Landing",
                 "text": "<p>Intro with <small>fine print</small>.</p>",
-                "path": ["Landing"],
+                "path": ["Home"],
                 "tags": ["alpha", "beta"],
             },
             {
@@ -120,15 +120,15 @@ def test_search_artifacts_match_mkdocs_contract(tmp_path: Path) -> None:
                 "level": 2,
                 "title": "Overview",
                 "text": "<p>Overview body.</p>",
-                "path": ["Landing"],
+                "path": ["Home"],
                 "tags": ["alpha", "beta"],
             },
             {
                 "location": "guide/topic.html",
                 "level": 1,
-                "title": "Metadata title",
+                "title": "Topic",
                 "text": "<p>Preface before a heading.</p>",
-                "path": ["Guides", "Metadata title"],
+                "path": ["Guides", "Topic"],
                 "tags": ["guide"],
             },
             {
@@ -136,7 +136,7 @@ def test_search_artifacts_match_mkdocs_contract(tmp_path: Path) -> None:
                 "level": 2,
                 "title": "Details",
                 "text": "<p>Detailed body.</p>",
-                "path": ["Guides", "Metadata title"],
+                "path": ["Guides", "Topic"],
                 "tags": ["guide"],
             },
         ],
@@ -234,7 +234,7 @@ def test_search_rebuild_replaces_changed_and_removed_pages(
             "level": 1,
             "title": "Changed",
             "text": "<p>Fresh body.</p>",
-            "path": ["Changed"],
+            "path": ["Home"],
             "tags": [],
         }
     ]
