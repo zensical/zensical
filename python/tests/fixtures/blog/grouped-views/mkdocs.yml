@@ -13,6 +13,7 @@ plugins:
       archive_url_date_format: yyyy/MM
       authors_profiles: true
       pagination_per_page: 1
+      pagination_format: "$link_first $link_previous ~1~ $link_next $link_last"
 
 nav:
   - Home: index.md

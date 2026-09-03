@@ -33,6 +33,7 @@ mod collection;
 mod date;
 mod excerpt;
 mod links;
+mod pagination;
 mod post;
 mod readtime;
 
@@ -212,8 +213,9 @@ impl Blog {
                     && matches!(view.id.kind, collection::ViewKind::Blog)
             }
         });
+        let blog = self.clone();
         let empty = (entrypoints.clone(), main).join().filter_map(
-            |(entrypoint, views): &(
+            move |(entrypoint, views): &(
                 Entrypoint,
                 Vec<(Key<Id>, collection::OrderedView)>,
             )| {
@@ -226,6 +228,10 @@ impl Blog {
                     path: String::new(),
                     page: 1,
                     pages: 1,
+                    posts_total: 0,
+                    posts_per_page: blog
+                        .settings(entrypoint.blog)
+                        .pagination_per_page,
                     posts: Arc::new(Vec::new()),
                     order: None,
                 })
@@ -1163,28 +1169,94 @@ fn pagination_value(
     if !collection::pagination(settings, &spec.view.kind) {
         return Ok(Dynamic::Null);
     }
+    let empty = spec.posts_total == 0;
     let item = |page| pagination_item(config, settings, spec, page);
-    let items = if spec.pages == 1 && !settings.pagination_if_single_page {
-        Vec::new()
-    } else {
-        pagination_items(config, settings, spec)?
-    };
+    let items =
+        if empty || (spec.pages == 1 && !settings.pagination_if_single_page) {
+            Vec::new()
+        } else {
+            pagination_items(config, settings, spec)?
+        };
+    let first_item = (spec.page - 1)
+        .saturating_mul(spec.posts_per_page)
+        .saturating_add(1)
+        .min(spec.posts_total);
+    let last_item = spec
+        .page
+        .saturating_mul(spec.posts_per_page)
+        .min(spec.posts_total);
     let optional = |page: Option<usize>| -> anyhow::Result<Dynamic> {
         page.map(item)
             .transpose()
             .map(|item| item.unwrap_or(Dynamic::Null))
     };
+    let number = |value: usize| -> anyhow::Result<Dynamic> {
+        Ok(Dynamic::Integer(i64::try_from(value)?))
+    };
+    let boundary = |value: usize| -> anyhow::Result<Dynamic> {
+        if empty {
+            Ok(Dynamic::Null)
+        } else {
+            number(value)
+        }
+    };
     Ok(Dynamic::Map(BTreeMap::from([
         ("page".into(), Dynamic::Integer(i64::try_from(spec.page)?)),
-        ("pages".into(), Dynamic::Integer(i64::try_from(spec.pages)?)),
+        ("pages".into(), number(if empty { 0 } else { spec.pages })?),
+        ("first_page".into(), boundary(1)?),
+        ("last_page".into(), boundary(spec.pages)?),
+        (
+            "page_count".into(),
+            number(if empty { 0 } else { spec.pages })?,
+        ),
+        (
+            "items_per_page".into(),
+            Dynamic::Integer(i64::try_from(spec.posts_per_page)?),
+        ),
+        (
+            "first_item".into(),
+            if empty {
+                Dynamic::Null
+            } else {
+                number(first_item)?
+            },
+        ),
+        (
+            "last_item".into(),
+            if empty {
+                Dynamic::Null
+            } else {
+                number(last_item)?
+            },
+        ),
+        (
+            "item_count".into(),
+            Dynamic::Integer(i64::try_from(spec.posts_total)?),
+        ),
         ("items".into(), Dynamic::List(items)),
-        ("first".into(), item(1)?),
-        ("previous".into(), optional(spec.page.checked_sub(1))?),
+        ("first".into(), if empty { Dynamic::Null } else { item(1)? }),
+        (
+            "previous".into(),
+            optional(
+                (!empty)
+                    .then_some(spec.page)
+                    .and_then(|page| page.checked_sub(1)),
+            )?,
+        ),
         (
             "next".into(),
-            optional((spec.page < spec.pages).then_some(spec.page + 1))?,
+            optional(
+                (!empty && spec.page < spec.pages).then_some(spec.page + 1),
+            )?,
         ),
-        ("last".into(), item(spec.pages)?),
+        (
+            "last".into(),
+            if empty {
+                Dynamic::Null
+            } else {
+                item(spec.pages)?
+            },
+        ),
     ])))
 }
 
@@ -1192,32 +1264,62 @@ fn pagination_items(
     config: &Config, settings: &BlogPluginConfig,
     spec: &collection::ViewPageSpec,
 ) -> anyhow::Result<Vec<Dynamic>> {
-    let radius = settings
-        .pagination_format
-        .trim_matches('~')
-        .parse::<usize>()
-        .unwrap_or(2);
-    let start = spec.page.saturating_sub(radius).max(1);
-    let end = spec.page.saturating_add(radius).min(spec.pages);
-    let mut pages = [1, spec.pages]
+    let metrics = pagination::PaginationMetrics {
+        page: spec.page,
+        pages: spec.pages,
+        items_per_page: spec.posts_per_page,
+        item_count: spec.posts_total,
+    };
+    pagination::items(&settings.pagination_format, metrics)
         .into_iter()
-        .chain(start..=end)
-        .collect::<Vec<_>>();
-    pages.sort_unstable();
-    pages.dedup();
-    let mut items = Vec::new();
-    let mut previous = None;
-    for page in pages {
-        if previous.is_some_and(|previous| page > previous + 1) {
-            items.push(Dynamic::Map(BTreeMap::from([(
-                "ellipsis".into(),
-                Dynamic::Bool(true),
-            )])));
-        }
-        items.push(pagination_item(config, settings, spec, page)?);
-        previous = Some(page);
-    }
-    Ok(items)
+        .map(|item| match item {
+            pagination::PaginationItem::Page { page, current } => {
+                let mut item = pagination_item(config, settings, spec, page)?;
+                let Dynamic::Map(fields) = &mut item else {
+                    unreachable!("pagination items are maps")
+                };
+                fields.insert(
+                    "type".into(),
+                    Dynamic::String(if current {
+                        "current_page".into()
+                    } else {
+                        "page".into()
+                    }),
+                );
+                Ok(item)
+            }
+            pagination::PaginationItem::Ellipsis => {
+                Ok(pagination_static_item("span", "..", true))
+            }
+            pagination::PaginationItem::Link { kind, page } => {
+                let mut item = pagination_item(config, settings, spec, page)?;
+                let Dynamic::Map(fields) = &mut item else {
+                    unreachable!("pagination items are maps")
+                };
+                fields.insert(
+                    "type".into(),
+                    Dynamic::String(kind.as_str().into()),
+                );
+                Ok(item)
+            }
+            pagination::PaginationItem::Text(value) => {
+                Ok(pagination_static_item("text", &value, false))
+            }
+        })
+        .collect()
+}
+
+fn pagination_static_item(
+    item_type: &str, value: &str, ellipsis: bool,
+) -> Dynamic {
+    Dynamic::Map(BTreeMap::from([
+        ("type".into(), Dynamic::String(item_type.into())),
+        ("value".into(), Dynamic::String(value.into())),
+        ("page".into(), Dynamic::Null),
+        ("url".into(), Dynamic::Null),
+        ("current".into(), Dynamic::Bool(false)),
+        ("ellipsis".into(), Dynamic::Bool(ellipsis)),
+    ]))
 }
 
 fn pagination_item(
@@ -1230,7 +1332,17 @@ fn pagination_item(
         PageRoute::from_source(config, view_page_source(settings, &target)?)?
             .url;
     Ok(Dynamic::Map(BTreeMap::from([
+        (
+            "type".into(),
+            Dynamic::String(if page == spec.page {
+                "current_page".into()
+            } else {
+                "page".into()
+            }),
+        ),
         ("page".into(), Dynamic::Integer(i64::try_from(page)?)),
+        ("number".into(), Dynamic::Integer(i64::try_from(page)?)),
+        ("value".into(), Dynamic::String(page.to_string())),
         ("url".into(), Dynamic::String(url)),
         ("current".into(), Dynamic::Bool(page == spec.page)),
         ("ellipsis".into(), Dynamic::Bool(false)),

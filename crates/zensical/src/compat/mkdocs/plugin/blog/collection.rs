@@ -125,6 +125,10 @@ pub struct ViewPageSpec {
     pub page: usize,
     /// Total number of pages.
     pub pages: usize,
+    /// Total number of posts across all pages.
+    pub posts_total: usize,
+    /// Configured maximum number of posts on one page.
+    pub posts_per_page: usize,
     /// Posts shown on this page.
     pub posts: Arc<Vec<PostId>>,
     /// First appearance of the logical view in post order.
@@ -186,6 +190,8 @@ impl OrderedView {
                     path: self.path.clone(),
                     page: index + 1,
                     pages,
+                    posts_total: self.posts.len(),
+                    posts_per_page: per_page,
                     posts: Arc::new(self.posts[start..end].to_vec()),
                     order: self.order.clone(),
                 }

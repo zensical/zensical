@@ -178,6 +178,61 @@ def test_single_page_keeps_empty_pagination_context(tmp_path: Path) -> None:
     assert "|1/1:NEXT=|" in page
 
 
+def test_pagination_format_exposes_ordered_native_items(tmp_path: Path) -> None:
+    config = _project(tmp_path, per_page=2)
+    with config.open("a", encoding="utf-8") as stream:
+        stream.write(
+            "      pagination_format: >-\n"
+            "        $link_first|$link_previous|${page}/$page_count|"
+            "$first_item-$last_item/$item_count|$link_next|$link_last|"
+            "$$|$unknown\n"
+        )
+    (tmp_path / "overrides" / "blog.html").write_text(
+        "{% for item in pagination.items %}"
+        "[{{ item.type }}:{{ item.value }}:"
+        "{{ item.page if item.page else '' }}:"
+        "{{ item.url if item.url else '' }}]"
+        "{% endfor %}",
+        encoding="utf-8",
+    )
+    _post(tmp_path, "one.md", "One", "2026-09-01")
+    _post(tmp_path, "two.md", "Two", "2026-09-02")
+    _post(tmp_path, "three.md", "Three", "2026-09-03")
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    first = (tmp_path / "site" / "blog" / "index.html").read_text("utf-8")
+    assert "[text:||1/2|1-2/3|::]" in first
+    assert "[next_page:2:2:blog/page/2/]" in first
+    assert "[last_page:2:2:blog/page/2/]" in first
+    assert "[text:|$|$unknown::]" in first
+
+    second = (
+        tmp_path / "site" / "blog" / "page" / "2" / "index.html"
+    ).read_text("utf-8")
+    assert "[first_page:1:1:blog/]" in second
+    assert "[previous_page:1:1:blog/]" in second
+    assert "[text:|2/2|3-3/3|||$|$unknown::]" in second
+
+
+def test_empty_blog_has_no_reachable_pagination_pages(tmp_path: Path) -> None:
+    config = _project(tmp_path)
+    with config.open("a", encoding="utf-8") as stream:
+        stream.write("      pagination_if_single_page: true\n")
+    (tmp_path / "overrides" / "blog.html").write_text(
+        "{{ pagination.page }}/{{ pagination.pages }}|"
+        "{{ pagination.items | length }}|"
+        "{{ pagination.first_page if pagination.first_page else 'none' }}|"
+        "{{ pagination.first_item if pagination.first_item else 'none' }}",
+        encoding="utf-8",
+    )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    page = (tmp_path / "site" / "blog" / "index.html").read_text("utf-8")
+    assert page == "1/0|0|none|none"
+
+
 def test_missing_blog_entrypoint_is_generated_without_mutating_docs(
     tmp_path: Path,
 ) -> None:

@@ -47,12 +47,34 @@ if TYPE_CHECKING:
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "python" / "tests" / "fixtures" / "blog"
 ZENSICAL_PAGINATION = """\
+{% import ".icons/material/chevron-double-left.svg" as icon_first %}
+{% import ".icons/material/chevron-left.svg" as icon_previous %}
+{% import ".icons/material/chevron-right.svg" as icon_next %}
+{% import ".icons/material/chevron-double-right.svg" as icon_last %}
 <nav class="md-pagination">
   {% for item in pagination.items %}
-    {% if item.ellipsis %}
+    {% if item.type == "text" %}
+      {{ item.value }}
+    {% elif item.ellipsis %}
       <span class="md-pagination__dots">..</span>
     {% elif item.current %}
       <span class="md-pagination__current">{{ item.page }}</span>
+    {% elif item.type == "first_page" %}
+      <a class="md-pagination__link" href="{{ item.url | url }}">
+        {{- icon_first -}}
+      </a>
+    {% elif item.type == "previous_page" %}
+      <a class="md-pagination__link" href="{{ item.url | url }}">
+        {{- icon_previous -}}
+      </a>
+    {% elif item.type == "next_page" %}
+      <a class="md-pagination__link" href="{{ item.url | url }}">
+        {{- icon_next -}}
+      </a>
+    {% elif item.type == "last_page" %}
+      <a class="md-pagination__link" href="{{ item.url | url }}">
+        {{- icon_last -}}
+      </a>
     {% else %}
       <a class="md-pagination__link" href="{{ item.url | url }}">
         {{- item.page -}}
