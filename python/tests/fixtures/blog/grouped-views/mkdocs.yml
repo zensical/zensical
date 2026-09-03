@@ -1,0 +1,21 @@
+site_name: Grouped blog oracle
+site_url: https://example.test/docs/
+use_directory_urls: true
+
+theme:
+  name: material
+  features:
+    - navigation.indexes
+
+plugins:
+  - material/blog:
+      archive_date_format: MMMM yyyy
+      archive_url_date_format: yyyy/MM
+      authors_profiles: true
+      pagination_per_page: 1
+
+nav:
+  - Home: index.md
+  - Notes: notes.md
+  - Blog:
+      - blog/index.md

@@ -36,6 +36,7 @@ use super::html::{self, Visitor};
 
 pub mod autorefs;
 pub mod awesome_nav;
+pub mod blog;
 pub mod literate_nav;
 pub mod meta;
 pub mod minify;
@@ -70,6 +71,8 @@ pub struct Settings {
     pub search: Arc<search::Search>,
     /// Material tags compatibility pipeline.
     pub tags: tags::Tags,
+    /// Material blog compatibility pipeline.
+    pub blog: blog::Blog,
 }
 
 // ----------------------------------------------------------------------------
@@ -83,6 +86,7 @@ impl Settings {
             autorefs: Arc::new(autorefs::Autorefs::new(config)),
             search: Arc::new(search::Search::new(config)),
             tags: tags::Tags::new(config, serve),
+            blog: blog::Blog::new(config, serve),
         }
     }
 }

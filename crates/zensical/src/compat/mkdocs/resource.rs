@@ -57,6 +57,8 @@ pub struct Dependencies<'a> {
 /// One resource after MkDocs source precedence has been resolved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Resource {
+    /// Original documentation-relative identity before module routing.
+    pub source_path: SitePath,
     /// Logical output path relative to the site directory.
     pub path: SitePath,
     /// Physical source path.
@@ -74,6 +76,8 @@ struct Classifier {
     extra_templates: Vec<String>,
     static_templates: Vec<String>,
     meta: meta::Settings,
+    blog_assets: Vec<(String, String)>,
+    private_files: Vec<String>,
 }
 
 // ----------------------------------------------------------------------------
@@ -117,11 +121,33 @@ impl Resources {
 impl Classifier {
     /// Resolves classification settings once for the workflow lifetime.
     fn new(config: &Config, meta: &meta::Meta) -> Self {
+        let blogs = config
+            .project
+            .plugins
+            .blogs
+            .config
+            .iter()
+            .filter(|instance| instance.config.enabled)
+            .map(|instance| &instance.config);
+        let mut blog_assets = Vec::new();
+        let mut private_files = Vec::new();
+        for blog in blogs {
+            let root = normalize(&blog.blog_dir);
+            let posts = normalize(&blog.post_dir.replace("{blog}", &root));
+            blog_assets.push((posts, root));
+            if blog.authors || blog.authors_profiles {
+                private_files.push(normalize(
+                    &blog.authors_file.replace("{blog}", &blog.blog_dir),
+                ));
+            }
+        }
         Self {
             docs: config.project.docs_dir.clone(),
             extra_templates: config.project.extra_templates.clone(),
             static_templates: config.project.theme.static_templates.clone(),
             meta: meta.settings().clone(),
+            blog_assets,
+            private_files,
         }
     }
 
@@ -141,13 +167,18 @@ impl Classifier {
                 .and_then(|index| index.checked_add(1))
                 .unwrap_or(usize::MAX)
         };
-        let path = id.location().parse::<SitePath>()?;
+        let mut path = id.location().parse::<SitePath>()?;
         if path.is_hidden() {
             return Ok(None);
         }
+        let source_path = path.clone();
         if is_docs {
             if has_extension(&path, "md")
                 || meta::claims(path.as_str(), &self.meta)
+                || self
+                    .private_files
+                    .iter()
+                    .any(|private| private == path.as_str())
                 || self
                     .extra_templates
                     .iter()
@@ -155,6 +186,7 @@ impl Classifier {
             {
                 return Ok(None);
             }
+            path = self.relocate(path)?;
         } else if has_extension(&path, "html")
             || self
                 .static_templates
@@ -164,10 +196,32 @@ impl Classifier {
             return Ok(None);
         }
         Ok(Some(Resource {
+            source_path,
             path,
             source: source.clone(),
             priority,
         }))
+    }
+
+    fn relocate(&self, path: SitePath) -> Result<SitePath> {
+        let matches = self
+            .blog_assets
+            .iter()
+            .filter_map(|(from, to)| {
+                path.as_str()
+                    .strip_prefix(from)
+                    .and_then(|suffix| suffix.strip_prefix('/'))
+                    .map(|suffix| (to, suffix))
+            })
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [] => Ok(path),
+            [(to, suffix)] if to.is_empty() => Ok(suffix.parse()?),
+            [(to, suffix)] => Ok(format!("{to}/{suffix}").parse()?),
+            _ => anyhow::bail!(
+                "resource '{path}' is claimed by multiple blog post directories"
+            ),
+        }
     }
 }
 
@@ -202,6 +256,15 @@ fn preferred<'a>(
 fn has_extension(path: &SitePath, expected: &str) -> bool {
     path.extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case(expected))
+}
+
+fn normalize(path: &str) -> String {
+    let path = path.trim_matches('/');
+    if matches!(path, "" | ".") {
+        String::new()
+    } else {
+        path.strip_prefix("./").unwrap_or(path).to_owned()
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -298,6 +361,31 @@ mod tests {
     }
 
     #[test]
+    fn relocates_blog_assets_and_excludes_author_catalogs() {
+        let mut classifier = classifier();
+        classifier.blog_assets = vec![("blog/posts".into(), "blog".into())];
+        classifier.private_files = vec!["blog/.authors.yml".into()];
+
+        let asset = classifier
+            .classify(
+                &id("docs", "blog/posts/assets/image.png"),
+                &source("image.png"),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(asset.path.as_str(), "blog/assets/image.png");
+        assert!(
+            classifier
+                .classify(
+                    &id("docs", "blog/.authors.yml"),
+                    &source(".authors.yml"),
+                )
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
     fn ignores_sources_outside_docs_and_themes() {
         assert!(classifier()
             .classify(&id("site", "asset.js"), &source("site/asset.js"))
@@ -308,11 +396,13 @@ mod tests {
     #[test]
     fn uses_source_path_as_a_deterministic_tie_breaker() {
         let left = Resource {
+            source_path: "asset.js".parse().unwrap(),
             path: "asset.js".parse().unwrap(),
             source: source("b/asset.js"),
             priority: 1,
         };
         let right = Resource {
+            source_path: "asset.js".parse().unwrap(),
             path: "asset.js".parse().unwrap(),
             source: source("a/asset.js"),
             priority: 1,
@@ -336,6 +426,8 @@ mod tests {
                 enabled: true,
                 meta_file: ".meta.yml".into(),
             },
+            blog_assets: Vec::new(),
+            private_files: Vec::new(),
         }
     }
 

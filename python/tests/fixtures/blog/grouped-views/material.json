@@ -1,0 +1,577 @@
+{
+  "outputs": [
+    "404.html",
+    "blog/2024/01/02/beta-metadata/index.html",
+    "blog/2024/02/03/alpha-heading/index.html",
+    "blog/archive/2024/01/index.html",
+    "blog/archive/2024/02/index.html",
+    "blog/author/alice/index.html",
+    "blog/author/alice/page/2/index.html",
+    "blog/author/reviewer/index.html",
+    "blog/category/engineering/index.html",
+    "blog/category/engineering/page/2/index.html",
+    "blog/category/release-notes/index.html",
+    "blog/index.html",
+    "blog/page/2/index.html",
+    "index.html",
+    "notes/index.html"
+  ],
+  "navigation": [
+    {
+      "title": "Home",
+      "url": "/docs/"
+    },
+    {
+      "title": "Notes",
+      "url": "/docs/notes/"
+    },
+    {
+      "title": "Blog",
+      "url": "/docs/blog/",
+      "children": [
+        {
+          "title": "Archive",
+          "children": [
+            {
+              "title": "February 2024",
+              "url": "/docs/blog/archive/2024/02/"
+            },
+            {
+              "title": "January 2024",
+              "url": "/docs/blog/archive/2024/01/"
+            }
+          ]
+        },
+        {
+          "title": "Categories",
+          "children": [
+            {
+              "title": "Engineering",
+              "url": "/docs/blog/category/engineering/"
+            },
+            {
+              "title": "Release Notes",
+              "url": "/docs/blog/category/release-notes/"
+            }
+          ]
+        },
+        {
+          "title": "Authors",
+          "children": [
+            {
+              "title": "Alice Example",
+              "url": "/docs/blog/author/alice/"
+            },
+            {
+              "title": "Bob Example",
+              "url": "/docs/blog/author/reviewer/"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "pages": {
+    "blog/2024/01/02/beta-metadata/index.html": {
+      "document_title": "Beta metadata - Grouped blog oracle",
+      "canonical": "/docs/blog/2024/01/02/beta-metadata/",
+      "relations": {
+        "prev": null,
+        "next": "/docs/blog/2024/02/03/alpha-heading/"
+      },
+      "active_ancestors": [],
+      "headings": [
+        {
+          "level": 1,
+          "id": "beta-heading",
+          "title": "Beta heading"
+        }
+      ],
+      "links": [],
+      "posts": [],
+      "pagination": null
+    },
+    "blog/2024/02/03/alpha-heading/index.html": {
+      "document_title": "Alpha heading - Grouped blog oracle",
+      "canonical": "/docs/blog/2024/02/03/alpha-heading/",
+      "relations": {
+        "prev": "/docs/blog/2024/01/02/beta-metadata/",
+        "next": null
+      },
+      "active_ancestors": [],
+      "headings": [
+        {
+          "level": 1,
+          "id": "alpha-heading",
+          "title": "Alpha heading"
+        }
+      ],
+      "links": [],
+      "posts": [],
+      "pagination": null
+    },
+    "blog/archive/2024/01/index.html": {
+      "document_title": "January 2024 - Grouped blog oracle",
+      "canonical": "/docs/blog/archive/2024/01/",
+      "relations": {
+        "prev": "/docs/blog/archive/2024/02/",
+        "next": null
+      },
+      "active_ancestors": [
+        "Archive",
+        "January 2024"
+      ],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "Beta heading",
+          "url": "/docs/blog/2024/01/02/beta-metadata/",
+          "date": "2024-01-02 00:00:00+00:00",
+          "authors": [
+            "Alice Example"
+          ],
+          "categories": [
+            {
+              "title": "Engineering",
+              "url": "/docs/blog/category/engineering/"
+            }
+          ],
+          "pinned": false,
+          "continue": null,
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"beta-heading\"><a class=\"toclink\" href=\"../../../2024/01/02/beta-metadata/\">Beta heading</a></h2><p>Beta excerpt.</p></div>"
+        }
+      ],
+      "pagination": {
+        "current": 1,
+        "links": []
+      }
+    },
+    "blog/archive/2024/02/index.html": {
+      "document_title": "February 2024 - Grouped blog oracle",
+      "canonical": "/docs/blog/archive/2024/02/",
+      "relations": {
+        "prev": "/docs/blog/category/release-notes/",
+        "next": "/docs/blog/archive/2024/01/"
+      },
+      "active_ancestors": [
+        "Archive",
+        "February 2024"
+      ],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "Alpha heading",
+          "url": "/docs/blog/2024/02/03/alpha-heading/",
+          "date": "2024-02-03 10:30:00.123456+01:00",
+          "authors": [
+            "Alice Example"
+          ],
+          "categories": [
+            {
+              "title": "Release Notes",
+              "url": "/docs/blog/category/release-notes/"
+            },
+            {
+              "title": "Engineering",
+              "url": "/docs/blog/category/engineering/"
+            }
+          ],
+          "pinned": true,
+          "continue": "/docs/blog/2024/02/03/alpha-heading/",
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"alpha-heading\"><a class=\"toclink\" href=\"../../../2024/02/03/alpha-heading/\">Alpha heading</a></h2><p>Alpha excerpt.</p><nav class=\"md-post__action\"><a href=\"../../../2024/02/03/alpha-heading/\"> Continue reading </a></nav><hr/></div>"
+        }
+      ],
+      "pagination": {
+        "current": 1,
+        "links": []
+      }
+    },
+    "blog/author/alice/index.html": {
+      "document_title": "Alice Example - Grouped blog oracle",
+      "canonical": "/docs/blog/author/alice/",
+      "relations": {
+        "prev": "/docs/blog/",
+        "next": "/docs/blog/author/reviewer/"
+      },
+      "active_ancestors": [
+        "Authors",
+        "Alice Example"
+      ],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "Alpha heading",
+          "url": "/docs/blog/2024/02/03/alpha-heading/",
+          "date": "2024-02-03 10:30:00.123456+01:00",
+          "authors": [
+            "Alice Example"
+          ],
+          "categories": [
+            {
+              "title": "Release Notes",
+              "url": "/docs/blog/category/release-notes/"
+            },
+            {
+              "title": "Engineering",
+              "url": "/docs/blog/category/engineering/"
+            }
+          ],
+          "pinned": true,
+          "continue": "/docs/blog/2024/02/03/alpha-heading/",
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"alpha-heading\"><a class=\"toclink\" href=\"../../2024/02/03/alpha-heading/\">Alpha heading</a></h2><p>Alpha excerpt.</p><nav class=\"md-post__action\"><a href=\"../../2024/02/03/alpha-heading/\"> Continue reading </a></nav><hr/></div>"
+        }
+      ],
+      "pagination": {
+        "current": 1,
+        "links": [
+          {
+            "title": "2",
+            "url": "/docs/blog/author/alice/page/2/"
+          }
+        ]
+      }
+    },
+    "blog/author/alice/page/2/index.html": {
+      "document_title": "Alice Example - Grouped blog oracle",
+      "canonical": "/docs/blog/author/alice/page/2/",
+      "relations": {
+        "prev": "/docs/blog/",
+        "next": "/docs/blog/author/reviewer/"
+      },
+      "active_ancestors": [
+        "Authors"
+      ],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "Beta heading",
+          "url": "/docs/blog/2024/01/02/beta-metadata/",
+          "date": "2024-01-02 00:00:00+00:00",
+          "authors": [
+            "Alice Example"
+          ],
+          "categories": [
+            {
+              "title": "Engineering",
+              "url": "/docs/blog/category/engineering/"
+            }
+          ],
+          "pinned": false,
+          "continue": null,
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"beta-heading\"><a class=\"toclink\" href=\"../../../../2024/01/02/beta-metadata/\">Beta heading</a></h2><p>Beta excerpt.</p></div>"
+        }
+      ],
+      "pagination": {
+        "current": 2,
+        "links": [
+          {
+            "title": "1",
+            "url": "/docs/blog/author/alice/"
+          }
+        ]
+      }
+    },
+    "blog/author/reviewer/index.html": {
+      "document_title": "Bob Example - Grouped blog oracle",
+      "canonical": "/docs/blog/author/reviewer/",
+      "relations": {
+        "prev": "/docs/blog/author/alice/",
+        "next": "/docs/blog/category/engineering/"
+      },
+      "active_ancestors": [
+        "Authors",
+        "Bob Example"
+      ],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "Alpha heading",
+          "url": "/docs/blog/2024/02/03/alpha-heading/",
+          "date": "2024-02-03 10:30:00.123456+01:00",
+          "authors": [
+            "Alice Example"
+          ],
+          "categories": [
+            {
+              "title": "Release Notes",
+              "url": "/docs/blog/category/release-notes/"
+            },
+            {
+              "title": "Engineering",
+              "url": "/docs/blog/category/engineering/"
+            }
+          ],
+          "pinned": true,
+          "continue": "/docs/blog/2024/02/03/alpha-heading/",
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"alpha-heading\"><a class=\"toclink\" href=\"../../2024/02/03/alpha-heading/\">Alpha heading</a></h2><p>Alpha excerpt.</p><nav class=\"md-post__action\"><a href=\"../../2024/02/03/alpha-heading/\"> Continue reading </a></nav><hr/></div>"
+        }
+      ],
+      "pagination": {
+        "current": 1,
+        "links": []
+      }
+    },
+    "blog/category/engineering/index.html": {
+      "document_title": "Engineering - Grouped blog oracle",
+      "canonical": "/docs/blog/category/engineering/",
+      "relations": {
+        "prev": "/docs/blog/author/reviewer/",
+        "next": "/docs/blog/category/release-notes/"
+      },
+      "active_ancestors": [
+        "Categories",
+        "Engineering"
+      ],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "Alpha heading",
+          "url": "/docs/blog/2024/02/03/alpha-heading/",
+          "date": "2024-02-03 10:30:00.123456+01:00",
+          "authors": [
+            "Alice Example"
+          ],
+          "categories": [
+            {
+              "title": "Release Notes",
+              "url": "/docs/blog/category/release-notes/"
+            },
+            {
+              "title": "Engineering",
+              "url": "/docs/blog/category/engineering/"
+            }
+          ],
+          "pinned": true,
+          "continue": "/docs/blog/2024/02/03/alpha-heading/",
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"alpha-heading\"><a class=\"toclink\" href=\"../../2024/02/03/alpha-heading/\">Alpha heading</a></h2><p>Alpha excerpt.</p><nav class=\"md-post__action\"><a href=\"../../2024/02/03/alpha-heading/\"> Continue reading </a></nav><hr/></div>"
+        }
+      ],
+      "pagination": {
+        "current": 1,
+        "links": [
+          {
+            "title": "2",
+            "url": "/docs/blog/category/engineering/page/2/"
+          }
+        ]
+      }
+    },
+    "blog/category/engineering/page/2/index.html": {
+      "document_title": "Engineering - Grouped blog oracle",
+      "canonical": "/docs/blog/category/engineering/page/2/",
+      "relations": {
+        "prev": "/docs/blog/author/reviewer/",
+        "next": "/docs/blog/category/release-notes/"
+      },
+      "active_ancestors": [
+        "Categories"
+      ],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "Beta heading",
+          "url": "/docs/blog/2024/01/02/beta-metadata/",
+          "date": "2024-01-02 00:00:00+00:00",
+          "authors": [
+            "Alice Example"
+          ],
+          "categories": [
+            {
+              "title": "Engineering",
+              "url": "/docs/blog/category/engineering/"
+            }
+          ],
+          "pinned": false,
+          "continue": null,
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"beta-heading\"><a class=\"toclink\" href=\"../../../../2024/01/02/beta-metadata/\">Beta heading</a></h2><p>Beta excerpt.</p></div>"
+        }
+      ],
+      "pagination": {
+        "current": 2,
+        "links": [
+          {
+            "title": "1",
+            "url": "/docs/blog/category/engineering/"
+          }
+        ]
+      }
+    },
+    "blog/category/release-notes/index.html": {
+      "document_title": "Release Notes - Grouped blog oracle",
+      "canonical": "/docs/blog/category/release-notes/",
+      "relations": {
+        "prev": "/docs/blog/category/engineering/",
+        "next": "/docs/blog/archive/2024/02/"
+      },
+      "active_ancestors": [
+        "Categories",
+        "Release Notes"
+      ],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "Alpha heading",
+          "url": "/docs/blog/2024/02/03/alpha-heading/",
+          "date": "2024-02-03 10:30:00.123456+01:00",
+          "authors": [
+            "Alice Example"
+          ],
+          "categories": [
+            {
+              "title": "Release Notes",
+              "url": "/docs/blog/category/release-notes/"
+            },
+            {
+              "title": "Engineering",
+              "url": "/docs/blog/category/engineering/"
+            }
+          ],
+          "pinned": true,
+          "continue": "/docs/blog/2024/02/03/alpha-heading/",
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"alpha-heading\"><a class=\"toclink\" href=\"../../2024/02/03/alpha-heading/\">Alpha heading</a></h2><p>Alpha excerpt.</p><nav class=\"md-post__action\"><a href=\"../../2024/02/03/alpha-heading/\"> Continue reading </a></nav><hr/></div>"
+        }
+      ],
+      "pagination": {
+        "current": 1,
+        "links": []
+      }
+    },
+    "blog/index.html": {
+      "document_title": "Blog - Grouped blog oracle",
+      "canonical": "/docs/blog/",
+      "relations": {
+        "prev": "/docs/notes/",
+        "next": "/docs/blog/author/alice/"
+      },
+      "active_ancestors": [],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "Alpha heading",
+          "url": "/docs/blog/2024/02/03/alpha-heading/",
+          "date": "2024-02-03 10:30:00.123456+01:00",
+          "authors": [
+            "Alice Example"
+          ],
+          "categories": [
+            {
+              "title": "Release Notes",
+              "url": "/docs/blog/category/release-notes/"
+            },
+            {
+              "title": "Engineering",
+              "url": "/docs/blog/category/engineering/"
+            }
+          ],
+          "pinned": true,
+          "continue": "/docs/blog/2024/02/03/alpha-heading/",
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"alpha-heading\"><a class=\"toclink\" href=\"2024/02/03/alpha-heading/\">Alpha heading</a></h2><p>Alpha excerpt.</p><nav class=\"md-post__action\"><a href=\"2024/02/03/alpha-heading/\"> Continue reading </a></nav><hr/></div>"
+        }
+      ],
+      "pagination": {
+        "current": 1,
+        "links": [
+          {
+            "title": "2",
+            "url": "/docs/blog/page/2/"
+          }
+        ]
+      }
+    },
+    "blog/page/2/index.html": {
+      "document_title": "Blog - Grouped blog oracle",
+      "canonical": "/docs/blog/page/2/",
+      "relations": {
+        "prev": "/docs/notes/",
+        "next": "/docs/blog/author/alice/"
+      },
+      "active_ancestors": [],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "Beta heading",
+          "url": "/docs/blog/2024/01/02/beta-metadata/",
+          "date": "2024-01-02 00:00:00+00:00",
+          "authors": [
+            "Alice Example"
+          ],
+          "categories": [
+            {
+              "title": "Engineering",
+              "url": "/docs/blog/category/engineering/"
+            }
+          ],
+          "pinned": false,
+          "continue": null,
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"beta-heading\"><a class=\"toclink\" href=\"../../2024/01/02/beta-metadata/\">Beta heading</a></h2><p>Beta excerpt.</p></div>"
+        }
+      ],
+      "pagination": {
+        "current": 2,
+        "links": [
+          {
+            "title": "1",
+            "url": "/docs/blog/"
+          }
+        ]
+      }
+    },
+    "index.html": {
+      "document_title": "Grouped blog oracle",
+      "canonical": "/docs/",
+      "relations": {
+        "prev": null,
+        "next": "/docs/notes/"
+      },
+      "active_ancestors": [
+        "Home"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "id": "home",
+          "title": "Home"
+        }
+      ],
+      "links": [],
+      "posts": [],
+      "pagination": null
+    },
+    "notes/index.html": {
+      "document_title": "Notes - Grouped blog oracle",
+      "canonical": "/docs/notes/",
+      "relations": {
+        "prev": "/docs/",
+        "next": "/docs/blog/"
+      },
+      "active_ancestors": [
+        "Notes"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "id": "notes",
+          "title": "Notes"
+        },
+        {
+          "level": 2,
+          "id": "detail",
+          "title": "Detail"
+        }
+      ],
+      "links": [],
+      "posts": [],
+      "pagination": null
+    }
+  }
+}

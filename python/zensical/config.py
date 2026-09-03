@@ -120,6 +120,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
         "strip_title_tags",
     ),
     "awesome-nav": (),
+    "blog": (),
     "callouts": (
         "aliases",
         "breakless_lists",
@@ -1521,6 +1522,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     """Convert plugins configuration to something we can work with."""
     plugins: dict[str, Any] = {}
     tags: list[dict[str, Any]] = []
+    blogs: list[dict[str, Any]] = []
 
     def add(name: Any, data: Any) -> None:
         """Canonicalize Material aliases while preserving tag instances."""
@@ -1540,6 +1542,8 @@ def _convert_plugins(value: Any, config: dict) -> dict:
         if name == "tags":
             _reject_unknown_options("tags", data, _TAGS_SUPPORTED_OPTIONS)
             tags.append({"name": name, "config": data})
+        elif name == "blog":
+            blogs.append({"name": name, "config": data})
         else:
             plugins[name] = data
 
@@ -1567,6 +1571,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     # Rust owns tags defaults, value validation, scalar coercion and callable
     # lowering. Python validates option names and preserves ordered instances.
     plugins["tags"] = tags
+    plugins["blogs"] = blogs
 
     # Search is enabled by default, even when it isn't explicitly configured.
     search = plugins.pop("search", {})

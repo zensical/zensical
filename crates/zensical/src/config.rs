@@ -35,7 +35,7 @@ use std::sync::Arc;
 
 use zrx::path::PathExt;
 
-use crate::config::plugins::TagsPlugin;
+use crate::config::plugins::{BlogPlugin, TagsPlugin};
 use crate::path::{OutputRoot, SourceRoot};
 
 mod error;
@@ -124,6 +124,10 @@ impl Config {
                 .get_item("plugins")?
                 .get_item("tags")?
                 .extract::<TagsPlugin>()?;
+            config
+                .get_item("plugins")?
+                .get_item("blogs")?
+                .extract::<BlogPlugin>()?;
             let project = config.extract::<Project>()?;
 
             // Return configuration and theme directory

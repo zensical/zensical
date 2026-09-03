@@ -30,6 +30,8 @@ use html5gum::{Span, Tokenizer};
 use std::convert::Infallible;
 use std::ops::Range;
 
+use super::url;
+
 // ----------------------------------------------------------------------------
 // Traits
 // ----------------------------------------------------------------------------
@@ -53,6 +55,15 @@ pub struct Editor<'a> {
     input: &'a str,
     /// Edits recorded by visitors.
     edits: Vec<Edit>,
+}
+
+/// Rewrites page-relative link and media targets between route bases.
+struct RebaseUrls<'a> {
+    from: &'a str,
+    to: &'a str,
+    fragment_base: Option<&'a str>,
+    attribute: bool,
+    href: bool,
 }
 
 /// One replacement in the original HTML input.
@@ -202,6 +213,41 @@ impl<'a> Editor<'a> {
     }
 }
 
+impl Visitor for RebaseUrls<'_> {
+    fn visit(
+        &mut self, event: &CallbackEvent<'_>, span: Span<usize>,
+        editor: &mut Editor<'_>,
+    ) {
+        match event {
+            CallbackEvent::OpenStartTag { .. } => {
+                self.attribute = false;
+                self.href = false;
+            }
+            CallbackEvent::AttributeName { name } => {
+                self.attribute = matches!(*name, b"href" | b"src");
+                self.href = *name == b"href";
+            }
+            CallbackEvent::AttributeValue { value } if self.attribute => {
+                let value = String::from_utf8_lossy(value);
+                if self.href
+                    && value.starts_with('#')
+                    && let Some(base) = self.fragment_base
+                {
+                    editor.replace(
+                        span.start..span.end,
+                        format!("{base}{value}"),
+                    );
+                } else if let Some(value) =
+                    url::rebase(self.from, self.to, &value)
+                {
+                    editor.replace(span.start..span.end, value);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
@@ -230,6 +276,35 @@ pub fn scan(input: &str, visitors: &mut [&mut dyn Visitor]) -> Option<String> {
     editor.finish()
 }
 
+/// Rebases local `href` and `src` attributes between two page routes.
+pub fn rebase_urls(input: &str, from: &str, to: &str) -> Option<String> {
+    if from == to {
+        return None;
+    }
+    let mut visitor = RebaseUrls {
+        from,
+        to,
+        fragment_base: None,
+        attribute: false,
+        href: false,
+    };
+    scan(input, &mut [&mut visitor])
+}
+
+/// Rebases URLs and prefixes fragment-only links with a separate base.
+pub fn rebase_urls_with_fragment_base(
+    input: &str, from: &str, to: &str, fragment_base: &str,
+) -> Option<String> {
+    let mut visitor = RebaseUrls {
+        from,
+        to,
+        fragment_base: Some(fragment_base),
+        attribute: false,
+        href: false,
+    };
+    scan(input, &mut [&mut visitor])
+}
+
 /// Returns whether a byte is HTML whitespace.
 fn is_whitespace(byte: u8) -> bool {
     matches!(byte, b'\t' | b'\n' | 0x0c | b'\r' | b' ')
@@ -251,7 +326,9 @@ mod tests {
     use html5gum::emitters::callback::CallbackEvent;
     use html5gum::Span;
 
-    use super::{scan, Editor, Visitor};
+    use super::{
+        rebase_urls, rebase_urls_with_fragment_base, scan, Editor, Visitor,
+    };
 
     #[derive(Default)]
     struct RemoveDataAttribute;
@@ -332,6 +409,44 @@ mod tests {
         assert_eq!(
             scan(input, &mut [&mut remove, &mut replace]).as_deref(),
             Some("slot")
+        );
+    }
+
+    #[test]
+    fn rebases_link_and_media_attributes_without_reserializing_html() {
+        let input = concat!(
+            r#"<a href="../../../../notes/#detail">Notes</a>"#,
+            r#"<img src='asset.png'>"#,
+            r#"<a href="https://example.com">External</a>"#,
+        );
+        assert_eq!(
+            rebase_urls(input, "blog/2026/09/post/", "blog/page/2/").as_deref(),
+            Some(concat!(
+                r#"<a href="../../../notes/#detail">Notes</a>"#,
+                r#"<img src='../../2026/09/post/asset.png'>"#,
+                r#"<a href="https://example.com">External</a>"#,
+            ))
+        );
+    }
+
+    #[test]
+    fn rebases_excerpt_fragment_links_to_the_full_post() {
+        let input = concat!(
+            r##"<a href="#detail">Detail</a>"##,
+            r#"<img src="asset.png">"#,
+        );
+        assert_eq!(
+            rebase_urls_with_fragment_base(
+                input,
+                "blog/2026/09/post/",
+                "blog/page/2/",
+                "../../2026/09/post/",
+            )
+            .as_deref(),
+            Some(concat!(
+                r##"<a href="../../2026/09/post/#detail">Detail</a>"##,
+                r#"<img src="../../2026/09/post/asset.png">"#,
+            ))
         );
     }
 }

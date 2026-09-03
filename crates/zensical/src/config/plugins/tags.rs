@@ -215,11 +215,11 @@ struct Reader<'py> {
 // ----------------------------------------------------------------------------
 
 /// Callable identity lowered without invoking Python code.
-struct Callable {
+pub(super) struct Callable {
     /// Qualified or short callable name.
-    name: String,
+    pub(super) name: String,
     /// Declarative keyword arguments.
-    keywords: BTreeMap<String, Dynamic>,
+    pub(super) keywords: BTreeMap<String, Dynamic>,
 }
 
 // ----------------------------------------------------------------------------
@@ -664,7 +664,7 @@ fn validate(config: &TagsPluginConfig, reader: &Reader<'_>) -> PyResult<()> {
 }
 
 /// Extracts a string, declarative object descriptor, or Python callable name.
-fn callable(value: &Bound<'_, PyAny>) -> Result<Callable, String> {
+pub(super) fn callable(value: &Bound<'_, PyAny>) -> Result<Callable, String> {
     if let Ok(name) = value.extract::<String>() {
         return Ok(Callable {
             name,
@@ -725,7 +725,7 @@ fn callable(value: &Bound<'_, PyAny>) -> Result<Callable, String> {
 }
 
 /// Lowers the supported native slug functions.
-fn lower_slug(callable: Callable) -> Result<String, String> {
+pub(super) fn lower_slug(callable: Callable) -> Result<String, String> {
     match callable.name.as_str() {
         "pymdownx:lower" | "pymdownx.slugs.uslugify" => {
             require_no_keywords(&callable)?;

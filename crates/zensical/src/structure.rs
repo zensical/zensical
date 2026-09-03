@@ -25,9 +25,11 @@
 
 //! Site structure.
 
+pub mod document;
 pub mod dynamic;
 pub mod markdown;
 pub mod nav;
 pub mod page;
+pub mod slug;
 pub mod tag;
 pub mod toc;

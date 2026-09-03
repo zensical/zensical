@@ -40,6 +40,7 @@ use crate::config::{Config, Project};
 use crate::path::{PathError, SitePath, SourcePath};
 use crate::template::{Output, Template, GENERATOR};
 
+use super::document::DocumentHeader;
 use super::dynamic::Dynamic;
 use super::markdown::Markdown;
 use super::nav::{Navigation, NavigationItem, NavigationView};
@@ -64,6 +65,43 @@ impl Value for PageRoute {}
 
 // ----------------------------------------------------------------------------
 
+/// Stable ownership and edit provenance of a page.
+#[derive(
+    Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize,
+)]
+pub enum PageOrigin {
+    /// Page backed by a document in the documentation source tree.
+    Source(SourcePath),
+    /// Page emitted by a native module under a stable logical identity.
+    Generated {
+        /// Module-owned identity, independent of the page's current route.
+        identity: String,
+        /// Optional source document from which edit links can be derived.
+        provenance: Option<SourcePath>,
+    },
+}
+
+// ----------------------------------------------------------------------------
+
+/// Pre-render page descriptor consumed by the shared page pipeline.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageDescriptor {
+    /// Stable owner and optional edit provenance.
+    pub origin: PageOrigin,
+    /// Resolved Markdown document facts.
+    pub document: DocumentHeader,
+    /// Final route, which may differ from the document's default route.
+    pub route: PageRoute,
+    /// Module-owned fields flattened into the template-facing page object.
+    pub properties: BTreeMap<String, Dynamic>,
+    /// Module-owned top-level template variables.
+    pub variables: BTreeMap<String, Dynamic>,
+}
+
+impl Value for PageDescriptor {}
+
+// ----------------------------------------------------------------------------
+
 /// Immutable page data shared between scheduler branches.
 ///
 /// Page values are cloned by the scheduler as they fan out into navigation,
@@ -71,7 +109,10 @@ impl Value for PageRoute {}
 /// behind an [`Arc`] makes those clones constant-sized.
 #[derive(Clone, Debug, Serialize)]
 pub struct PageData {
-    /// Validated documentation-relative source used by internal consumers.
+    /// Stable owner and optional physical-source provenance.
+    #[serde(skip)]
+    origin: PageOrigin,
+    /// Validated logical source URI used by navigation and link resolution.
     #[serde(skip)]
     source: SourcePath,
     /// Validated site-relative output used by the writer.
@@ -87,6 +128,9 @@ pub struct PageData {
     pub path: String,
     /// Effective page title, including an explicit navigation title.
     pub title: String,
+    /// Module-owned template-facing page fields.
+    #[serde(flatten)]
+    properties: BTreeMap<String, Dynamic>,
     /// Rendered Markdown shared with the upstream value.
     #[serde(flatten)]
     markdown: Markdown,
@@ -112,7 +156,14 @@ pub struct Page {
     pub next_page: Option<NavigationItem>,
     /// Dynamic page-level template variables supplied by compatibility modules.
     #[serde(skip)]
-    template_variables: Option<BTreeMap<String, Vec<Tag>>>,
+    template_variables: Option<BTreeMap<String, Dynamic>>,
+    /// Visible navigation item represented by this page, when different.
+    #[serde(skip)]
+    navigation_url: Option<String>,
+    /// Sibling relations for a page hidden from visible navigation.
+    #[serde(skip)]
+    navigation_siblings:
+        Option<(Option<NavigationItem>, Option<NavigationItem>)>,
 }
 
 // ----------------------------------------------------------------------------
@@ -135,6 +186,14 @@ impl PageRoute {
         Ok(Self { source, destination, url })
     }
 
+    /// Creates route facts for a logical source and explicit destination.
+    pub fn from_destination(
+        config: &Config, source: SourcePath, destination: SitePath,
+    ) -> Self {
+        let url = route_url(&destination, config.project.use_directory_urls);
+        Self { source, destination, url }
+    }
+
     /// Computes the site-relative destination for a Markdown source.
     pub fn destination(
         source: &SourcePath, use_directory_urls: bool,
@@ -145,11 +204,92 @@ impl PageRoute {
 
 // ----------------------------------------------------------------------------
 
+impl PageDescriptor {
+    /// Creates an ordinary source-backed page descriptor.
+    pub fn source(
+        config: &Config, document: DocumentHeader,
+    ) -> Result<Self, PathError> {
+        let origin = PageOrigin::Source(document.source.clone());
+        let route = PageRoute::from_source(config, document.source.clone())?;
+        Ok(Self {
+            origin,
+            document,
+            route,
+            properties: BTreeMap::new(),
+            variables: BTreeMap::new(),
+        })
+    }
+
+    /// Creates a generated descriptor with an explicit stable identity.
+    pub fn generated(
+        identity: impl Into<String>, provenance: Option<SourcePath>,
+        document: DocumentHeader, route: PageRoute,
+    ) -> Self {
+        debug_assert_eq!(document.source, route.source);
+        Self {
+            origin: PageOrigin::Generated {
+                identity: identity.into(),
+                provenance,
+            },
+            document,
+            route,
+            properties: BTreeMap::new(),
+            variables: BTreeMap::new(),
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+
 impl Page {
     /// Creates a page.
     #[allow(clippy::similar_names)]
     pub fn new(
         config: &Config, route: PageRoute, markdown: Markdown, title: String,
+    ) -> Page {
+        let origin = PageOrigin::Source(route.source.clone());
+        Self::from_origin(config, origin, route, markdown, title)
+    }
+
+    /// Creates a generated page without requiring a physical Markdown file.
+    pub fn generated(
+        config: &Config, identity: String, provenance: Option<SourcePath>,
+        route: PageRoute, markdown: Markdown, title: String,
+    ) -> Page {
+        Self::from_origin(
+            config,
+            PageOrigin::Generated { identity, provenance },
+            route,
+            markdown,
+            title,
+        )
+    }
+
+    /// Creates a rendered page from a unified pre-render descriptor.
+    pub fn from_descriptor(
+        config: &Config, descriptor: &PageDescriptor, markdown: Markdown,
+        title: String,
+    ) -> Page {
+        let mut page = Self::from_origin(
+            config,
+            descriptor.origin.clone(),
+            descriptor.route.clone(),
+            markdown,
+            title,
+        );
+        Arc::make_mut(&mut page.data).properties =
+            descriptor.properties.clone();
+        if !descriptor.variables.is_empty() {
+            page.template_variables = Some(descriptor.variables.clone());
+        }
+        page
+    }
+
+    /// Creates a page with explicit logical ownership.
+    #[allow(clippy::similar_names)]
+    fn from_origin(
+        config: &Config, origin: PageOrigin, route: PageRoute,
+        markdown: Markdown, title: String,
     ) -> Page {
         let path = config.output_root().join(&route.destination);
         let source = route.source;
@@ -170,13 +310,19 @@ impl Page {
 
         // Compute edit URL - edit URIs can be relative or absolute, as both
         // variants are supported by MkDocs, so we mirror behavior for now
-        let edit_url = repo_url.clone().and_then(|repo_url| {
-            edit_uri.clone().map(|uri| {
-                if uri.starts_with("https://") {
-                    format!("{uri}/{source}")
-                } else {
-                    format!("{repo_url}/{uri}/{source}")
-                }
+        let edit_source = match &origin {
+            PageOrigin::Source(source) => Some(source),
+            PageOrigin::Generated { provenance, .. } => provenance.as_ref(),
+        };
+        let edit_url = edit_source.and_then(|source| {
+            repo_url.clone().and_then(|repo_url| {
+                edit_uri.clone().map(|uri| {
+                    if uri.starts_with("https://") {
+                        format!("{uri}/{source}")
+                    } else {
+                        format!("{repo_url}/{uri}/{source}")
+                    }
+                })
             })
         });
 
@@ -186,6 +332,7 @@ impl Page {
         // single struct, but to split up the page as necessary later on.
         Page {
             data: Arc::new(PageData {
+                origin,
                 source,
                 destination,
                 url,
@@ -196,12 +343,15 @@ impl Page {
                     .expect("configured output path is valid UTF-8")
                     .into(),
                 title,
+                properties: BTreeMap::new(),
                 markdown,
             }),
             ancestors: Vec::new(),
             previous_page: None,
             next_page: None,
             template_variables: None,
+            navigation_url: None,
+            navigation_siblings: None,
         }
     }
 
@@ -220,14 +370,26 @@ impl Page {
         };
 
         // Compute page relations from the immutable navigation.
-        self.ancestors = nav.ancestors(self);
-        self.previous_page = nav.previous_page(self);
-        self.next_page = nav.next_page(self);
+        let navigation_url = self
+            .navigation_url
+            .clone()
+            .unwrap_or_else(|| self.url.clone());
+        self.ancestors = nav.ancestors_for_url(&navigation_url);
+        self.previous_page = nav.previous_page_for_url(&navigation_url);
+        self.next_page = nav.next_page_for_url(&navigation_url);
+        if let Some((previous, next)) = &self.navigation_siblings {
+            self.previous_page = previous.clone();
+            self.next_page = next.clone();
+        }
 
         // Add the page-local active overlay without cloning the navigation tree.
-        let nav = NavigationView::new(nav, Some(&self.url));
+        let nav = NavigationView::new(nav, Some(&navigation_url));
         let variables = self.template_variables.clone().unwrap_or_else(|| {
-            BTreeMap::from([(String::from("tags"), self.tags())])
+            BTreeMap::from([(
+                String::from("tags"),
+                Dynamic::from_serialize(&self.tags())
+                    .expect("tag template data is JSON compatible"),
+            )])
         });
         let output = template.render_with_context(
             &name,
@@ -268,7 +430,12 @@ impl Page {
         &self.destination
     }
 
-    /// Returns the validated documentation-relative page source.
+    /// Returns the stable logical owner and optional edit provenance.
+    pub fn origin(&self) -> &PageOrigin {
+        &self.origin
+    }
+
+    /// Returns the validated logical source URI.
     pub fn source(&self) -> &SourcePath {
         &self.source
     }
@@ -276,26 +443,97 @@ impl Page {
     /// Adds module-derived template context to a page-render cache key.
     pub fn hash_derived_template_context<H: Hasher>(&self, state: &mut H) {
         self.template_variables.hash(state);
+        self.properties.hash(state);
+        self.navigation_url.hash(state);
+        self.navigation_siblings.hash(state);
     }
 
     /// Replaces page-local content, table of contents, and template variables.
     pub fn apply_derived(
         &mut self, content: Option<String>,
         toc: Option<Vec<crate::structure::toc::Section>>,
-        variables: BTreeMap<String, Vec<Tag>>,
+        variables: BTreeMap<String, Dynamic>,
     ) {
         if content.is_some() || toc.is_some() {
             Arc::make_mut(&mut self.data)
                 .markdown
                 .replace_derived(content, toc);
         }
-        self.template_variables = Some(variables);
+        match &mut self.template_variables {
+            Some(existing) => existing.extend(variables),
+            None => self.template_variables = Some(variables),
+        }
+    }
+
+    /// Applies module-owned page properties and top-level template variables.
+    pub(crate) fn apply_template_context(
+        &mut self, properties: BTreeMap<String, Dynamic>,
+        variables: BTreeMap<String, Dynamic>,
+    ) {
+        Arc::make_mut(&mut self.data).properties = properties;
+        if !variables.is_empty() {
+            self.template_variables = Some(variables);
+        }
+    }
+
+    /// Merges module-owned top-level template variables into this page.
+    pub(crate) fn merge_template_variables(
+        &mut self, variables: BTreeMap<String, Dynamic>,
+    ) {
+        self.template_variables
+            .get_or_insert_with(BTreeMap::new)
+            .extend(variables);
+    }
+
+    /// Deep-merges module-owned page properties.
+    pub(crate) fn merge_properties(
+        &mut self, properties: &BTreeMap<String, Dynamic>,
+    ) {
+        merge_properties(
+            &mut Arc::make_mut(&mut self.data).properties,
+            properties,
+        );
+    }
+
+    /// Uses another page's visible navigation position for this page.
+    pub(crate) fn apply_navigation_url(&mut self, url: String) {
+        self.navigation_url = Some(url);
+    }
+
+    /// Applies sibling relations for a page hidden from visible navigation.
+    pub(crate) fn apply_navigation_siblings(
+        &mut self, previous: Option<NavigationItem>,
+        next: Option<NavigationItem>,
+    ) {
+        self.navigation_siblings = Some((previous, next));
+    }
+
+    /// Applies a module-selected page template after view classification.
+    pub(crate) fn apply_template(&mut self, template: String) {
+        Arc::make_mut(&mut self.data)
+            .markdown
+            .insert_meta("template".into(), Dynamic::String(template));
     }
 
     /// Applies the title assigned to this page by navigation.
     pub(crate) fn apply_navigation_title(&mut self, title: &str) {
         if title != self.title {
             title.clone_into(&mut Arc::make_mut(&mut self.data).title);
+        }
+    }
+}
+
+fn merge_properties(
+    target: &mut BTreeMap<String, Dynamic>, source: &BTreeMap<String, Dynamic>,
+) {
+    for (name, value) in source {
+        match (target.get_mut(name), value) {
+            (Some(Dynamic::Map(target)), Dynamic::Map(source)) => {
+                merge_properties(target, source);
+            }
+            _ => {
+                target.insert(name.clone(), value.clone());
+            }
         }
     }
 }
@@ -311,11 +549,13 @@ impl Value for Page {}
 impl PartialEq for PageData {
     fn eq(&self, other: &Self) -> bool {
         self.url == other.url
+            && self.origin == other.origin
             && self.source == other.source
             && self.destination == other.destination
             && self.canonical_url == other.canonical_url
             && self.edit_url == other.edit_url
             && self.title == other.title
+            && self.properties == other.properties
             && self.meta == other.meta
             && self.path == other.path
             && self.content == other.content
@@ -401,9 +641,14 @@ fn route_url(destination: &SitePath, use_directory_urls: bool) -> String {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use std::collections::BTreeMap;
     use std::sync::Arc;
 
-    use super::{destination, route_url, Page, PageData, PageRoute};
+    use super::{
+        destination, route_url, Page, PageData, PageDescriptor, PageOrigin,
+        PageRoute,
+    };
+    use crate::structure::document::DocumentHeader;
 
     fn page() -> Page {
         let markdown = serde_json::from_value(json!({
@@ -416,6 +661,7 @@ mod tests {
         .unwrap();
         Page {
             data: Arc::new(PageData {
+                origin: PageOrigin::Source("index.md".parse().unwrap()),
                 source: "index.md".parse().unwrap(),
                 destination: "index.html".parse().unwrap(),
                 url: String::from("/"),
@@ -423,12 +669,15 @@ mod tests {
                 edit_url: None,
                 path: String::from("site/index.html"),
                 title: String::from("Home"),
+                properties: BTreeMap::new(),
                 markdown,
             }),
             ancestors: Vec::new(),
             previous_page: None,
             next_page: None,
             template_variables: None,
+            navigation_url: None,
+            navigation_siblings: None,
         }
     }
 
@@ -492,6 +741,35 @@ mod tests {
         assert_eq!(value["url"], "guide/caf%C3%A9/");
         assert!(value.get("path").is_none());
         assert_eq!(serde_json::from_value::<PageRoute>(value).unwrap(), route);
+    }
+
+    #[test]
+    fn generated_identity_is_independent_of_route_and_provenance() {
+        let document = DocumentHeader::new(
+            "blog/page/2/index.md".parse().unwrap(),
+            "# Blog".into(),
+            BTreeMap::default(),
+        );
+        let route = PageRoute {
+            source: document.source.clone(),
+            destination: "blog/page/2/index.html".parse().unwrap(),
+            url: "blog/page/2/".into(),
+        };
+        let descriptor = PageDescriptor::generated(
+            "blog:main:2",
+            Some("blog/index.md".parse().unwrap()),
+            document,
+            route,
+        );
+
+        assert!(matches!(
+            descriptor.origin,
+            PageOrigin::Generated {
+                ref identity,
+                provenance: Some(_),
+            } if identity == "blog:main:2"
+        ));
+        assert_eq!(descriptor.route.url, "blog/page/2/");
     }
 
     #[test]

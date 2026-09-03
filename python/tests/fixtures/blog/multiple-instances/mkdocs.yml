@@ -1,0 +1,27 @@
+site_name: Multiple blogs oracle
+site_url: https://example.test/docs/
+use_directory_urls: true
+
+theme:
+  name: material
+
+plugins:
+  - material/blog:
+      blog_dir: journal
+      post_dir: journal/posts
+      archive: false
+      categories: false
+      authors: false
+      pagination: false
+  - material/blog:
+      blog_dir: news
+      post_dir: news/posts
+      archive: false
+      categories: false
+      authors: false
+      pagination: false
+
+nav:
+  - Home: index.md
+  - Journal: journal/index.md
+  - News: news/index.md

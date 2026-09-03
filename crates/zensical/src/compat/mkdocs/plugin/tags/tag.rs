@@ -27,14 +27,13 @@
 
 use anyhow::{bail, Result};
 use icu_casemap::CaseMapper;
-use icu_locale_core::LanguageIdentifier;
-use icu_normalizer::{ComposingNormalizer, DecomposingNormalizer};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use crate::config::plugins::{python_scalar, TagsPluginConfig};
 use crate::structure::dynamic::Dynamic;
+use crate::structure::slug;
 use crate::structure::tag::{Tag as TemplateTag, TagNode as TemplateTagNode};
 
 // ----------------------------------------------------------------------------
@@ -201,57 +200,27 @@ fn slug_part(value: &str, separator: &str, strategy: &str) -> Result<String> {
     match strategy {
         "pymdownx:lower" => Ok(slug_pymdownx(value, separator, false)),
         "pymdownx:fold" => Ok(slug_pymdownx(value, separator, true)),
-        "markdown:slugify" => Ok(slug_markdown(value, separator)),
+        "markdown:slugify" => Ok(slug::ascii(value, separator)),
         _ => bail!("unsupported tags slug strategy: {strategy}"),
     }
 }
 
 /// Matches pymdownx's NFC, HTML stripping, case, and character policy.
 fn slug_pymdownx(value: &str, separator: &str, fold: bool) -> String {
+    if !fold {
+        return slug::unicode(value, separator);
+    }
     let stripped = strip_html(value);
-    let normalized = ComposingNormalizer::new_nfc().normalize(&stripped);
+    let normalized =
+        icu_normalizer::ComposingNormalizer::new_nfc().normalize(&stripped);
     let normalized = normalized.trim();
-    let cased = if fold {
-        CaseMapper::new().fold_string(normalized).into_owned()
-    } else {
-        CaseMapper::new()
-            .lowercase_to_string(normalized, &LanguageIdentifier::UNKNOWN)
-            .into_owned()
-    };
+    let cased = CaseMapper::new().fold_string(normalized).into_owned();
     let mut output = String::with_capacity(cased.len());
     for character in cased.chars() {
         if character.is_alphanumeric() || matches!(character, '_' | '-') {
             output.push(character);
         } else if character == ' ' {
             output.push_str(separator);
-        }
-    }
-    output
-}
-
-/// Matches Python Markdown's ASCII NFKD slug function.
-fn slug_markdown(value: &str, separator: &str) -> String {
-    let normalized = DecomposingNormalizer::new_nfkd().normalize(value);
-    let filtered = normalized
-        .chars()
-        .filter(|character| {
-            character.is_ascii_alphanumeric()
-                || character.is_ascii_whitespace()
-                || matches!(character, '_' | '-')
-        })
-        .flat_map(char::to_lowercase)
-        .collect::<String>();
-    let mut output = String::with_capacity(filtered.len());
-    let mut inside_separator = false;
-    for character in filtered.trim().chars() {
-        if character.is_whitespace() || separator.contains(character) {
-            if !inside_separator {
-                output.push_str(separator);
-                inside_separator = true;
-            }
-        } else {
-            inside_separator = false;
-            output.push(character);
         }
     }
     output

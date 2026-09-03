@@ -38,7 +38,7 @@ mod filter;
 mod loader;
 mod output;
 
-use filter::{script_tag_filter, url_filter};
+use filter::{date_filter, script_tag_filter, url_filter};
 use loader::Loader;
 pub use output::Output;
 
@@ -74,6 +74,7 @@ impl Template<'_> {
         env.add_filter("striptags", striptags);
         env.add_filter("url", url_filter);
         env.add_filter("script_tag", script_tag_filter);
+        env.add_filter("date", date_filter);
 
         // Reset auto-escaping, as we don't want to escape HTML in templates
         env.set_auto_escape_callback(|_| AutoEscape::None);

@@ -1,0 +1,241 @@
+{
+  "outputs": [
+    "404.html",
+    "blog/2023/12/01/filename-title/index.html",
+    "blog/2024/01/02/pinned-heading/index.html",
+    "blog/2024/02/03/über-café-東京/index.html",
+    "blog/2024/03/04/chosen-slug/index.html",
+    "blog/index.html",
+    "blog/page/2/index.html",
+    "index.html",
+    "notes/index.html"
+  ],
+  "navigation": [
+    {
+      "title": "Home",
+      "url": "/docs/"
+    },
+    {
+      "title": "Notes",
+      "url": "/docs/notes/"
+    },
+    {
+      "title": "Blog",
+      "url": "/docs/blog/"
+    }
+  ],
+  "pages": {
+    "blog/2023/12/01/filename-title/index.html": {
+      "document_title": "Filename title - Blog oracle",
+      "canonical": "/docs/blog/2023/12/01/filename-title/",
+      "relations": {
+        "prev": null,
+        "next": "/docs/blog/2024/02/03/%C3%BCber-caf%C3%A9-%E6%9D%B1%E4%BA%AC/"
+      },
+      "active_ancestors": [],
+      "headings": [
+        {
+          "level": 1,
+          "id": null,
+          "title": "Filename title"
+        }
+      ],
+      "links": [],
+      "posts": [],
+      "pagination": null
+    },
+    "blog/2024/01/02/pinned-heading/index.html": {
+      "document_title": "Pinned heading - Blog oracle",
+      "canonical": "/docs/blog/2024/01/02/pinned-heading/",
+      "relations": {
+        "prev": "/docs/blog/2024/03/04/chosen-slug/",
+        "next": null
+      },
+      "active_ancestors": [],
+      "headings": [
+        {
+          "level": 1,
+          "id": "pinned-heading",
+          "title": "Pinned heading"
+        }
+      ],
+      "links": [
+        {
+          "title": "relative link",
+          "url": "/docs/notes/#detail"
+        }
+      ],
+      "posts": [],
+      "pagination": null
+    },
+    "blog/2024/02/03/über-café-東京/index.html": {
+      "document_title": "Über Café 東京 - Blog oracle",
+      "canonical": "/docs/blog/2024/02/03/%C3%BCber-caf%C3%A9-%E6%9D%B1%E4%BA%AC/",
+      "relations": {
+        "prev": "/docs/blog/2023/12/01/filename-title/",
+        "next": "/docs/blog/2024/03/04/chosen-slug/"
+      },
+      "active_ancestors": [],
+      "headings": [
+        {
+          "level": 1,
+          "id": "uber-cafe",
+          "title": "Über Café 東京"
+        }
+      ],
+      "links": [],
+      "posts": [],
+      "pagination": null
+    },
+    "blog/2024/03/04/chosen-slug/index.html": {
+      "document_title": "Metadata wins - Blog oracle",
+      "canonical": "/docs/blog/2024/03/04/chosen-slug/",
+      "relations": {
+        "prev": "/docs/blog/2024/02/03/%C3%BCber-caf%C3%A9-%E6%9D%B1%E4%BA%AC/",
+        "next": "/docs/blog/2024/01/02/pinned-heading/"
+      },
+      "active_ancestors": [],
+      "headings": [
+        {
+          "level": 1,
+          "id": "content-heading",
+          "title": "Content heading"
+        }
+      ],
+      "links": [],
+      "posts": [],
+      "pagination": null
+    },
+    "blog/index.html": {
+      "document_title": "Journal - Blog oracle",
+      "canonical": "/docs/blog/",
+      "relations": {
+        "prev": "/docs/notes/",
+        "next": null
+      },
+      "active_ancestors": [],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "Pinned heading",
+          "url": "/docs/blog/2024/01/02/pinned-heading/",
+          "date": "2024-01-02 00:00:00+00:00",
+          "authors": [],
+          "categories": [],
+          "pinned": true,
+          "continue": "/docs/blog/2024/01/02/pinned-heading/",
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"pinned-heading\"><a class=\"toclink\" href=\"2024/01/02/pinned-heading/\">Pinned heading</a></h2><p>Pinned excerpt with a <a href=\"../notes/#detail\">relative link</a>.</p><nav class=\"md-post__action\"><a href=\"2024/01/02/pinned-heading/\"> Continue reading </a></nav><hr/></div>"
+        },
+        {
+          "title": "Content heading",
+          "url": "/docs/blog/2024/03/04/chosen-slug/",
+          "date": "2024-03-04 00:00:00+00:00",
+          "authors": [],
+          "categories": [],
+          "pinned": false,
+          "continue": null,
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"content-heading\"><a class=\"toclink\" href=\"2024/03/04/chosen-slug/\">Content heading</a></h2><p>Metadata excerpt without a separator.</p></div>"
+        }
+      ],
+      "pagination": {
+        "current": 1,
+        "links": [
+          {
+            "title": "2",
+            "url": "/docs/blog/page/2/"
+          }
+        ]
+      }
+    },
+    "blog/page/2/index.html": {
+      "document_title": "Journal - Blog oracle",
+      "canonical": "/docs/blog/page/2/",
+      "relations": {
+        "prev": "/docs/notes/",
+        "next": null
+      },
+      "active_ancestors": [],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "Über Café 東京",
+          "url": "/docs/blog/2024/02/03/%C3%BCber-caf%C3%A9-%E6%9D%B1%E4%BA%AC/",
+          "date": "2024-02-03 00:00:00+00:00",
+          "authors": [],
+          "categories": [],
+          "pinned": false,
+          "continue": "/docs/blog/2024/02/03/%C3%BCber-caf%C3%A9-%E6%9D%B1%E4%BA%AC/",
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"uber-cafe\"><a class=\"toclink\" href=\"../../2024/02/03/%C3%BCber-caf%C3%A9-%E6%9D%B1%E4%BA%AC/\">Über Café 東京</a></h2><p>Unicode excerpt.</p><nav class=\"md-post__action\"><a href=\"../../2024/02/03/%C3%BCber-caf%C3%A9-%E6%9D%B1%E4%BA%AC/\"> Continue reading </a></nav></div>"
+        },
+        {
+          "title": "Filename title",
+          "url": "/docs/blog/2023/12/01/filename-title/",
+          "date": "2023-12-01 00:00:00+00:00",
+          "authors": [],
+          "categories": [],
+          "pinned": false,
+          "continue": null,
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"filename-title\"><a class=\"toclink\" href=\"../../2023/12/01/filename-title/\">Filename title</a></h2><p>Filename-derived excerpt.</p></div>"
+        }
+      ],
+      "pagination": {
+        "current": 2,
+        "links": [
+          {
+            "title": "1",
+            "url": "/docs/blog/"
+          }
+        ]
+      }
+    },
+    "index.html": {
+      "document_title": "Blog oracle",
+      "canonical": "/docs/",
+      "relations": {
+        "prev": null,
+        "next": "/docs/notes/"
+      },
+      "active_ancestors": [
+        "Home"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "id": "home",
+          "title": "Home"
+        }
+      ],
+      "links": [],
+      "posts": [],
+      "pagination": null
+    },
+    "notes/index.html": {
+      "document_title": "Notes - Blog oracle",
+      "canonical": "/docs/notes/",
+      "relations": {
+        "prev": "/docs/",
+        "next": "/docs/blog/"
+      },
+      "active_ancestors": [
+        "Notes"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "id": "notes",
+          "title": "Notes"
+        },
+        {
+          "level": 2,
+          "id": "detail",
+          "title": "Detail"
+        }
+      ],
+      "links": [],
+      "posts": [],
+      "pagination": null
+    }
+  }
+}

@@ -29,8 +29,10 @@ use pyo3::FromPyObject;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
+mod blog;
 mod tags;
 
+pub use blog::{BlogPlugin, BlogPluginConfig, CategorySort, ExcerptPolicy};
 pub use tags::{
     python_bool, python_float, python_scalar, TagsListingConfig, TagsPlugin,
     TagsPluginConfig,
@@ -62,6 +64,8 @@ pub struct Plugins {
     pub minify: MinifyPlugin,
     /// Material tags plugin instances.
     pub tags: TagsPlugin,
+    /// Material blog plugin instances.
+    pub blogs: BlogPlugin,
     /// Literate navigation plugin.
     pub literate_nav: LiterateNavPlugin,
     /// Awesome navigation plugin.

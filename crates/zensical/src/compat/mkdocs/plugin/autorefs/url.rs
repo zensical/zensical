@@ -28,8 +28,6 @@
 use std::path::Path;
 use std::string::ToString;
 
-use zrx::path::PathExt;
-
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
@@ -65,30 +63,6 @@ pub fn closest(from: &str, urls: &[String], _qualifier: &str) -> String {
             .min_by_key(|url| url.matches('/').count())
             .expect("candidate list is nonempty")
     }
-}
-
-/// Computes a relative URL from one page URL to another.
-pub fn relative(from: &str, to: &str) -> String {
-    let from = Path::new(from);
-    let (to, fragment) = to
-        .split_once('#')
-        .map_or((Path::new(to), None), |(path, fragment)| {
-            (Path::new(path), Some(fragment))
-        });
-    let mut relative =
-        to.relative_to(from).to_string_lossy().replace('\\', "/");
-
-    if let Some(fragment) = fragment {
-        if relative == "." {
-            return format!("#{fragment}");
-        }
-        if to.as_os_str().is_empty() {
-            relative.push('/');
-        }
-        relative.push('#');
-        relative.push_str(fragment);
-    }
-    relative
 }
 
 /// Returns whether a URL has no HTTP(S) scheme.
@@ -129,7 +103,8 @@ fn parent(url: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{closest, relative};
+    use super::closest;
+    use crate::compat::mkdocs::url::relative;
 
     #[test]
     fn resolves_the_closest_url() {

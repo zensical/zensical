@@ -38,6 +38,7 @@ use zrx::stream::function::Collection;
 use zrx::stream::{Key, Signal, Stream, Value};
 
 use crate::compat::mkdocs::html;
+use crate::compat::mkdocs::url::relative;
 use crate::config::Config;
 use crate::path::SourcePath;
 use crate::structure::nav::source_sort_key;
@@ -48,7 +49,7 @@ mod url;
 
 pub use parser::{Parser, References};
 use parser::{Reference, SLOT_PREFIX, SLOT_SUFFIX};
-use url::{closest, is_relative, relative};
+use url::{closest, is_relative};
 
 /// Handled autoref attributes that should not be passed through to the output link.
 const HANDLED_ATTRS: &[&str] = &[
