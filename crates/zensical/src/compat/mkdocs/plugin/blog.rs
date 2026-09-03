@@ -26,6 +26,7 @@ use crate::structure::nav::{
 use crate::structure::page::{Page, PageDescriptor, PageOrigin, PageRoute};
 use crate::structure::slug;
 use crate::structure::toc::Section;
+use crate::template::Template;
 use crate::watcher::Source;
 
 mod author;
@@ -724,6 +725,7 @@ impl Blog {
     fn contributions(
         &self, pages: &[Page], specs: &[collection::ViewPageSpec],
     ) -> anyhow::Result<Vec<NavigationContribution>> {
+        let template = Template::new(self.config.theme_dirs.clone());
         let mut by_source = BTreeMap::new();
         for page in pages {
             if by_source.insert(page.source().clone(), page).is_some() {
@@ -794,19 +796,28 @@ impl Blog {
             let mut items = Vec::new();
             if !archives.is_empty() {
                 items.push(section(
-                    translated(&settings.archive_name),
+                    template.translate(
+                        &settings.archive_name,
+                        self.config.project.as_ref(),
+                    )?,
                     archives.into_iter().map(|(page, _)| page),
                 ));
             }
             if !categories.is_empty() {
                 items.push(section(
-                    translated(&settings.categories_name),
+                    template.translate(
+                        &settings.categories_name,
+                        self.config.project.as_ref(),
+                    )?,
                     categories.into_iter().map(|(_, _, page)| page),
                 ));
             }
             if !authors.is_empty() {
                 items.push(section(
-                    translated(&settings.authors_profiles_name),
+                    template.translate(
+                        &settings.authors_profiles_name,
+                        self.config.project.as_ref(),
+                    )?,
                     authors.into_iter().map(|(page, _)| page),
                 ));
             }
@@ -1150,15 +1161,6 @@ fn navigation_item(page: &Page) -> NavigationItem {
         children: Vec::new(),
         is_index: false,
         active: false,
-    }
-}
-
-fn translated(value: &str) -> String {
-    match value {
-        "blog.archive" => "Archive".into(),
-        "blog.categories" => "Categories".into(),
-        "blog.authors" => "Authors".into(),
-        value => value.into(),
     }
 }
 

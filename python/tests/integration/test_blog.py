@@ -296,6 +296,59 @@ def test_archive_and_category_views_share_native_pagination_pipeline(
     assert not (tmp_path / "docs" / "blog" / "category").exists()
 
 
+def test_navigation_labels_use_theme_language_partial(tmp_path: Path) -> None:
+    config = _project(
+        tmp_path,
+        archive=True,
+        categories=True,
+        authors=True,
+        author_profiles=True,
+    )
+    text = config.read_text(encoding="utf-8")
+    config.write_text(
+        text.replace(
+            "  custom_dir: overrides\n",
+            "  custom_dir: overrides\n  language: de\n",
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "docs" / "blog" / ".authors.yml").write_text(
+        "authors:\n"
+        "  jane:\n"
+        "    name: Jane Doe\n"
+        "    description: Technical writer\n"
+        "    avatar: assets/jane.png\n",
+        encoding="utf-8",
+    )
+    _post(
+        tmp_path,
+        "one.md",
+        "One",
+        "2026-09-01",
+        categories=["Rust"],
+        authors=["jane"],
+    )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    page = (tmp_path / "site" / "blog" / "index.html").read_text("utf-8")
+    assert "Archiv[2026=" in page
+    assert "Kategorien[Rust=" in page
+    assert "Autoren[Jane Doe=" in page
+
+
+def test_navigation_labels_keep_literal_configuration(tmp_path: Path) -> None:
+    config = _project(tmp_path, archive=True)
+    with config.open("a", encoding="utf-8") as stream:
+        stream.write("      archive_name: History\n")
+    _post(tmp_path, "one.md", "One", "2026-09-01")
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    page = (tmp_path / "site" / "blog" / "index.html").read_text("utf-8")
+    assert "History[2026=" in page
+
+
 def test_archive_navigation_follows_post_order_for_nonnumeric_urls(
     tmp_path: Path,
 ) -> None:

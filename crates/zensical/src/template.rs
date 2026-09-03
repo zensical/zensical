@@ -108,6 +108,16 @@ impl Template<'_> {
         }
     }
 
+    /// Translates a theme language key.
+    pub fn translate(
+        &self, key: &str, project: &Project,
+    ) -> Result<String, Error> {
+        self.env.render_str(
+            TRANSLATION_TEMPLATE,
+            context! { config => project, key => key },
+        )
+    }
+
     /// Renders the template.
     pub fn render(
         &self, name: &str, config: &Config, nav: &Navigation,
@@ -143,3 +153,9 @@ impl Template<'_> {
 /// Generator string.
 pub const GENERATOR: &str =
     concat!(env!("CARGO_PKG_NAME"), "-", env!("CARGO_PKG_VERSION"));
+
+/// Adapter for invoking the theme's language macro outside of a template.
+const TRANSLATION_TEMPLATE: &str = concat!(
+    "{% import \"partials/language.html\" as lang with context %}",
+    "{{ lang.t(key) }}",
+);
