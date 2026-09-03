@@ -30,7 +30,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::structure::dynamic::Dynamic;
 use crate::structure::nav::{
-    source_sort_key, to_title, Navigation, Plan, PlanItem,
+    source_sort_key, to_title, NavigationResolution, Plan, PlanItem,
 };
 use crate::structure::page::Page;
 
@@ -233,7 +233,7 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn resolve(mut self) -> Result<(Navigation, Vec<Diagnostic>)> {
+    fn resolve(mut self) -> Result<(NavigationResolution, Vec<Diagnostic>)> {
         let config = self.directory_config(".")?.clone();
         if !self.settings.configured.is_empty() {
             self.diagnostic(
@@ -813,7 +813,7 @@ fn components(path: &str) -> usize {
 /// Resolves native awesome-nav configuration and returns diagnostics.
 pub fn resolve(
     settings: &Settings, documents: &BTreeMap<String, String>, pages: &[Page],
-) -> Result<(Navigation, Vec<Diagnostic>)> {
+) -> Result<(NavigationResolution, Vec<Diagnostic>)> {
     Resolver::new(settings, documents, pages)
         .resolve()
         .context("failed to resolve awesome navigation")

@@ -64,8 +64,6 @@ pub struct MarkdownData {
     pub meta: BTreeMap<String, Dynamic>,
     /// Markdown content.
     pub content: String,
-    /// Page title extracted from Markdown.
-    pub title: String,
     /// Table of contents.
     pub toc: Vec<Section>,
 }
@@ -78,8 +76,6 @@ struct RenderedMarkdown {
     meta: BTreeMap<String, Dynamic>,
     /// Markdown content.
     content: String,
-    /// Page title extracted from Markdown.
-    title: String,
     /// Table of contents.
     toc: Vec<Section>,
 }
@@ -93,7 +89,7 @@ impl Markdown {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
     pub fn new(
         id: &Id, url: String, content: String, meta: BTreeMap<String, Dynamic>,
-    ) -> Result<Markdown> {
+    ) -> Result<(Markdown, String)> {
         let id = id.clone();
         let meta = serde_json::to_string(&meta)?;
         let res = Python::attach(|py| {
@@ -105,14 +101,13 @@ impl Markdown {
         .map_err(python_error);
 
         res.map(|data| {
-            let mut data = MarkdownData {
+            let data = MarkdownData {
                 meta: data.meta,
                 content: data.content,
-                title: data.title,
                 toc: data.toc,
             };
-            data.title = extract_title(&id, &data);
-            Markdown { data: Arc::new(data) }
+            let title = extract_title(&id, &data);
+            (Markdown { data: Arc::new(data) }, title)
         })
     }
 
@@ -239,7 +234,6 @@ mod tests {
             data: Arc::new(MarkdownData {
                 meta: BTreeMap::new(),
                 content: String::from("<h1>Home</h1>"),
-                title: String::from("Home"),
                 toc: Vec::new(),
             }),
         }
@@ -258,12 +252,11 @@ mod tests {
         let value = serde_json::to_value(markdown()).unwrap();
 
         assert_eq!(value["content"], "<h1>Home</h1>");
-        assert_eq!(value["title"], "Home");
+        assert!(value.get("title").is_none());
         assert!(value.get("data").is_none());
         assert!(value.get("search").is_none());
 
         let markdown: Markdown = serde_json::from_value(value).unwrap();
         assert_eq!(markdown.content, "<h1>Home</h1>");
-        assert_eq!(markdown.title, "Home");
     }
 }

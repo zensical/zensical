@@ -27,7 +27,6 @@
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Deref;
@@ -54,7 +53,7 @@ use crate::config::Config;
 use crate::path::{PathError, SitePath, SourcePath};
 use crate::python::{Anchors, Issues, References, SharedReferences};
 use crate::structure::markdown::Markdown;
-use crate::structure::nav::Navigation;
+use crate::structure::nav::{Navigation, NavigationResolution};
 use crate::structure::page::{Page, PageRoute};
 use crate::template::Template;
 use crate::watcher::Source;
@@ -174,34 +173,6 @@ impl Value for PageRender {}
 
 // ----------------------------------------------------------------------------
 
-/// Effective navigation title indexed by page URL.
-#[derive(Clone, Debug)]
-struct PageTitles(Arc<HashMap<String, String>>);
-
-impl Value for PageTitles {}
-
-impl PageTitles {
-    /// Indexes the first navigation occurrence of each page, like MkDocs.
-    fn new(nav: &Navigation) -> Self {
-        let mut titles = HashMap::new();
-        for item in nav {
-            if item.meta.is_some()
-                && let (Some(url), Some(title)) = (&item.url, &item.title)
-            {
-                titles.entry(url.clone()).or_insert_with(|| title.clone());
-            }
-        }
-        Self(Arc::new(titles))
-    }
-
-    /// Returns the effective title assigned to a page in navigation.
-    fn get(&self, url: &str) -> Option<&str> {
-        self.0.get(url).map(String::as_str)
-    }
-}
-
-// ----------------------------------------------------------------------------
-
 /// Markdown source paired with route facts available before rendering.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct RoutedMarkdown {
@@ -222,6 +193,8 @@ struct RenderedMarkdown {
     route: PageRoute,
     /// Rendered Markdown consumed by page construction.
     markdown: Markdown,
+    /// Page title derived from metadata, Markdown, or source name.
+    title: String,
     /// Page-local registrations consumed during site settlement.
     registrations: Arc<autorefs::Facts>,
     /// Facts extracted by the shared MkDocs-compatible HTML pass.
@@ -287,32 +260,46 @@ impl Main {
 
         // Construct pages before resolving navigation, which needs the titles
         // derived from Markdown for entries without an explicit title.
-        let rendered_page = generate_page(&self.config, &rendered);
-        let page =
-            rendered_page.map(|rendered: &RenderedPage| rendered.page.clone());
+        let provisional = generate_page(&self.config, &rendered);
+        let provisional_page =
+            provisional.map(|rendered: &RenderedPage| rendered.page.clone());
+        // Autorefs only consumes registrations gathered during Markdown
+        // rendering, so keep it independent of finalized navigation titles.
+        let autorefs_input =
+            provisional.map(|rendered: &RenderedPage| autorefs::PageInput {
+                source: rendered.page.source().clone(),
+                facts: rendered.registrations.clone(),
+            });
+        let autorefs = plugins
+            .autorefs
+            .setup(autorefs::Dependencies { pages: &autorefs_input });
         let awesome_nav =
             awesome_nav::AwesomeNav::new(&self.config, self.strict).expect(
                 "awesome-nav configuration is validated during loading",
             );
-        let nav = if awesome_nav.is_enabled() {
+        let resolution = if awesome_nav.is_enabled() {
             awesome_nav.setup(awesome_nav::Dependencies {
                 sources: &sources,
-                pages: &page,
+                pages: &provisional_page,
             })
         } else {
             literate_nav::LiterateNav::new(&self.config).setup(
                 literate_nav::Dependencies {
                     sources: &sources,
-                    pages: &page,
+                    pages: &provisional_page,
                 },
             )
         };
+        let nav = resolution
+            .map(|value: &NavigationResolution| value.navigation.clone());
         // MkDocs assigns configured navigation titles when constructing Page
         // objects, before metadata and Markdown fallbacks are evaluated. Our
         // navigation is resolved later, so apply that highest-precedence title
         // once the complete navigation is available.
-        let rendered_page = apply_navigation_titles(&rendered_page, &nav);
+        let rendered_page = apply_navigation_titles(&provisional, &resolution);
         let rendered_page = apply_tags(&plugins.tags, &rendered_page);
+        let page =
+            rendered_page.map(|rendered: &RenderedPage| rendered.page.clone());
         let site_page = rendered_page.map(|rendered: &RenderedPage| SitePage {
             page: rendered.page.clone(),
             autorefs: rendered.html.autorefs.clone(),
@@ -326,14 +313,6 @@ impl Main {
                     )
                 })
             });
-        let autorefs_input =
-            rendered_page.map(|rendered: &RenderedPage| autorefs::PageInput {
-                source: rendered.page.source().clone(),
-                facts: rendered.registrations.clone(),
-            });
-        let autorefs = plugins
-            .autorefs
-            .setup(autorefs::Dependencies { pages: &autorefs_input });
         plugins.search.setup(search::Dependencies {
             documents: &search_document,
             navigation: &nav,
@@ -359,13 +338,13 @@ impl Main {
 
 /// Applies explicit navigation titles to their pages.
 fn apply_navigation_titles(
-    pages: &Stream<Id, RenderedPage>, nav: &Signal<Id, Navigation>,
+    pages: &Stream<Id, RenderedPage>,
+    resolution: &Signal<Id, NavigationResolution>,
 ) -> Stream<Id, RenderedPage> {
-    let titles = nav.map(PageTitles::new);
-    pages.product(&titles).map(
-        |rendered: &RenderedPage, titles: &PageTitles| {
+    pages.product(resolution).map(
+        |rendered: &RenderedPage, resolution: &NavigationResolution| {
             let mut rendered = rendered.clone();
-            if let Some(title) = titles.get(&rendered.page.url) {
+            if let Some(title) = resolution.title(rendered.page.source()) {
                 rendered.page.apply_navigation_title(title);
             }
             rendered
@@ -545,13 +524,14 @@ fn render_markdown(
     id: &Id, route: PageRoute, content: String, plugins: plugin::Settings,
     meta: meta::Resolved,
 ) -> anyhow::Result<RenderedMarkdown> {
-    let mut markdown =
+    let (mut markdown, title) =
         Markdown::new(id, route.url.clone(), content, meta.values())?;
     let html = plugin::prepare(&mut markdown, &route.source, &plugins)?;
     let registrations = plugins.autorefs.take_page(&route.url);
     Ok(RenderedMarkdown {
         route,
         markdown,
+        title,
         registrations,
         html,
     })
@@ -567,6 +547,7 @@ fn generate_page(
             &config,
             markdown.route.clone(),
             markdown.markdown.clone(),
+            markdown.title.clone(),
         ),
         registrations: markdown.registrations.clone(),
         html: markdown.html.clone(),
@@ -718,45 +699,9 @@ pub fn create_workflow(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-    use std::sync::Arc;
-
     use zrx::id::Id;
 
-    use crate::structure::nav::{Navigation, NavigationItem};
-
-    use super::{template_output, PageTitles};
-
-    fn item(title: &str, url: &str, page: bool) -> NavigationItem {
-        NavigationItem {
-            title: Some(title.into()),
-            url: Some(url.into()),
-            canonical_url: None,
-            meta: page.then(BTreeMap::new),
-            children: Vec::new(),
-            is_index: false,
-            active: false,
-        }
-    }
-
-    #[test]
-    fn page_titles_index_first_page_occurrence_and_ignores_links() {
-        let navigation = Navigation {
-            items: Arc::new(vec![
-                item("First", "page/", true),
-                item("Second", "page/", true),
-                item("Link", "link/", false),
-            ]),
-            homepage: None,
-            hash: 0,
-            generation: 0,
-        };
-
-        let titles = PageTitles::new(&navigation);
-
-        assert_eq!(titles.get("page/"), Some("First"));
-        assert_eq!(titles.get("link/"), None);
-    }
+    use super::template_output;
 
     #[test]
     fn template_outputs_use_logical_provider_identity() {
