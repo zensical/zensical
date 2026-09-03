@@ -192,8 +192,10 @@ def test_minifies_hashes_and_rewrites_external_assets(tmp_path: Path) -> None:
         assert f".{digest}.min." in path.name
 
     html = (tmp_path / "site" / "index.html").read_text()
-    assert f'src="./{script.relative_to(tmp_path / "site")}"' in html
-    assert f'href="./{stylesheet.relative_to(tmp_path / "site")}"' in html
+    script_url = script.relative_to(tmp_path / "site").as_posix()
+    stylesheet_url = stylesheet.relative_to(tmp_path / "site").as_posix()
+    assert f'src="./{script_url}"' in html
+    assert f'href="./{stylesheet_url}"' in html
     assert 'type="module"' in html
     assert re.search(r"<script[^>]+ defer(?:=| |>)", html)
     assert (tmp_path / "site" / "assets" / "unchanged.txt").read_text() == (
