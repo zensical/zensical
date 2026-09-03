@@ -8,13 +8,15 @@ Run the oracle from the repository root:
 
 ```console
 uv run python scripts/blog_oracle.py \
-  --mkdocs ../mkdocs-material/community/venv/bin/mkdocs
+  --mkdocs ../mkdocs-material/community/venv/bin/mkdocs \
+  --zensical .venv/bin/zensical
 ```
 
 Pass `--update` only after reviewing an intentional Material baseline change.
 The harness compares routes, titles, navigation, page relations, ordered view
 memberships, pagination, links, and normalized excerpt fragments. It does not
-compare complete generated documents or theme assets.
+compare complete generated documents or theme assets. The Zensical build uses
+the built-in UI distribution, so this also validates the native blog templates.
 
 The fixtures are divided by compatibility concern:
 

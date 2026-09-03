@@ -774,52 +774,35 @@ impl Blog {
             archives.sort_by(|left, right| {
                 collection::compare_order(left.1, right.1)
             });
-            categories.sort_by(|left, right| left.0.cmp(right.0));
-            match settings.categories_sort_by {
-                CategorySort::Name if settings.categories_sort_reverse => {
-                    categories.reverse();
-                }
-                CategorySort::Name => {}
-                CategorySort::PostCount => categories.sort_by(|left, right| {
-                    let order = left.1.cmp(&right.1);
-                    if settings.categories_sort_reverse {
-                        order.reverse()
-                    } else {
-                        order
-                    }
-                }),
-            }
+            sort_categories(settings, &mut categories);
             authors.sort_by(|left, right| {
                 collection::compare_order(left.1, right.1)
             });
 
             let mut items = Vec::new();
             if !archives.is_empty() {
-                items.push(section(
-                    template.translate(
-                        &settings.archive_name,
-                        self.config.project.as_ref(),
-                    )?,
+                items.push(navigation_section(
+                    &template,
+                    &self.config,
+                    &settings.archive_name,
                     archives.into_iter().map(|(page, _)| page),
-                ));
+                )?);
             }
             if !categories.is_empty() {
-                items.push(section(
-                    template.translate(
-                        &settings.categories_name,
-                        self.config.project.as_ref(),
-                    )?,
+                items.push(navigation_section(
+                    &template,
+                    &self.config,
+                    &settings.categories_name,
                     categories.into_iter().map(|(_, _, page)| page),
-                ));
+                )?);
             }
             if !authors.is_empty() {
-                items.push(section(
-                    template.translate(
-                        &settings.authors_profiles_name,
-                        self.config.project.as_ref(),
-                    )?,
+                items.push(navigation_section(
+                    &template,
+                    &self.config,
+                    &settings.authors_profiles_name,
                     authors.into_iter().map(|(page, _)| page),
-                ));
+                )?);
             }
             if !items.is_empty() {
                 contributions.push(NavigationContribution {
@@ -1138,17 +1121,38 @@ fn author_catalog_key(id: BlogId) -> Key<Id> {
     )
 }
 
-fn section<'a>(
-    title: String, pages: impl IntoIterator<Item = &'a Page>,
-) -> NavigationItem {
-    NavigationItem {
-        title: Some(title),
+fn navigation_section<'a>(
+    template: &Template<'_>, config: &Config, title: &str,
+    pages: impl IntoIterator<Item = &'a Page>,
+) -> anyhow::Result<NavigationItem> {
+    Ok(NavigationItem {
+        title: Some(template.translate(title, config.project.as_ref())?),
         url: None,
         canonical_url: None,
         meta: None,
         children: pages.into_iter().map(navigation_item).collect(),
         is_index: false,
         active: false,
+    })
+}
+
+fn sort_categories(
+    settings: &BlogPluginConfig, categories: &mut [(&String, usize, &Page)],
+) {
+    categories.sort_by(|left, right| left.0.cmp(right.0));
+    match settings.categories_sort_by {
+        CategorySort::Name if settings.categories_sort_reverse => {
+            categories.reverse();
+        }
+        CategorySort::Name => {}
+        CategorySort::PostCount => categories.sort_by(|left, right| {
+            let order = left.1.cmp(&right.1);
+            if settings.categories_sort_reverse {
+                order.reverse()
+            } else {
+                order
+            }
+        }),
     }
 }
 

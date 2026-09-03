@@ -46,43 +46,6 @@ if TYPE_CHECKING:
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "python" / "tests" / "fixtures" / "blog"
-ZENSICAL_PAGINATION = """\
-{% import ".icons/material/chevron-double-left.svg" as icon_first %}
-{% import ".icons/material/chevron-left.svg" as icon_previous %}
-{% import ".icons/material/chevron-right.svg" as icon_next %}
-{% import ".icons/material/chevron-double-right.svg" as icon_last %}
-<nav class="md-pagination">
-  {% for item in pagination.items %}
-    {% if item.type == "text" %}
-      {{ item.value }}
-    {% elif item.ellipsis %}
-      <span class="md-pagination__dots">..</span>
-    {% elif item.current %}
-      <span class="md-pagination__current">{{ item.page }}</span>
-    {% elif item.type == "first_page" %}
-      <a class="md-pagination__link" href="{{ item.url | url }}">
-        {{- icon_first -}}
-      </a>
-    {% elif item.type == "previous_page" %}
-      <a class="md-pagination__link" href="{{ item.url | url }}">
-        {{- icon_previous -}}
-      </a>
-    {% elif item.type == "next_page" %}
-      <a class="md-pagination__link" href="{{ item.url | url }}">
-        {{- icon_next -}}
-      </a>
-    {% elif item.type == "last_page" %}
-      <a class="md-pagination__link" href="{{ item.url | url }}">
-        {{- icon_last -}}
-      </a>
-    {% else %}
-      <a class="md-pagination__link" href="{{ item.url | url }}">
-        {{- item.page -}}
-      </a>
-    {% endif %}
-  {% endfor %}
-</nav>
-"""
 
 
 def parse_args() -> argparse.Namespace:
@@ -98,11 +61,6 @@ def parse_args() -> argparse.Namespace:
         "--zensical",
         type=Path,
         help="optional path to a Zensical executable to compare",
-    )
-    parser.add_argument(
-        "--templates",
-        type=Path,
-        help="Material template directory used for Zensical comparisons",
     )
     parser.add_argument(
         "--fixture",
@@ -355,7 +313,8 @@ def extract(site: Path, *, engine: Engine) -> dict[str, Any]:
         and not (
             engine is Engine.ZENSICAL
             and (
-                path.name in {
+                path.name
+                in {
                     "__init__.py",
                     "mkdocs_theme.yml",
                     "objects.inv",
@@ -388,34 +347,12 @@ def build(
     destination: Path,
     *,
     engine: Engine,
-    templates: Path | None = None,
 ) -> None:
     """Build one fixture with the supplied reference environment."""
     config = fixture / "mkdocs.yml"
     if engine is Engine.ZENSICAL:
-        if templates is None:
-            raise ValueError("--templates is required with --zensical")
-        custom_dir = fixture / ".material-templates"
-        if not custom_dir.is_dir():
-            shutil.copytree(templates, custom_dir)
-            (custom_dir / "partials" / "pagination.html").write_text(
-                ZENSICAL_PAGINATION,
-                encoding="utf-8",
-            )
         source = config.read_text(encoding="utf-8")
         source = re.sub(r"(?m)^site_dir:.*\n", "", source)
-        if re.search(r"(?m)^  custom_dir:", source):
-            source = re.sub(
-                r"(?m)^  custom_dir:.*$",
-                "  custom_dir: .material-templates",
-                source,
-            )
-        else:
-            source = source.replace(
-                "theme:\n",
-                "theme:\n  custom_dir: .material-templates\n",
-                1,
-            )
         source += f"\nsite_dir: {destination.relative_to(fixture)}\n"
         config.write_text(source, encoding="utf-8")
         command = [
@@ -461,7 +398,6 @@ def run_fixture(
     root: Path,
     *,
     engine: Engine,
-    templates: Path | None = None,
 ) -> dict[str, Any]:
     """Build one fixture or its ordered clean-build mutation sequence."""
     scenario = fixture / "scenario.json"
@@ -476,7 +412,6 @@ def run_fixture(
             fixture,
             destination,
             engine=engine,
-            templates=templates,
         )
         return extract(destination, engine=engine)
 
@@ -494,7 +429,6 @@ def run_fixture(
             fixture,
             destination,
             engine=engine,
-            templates=templates,
         )
         snapshots.append(
             {
@@ -541,8 +475,7 @@ def compare(
     )
     temporary.write_text(rendered, encoding="utf-8")
     print(
-        f"mismatch for {name} with {engine.value}; "
-        f"actual manifest: {temporary}"
+        f"mismatch for {name} with {engine.value}; actual manifest: {temporary}"
     )
     return False
 
@@ -568,15 +501,19 @@ def _normalize_generator_differences(
         root.pop("document_title", None)
     for path, page in manifest.get("pages", {}).items():
         base = page.get("canonical") or "https://example.test/"
+        if engine is Engine.ZENSICAL:
+            for heading in page.get("headings", []):
+                if heading.get("id") == "__skip":
+                    heading["id"] = None
+        if page.get("pagination") == {"current": 1, "links": []}:
+            page["pagination"] = None
         if page.get("posts"):
             page.pop("relations", None)
             if engine is Engine.ZENSICAL and "/page/" in path:
                 # Zensical reuses the logical view's navigation position for
                 # pagination pages. Material leaves that final item inactive,
                 # while retaining any containing section as active.
-                page["active_ancestors"] = page.get(
-                    "active_ancestors", []
-                )[:-1]
+                page["active_ancestors"] = page.get("active_ancestors", [])[:-1]
         for post in page.get("posts", []):
             content = post.get("content")
             if not content:
@@ -600,11 +537,8 @@ def main() -> int:
     if not mkdocs.is_file():
         raise FileNotFoundError(mkdocs)
     zensical = args.zensical.resolve() if args.zensical else None
-    templates = args.templates.resolve() if args.templates else None
     if zensical and not zensical.is_file():
         raise FileNotFoundError(zensical)
-    if zensical and (templates is None or not templates.is_dir()):
-        raise FileNotFoundError(templates or "--templates")
     succeeded = True
     with tempfile.TemporaryDirectory(prefix="zensical-blog-oracle-") as raw:
         root = Path(raw)
@@ -637,7 +571,6 @@ def main() -> int:
                 fixture,
                 root,
                 engine=Engine.ZENSICAL,
-                templates=templates,
             )
             succeeded &= compare(
                 name,

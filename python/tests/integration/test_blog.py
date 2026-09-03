@@ -8,6 +8,9 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -15,6 +18,7 @@ import pytest
 import zensical
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 
@@ -176,6 +180,119 @@ def test_single_page_keeps_empty_pagination_context(tmp_path: Path) -> None:
 
     page = (tmp_path / "site" / "blog" / "index.html").read_text("utf-8")
     assert "|1/1:NEXT=|" in page
+
+
+def test_serve_reconciles_routes_views_and_pagination(tmp_path: Path) -> None:
+    """Retained blog revisions retract every superseded output."""
+    config = _project(tmp_path, per_page=1, archive=True, categories=True)
+    with config.open("a", encoding="utf-8") as stream:
+        stream.write("dev_addr: 127.0.0.1:0\n")
+    _post(
+        tmp_path,
+        "one.md",
+        "One",
+        "2026-09-01",
+        categories=["Alpha"],
+    )
+    _post(
+        tmp_path,
+        "two.md",
+        "Two",
+        "2026-09-02",
+        categories=["Alpha"],
+    )
+    log = (tmp_path / "serve.log").open("w+", encoding="utf-8")
+    process = subprocess.Popen(  # noqa: S603
+        [
+            sys.executable,
+            "-m",
+            "zensical",
+            "serve",
+            "--config-file",
+            str(config),
+        ],
+        cwd=tmp_path,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+    )
+    site = tmp_path / "site" / "blog"
+    index = site / "index.html"
+    second = site / "page" / "2" / "index.html"
+    one = site / "2026" / "09" / "01" / "one" / "index.html"
+    two = site / "2026" / "09" / "02" / "two" / "index.html"
+    moved = site / "2026" / "09" / "03" / "moved" / "index.html"
+    alpha = site / "category" / "alpha" / "index.html"
+    beta = site / "category" / "beta" / "index.html"
+
+    def contains(path: Path, value: str) -> bool:
+        try:
+            return value in path.read_text(encoding="utf-8")
+        except OSError:
+            return False
+
+    def wait_for(condition: Callable[[], bool], timeout: float = 10.0) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            if process.poll() is not None:
+                log.flush()
+                log.seek(0)
+                raise AssertionError(
+                    f"serve exited with status {process.returncode}: "
+                    f"{log.read()}"
+                )
+            time.sleep(0.02)
+        log.flush()
+        log.seek(0)
+        raise AssertionError(
+            f"serve did not reconcile blog state: {log.read()}"
+        )
+
+    try:
+        wait_for(
+            lambda: (
+                two.is_file()
+                and one.is_file()
+                and contains(index, "Two:")
+                and contains(second, "One:")
+            )
+        )
+        _post(
+            tmp_path,
+            "one.md",
+            "Moved",
+            "2026-09-03",
+            categories=["Beta"],
+        )
+        wait_for(
+            lambda: (
+                moved.is_file()
+                and not one.exists()
+                and beta.is_file()
+                and contains(index, "Moved:")
+                and contains(second, "Two:")
+            )
+        )
+        (tmp_path / "docs" / "blog" / "posts" / "two.md").unlink()
+        wait_for(
+            lambda: (
+                not two.exists()
+                and not second.exists()
+                and not alpha.exists()
+                and contains(index, "Moved:")
+            )
+        )
+        assert process.poll() is None
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+        log.close()
 
 
 def test_pagination_format_exposes_ordered_native_items(tmp_path: Path) -> None:
