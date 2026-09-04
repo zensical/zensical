@@ -146,6 +146,66 @@ def test_site_dir_docs_dir_cant_be_equal(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Markdown extensions
+# ---------------------------------------------------------------------------
+
+
+def test_markdown_extensions_are_normalized_without_mutating_input() -> None:
+    value = {
+        "abbr": None,
+        "pymdownx": {
+            "highlight": {"linenums": True},
+            "blocks": {"tab": None},
+        },
+        "zensical": {"extensions": {"preview": {}}},
+    }
+
+    extensions, configs = cfg_module._convert_markdown_extensions(value)
+
+    assert extensions == [
+        "toc",
+        "tables",
+        "abbr",
+        "pymdownx.highlight",
+        "pymdownx.blocks.tab",
+        "zensical.extensions.preview",
+    ]
+    assert configs["abbr"] == {}
+    assert configs["pymdownx.highlight"] == {"linenums": True}
+    assert value["pymdownx"]["blocks"] == {"tab": None}
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        (42, "Markdown extensions must be a list or mapping"),
+        ([42], "Markdown extensions must be strings or mappings"),
+        (
+            [{"abbr": {}, "toc": {}}],
+            "Markdown extension mappings must contain one entry",
+        ),
+        ({42: {}}, "Markdown extension names must be strings"),
+        ({"abbr": []}, "Markdown extension configurations must be mappings"),
+        ({"pymdownx": []}, "pymdownx Markdown extensions must be a mapping"),
+        (
+            {"pymdownx": {"blocks": []}},
+            "pymdownx.blocks Markdown extensions must be a mapping",
+        ),
+        ({"zensical": []}, "zensical Markdown extensions must be a mapping"),
+        (
+            {"zensical": {"extensions": []}},
+            "zensical.extensions Markdown extensions must be a mapping",
+        ),
+    ],
+)
+def test_markdown_extensions_reject_invalid_configuration(
+    value: Any, message: str
+) -> None:
+    with pytest.raises(ConfigurationError, match=message):
+        cfg_module._convert_markdown_extensions(value)
+
+
+# ---------------------------------------------------------------------------
 # Plugins to Markdown extensions
 # ---------------------------------------------------------------------------
 
@@ -328,8 +388,8 @@ class TestPluginShimming:
         ("plugin", "message"),
         [
             ({"unknown": True}, "unknown awesome-nav option"),
-            ({"filename": 42}, "filename must be a string"),
-            ({"filename": ""}, "filename must not be empty"),
+            ({"filename": 42}, "filename must be a non-empty string"),
+            ({"filename": ""}, "filename must be a non-empty string"),
             ({"logs": "warning"}, "logs must be a mapping"),
             ({"logs": {"unknown": "info"}}, "unknown awesome-nav log"),
             (
