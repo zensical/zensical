@@ -55,6 +55,8 @@ pub mod tags;
 pub struct HtmlFacts {
     /// Page-local autoref placeholders replaced with stable slots.
     pub autorefs: Arc<autorefs::References>,
+    /// Page-local URLs registered by autorefs and mkdocstrings.
+    pub autorefs_registrations: Arc<autorefs::Facts>,
     /// Page-local search sections.
     pub search: Arc<search::Facts>,
     /// Page-local tag mappings and listing slots.
@@ -98,9 +100,16 @@ impl Settings {
 
 /// Runs enabled MkDocs-compatible visitors in one page-local HTML pass.
 pub fn prepare(
-    markdown: &mut Markdown, source: &SourcePath, settings: &Settings,
+    markdown: &mut Markdown, source: &SourcePath, url: &str,
+    settings: &Settings,
 ) -> anyhow::Result<HtmlFacts> {
-    let mut autorefs = autorefs::Parser::default();
+    let mut autorefs = settings.autorefs.is_enabled().then(|| {
+        autorefs::Parser::with_facts(
+            url,
+            settings.autorefs.records_backlinks(),
+            settings.autorefs.take_page(url),
+        )
+    });
     let defer_search_cleanup =
         settings.search.is_enabled() && !settings.tags.is_empty();
     let mut search = search::parser(&markdown.meta);
@@ -119,8 +128,8 @@ pub fn prepare(
     if settings.search.is_enabled() {
         visitors.push(&mut search);
     }
-    if settings.autorefs.is_enabled() {
-        visitors.push(&mut autorefs);
+    if let Some(parser) = &mut autorefs {
+        visitors.push(parser);
     }
     if let Some(parser) = &mut tags {
         visitors.push(parser);
@@ -141,12 +150,16 @@ pub fn prepare(
         tag_facts.require_search_cleanup();
     }
 
+    let (references, registrations) = autorefs
+        .map(|parser| {
+            let (references, registrations) = parser.finish();
+            (Arc::new(references), Arc::new(registrations))
+        })
+        .unwrap_or_default();
+
     Ok(HtmlFacts {
-        autorefs: if settings.autorefs.is_enabled() {
-            Arc::new(autorefs.finish())
-        } else {
-            Arc::default()
-        },
+        autorefs: references,
+        autorefs_registrations: registrations,
         search: if settings.search.is_enabled() {
             search::finish(search)
         } else {

@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -56,27 +57,44 @@ class ToolConfig:
         self.config_file_path = config_file_path
 
 
+@dataclass(frozen=True, order=True)
+class _SortableBacklinkCrumb:
+    """Backlink crumb with title-aware equality and ordering."""
+
+    title: str
+    url: str
+
+
 # ----------------------------------------------------------------------------
 # Functions
 # ----------------------------------------------------------------------------
 
 
-def get_mkdocstrings_extension(
+def _python_handler_has_backlinks(
+    handlers: dict[str, Any] | None,
+) -> bool:
+    """Return whether the Python handler enables backlinks."""
+    if not isinstance(handlers, dict):
+        return False
+    handler = handlers.get("python")
+    if not isinstance(handler, dict):
+        return False
+    options = handler.get("options")
+    return isinstance(options, dict) and bool(options.get("backlinks", False))
+
+
+def _get_handlers(
     handlers: dict[str, Any] | None = None,
     *,
     custom_templates: str | None = None,
-    enable_inventory: bool = True,  # noqa: ARG001
     default_handler: str = "python",
     locale: str = "en",
     config: dict[str, Any],
-) -> MkdocstringsExtension:
-    """Create the mkdocstrings Markdown extension."""
+) -> Handlers:
+    """Create or return the handlers shared by the current build."""
     from mkdocstrings import (  # noqa: PLC0415  # ty:ignore[unresolved-import]
         Handlers,
-        MkdocstringsExtension,
     )
-
-    autorefs = get_autorefs_store()
 
     global HANDLERS  # noqa: PLW0603
     if HANDLERS is None:
@@ -97,23 +115,83 @@ def get_mkdocstrings_extension(
         )
 
         HANDLERS._download_inventories()
-        url_map = autorefs._abs_url_map
+        url_map = get_autorefs_store()._abs_url_map
         for identifier, url in HANDLERS._yield_inventory_items():
             url_map[identifier] = url
 
-    return MkdocstringsExtension(handlers=HANDLERS, autorefs=autorefs)
+    return HANDLERS
+
+
+def _ensure_handlers() -> Handlers | None:
+    """Initialize handlers when every Markdown page came from cache."""
+    if HANDLERS is not None:
+        return HANDLERS
+
+    from zensical.config import get_config  # noqa: PLC0415
+
+    config = get_config()
+    options = config["mdx_configs"].get("zensical.extensions.mkdocstrings")
+    if options is None or not options.get("enabled", True):
+        return None
+    options = dict(options)
+    options.pop("enabled", None)
+    options.pop("enable_inventory", None)
+    return _get_handlers(**options, config=config)
+
+
+def _get_backlink_handler(handler_name: str) -> tuple[Handlers, Any] | None:
+    """Return a handler prepared to render backlinks on cached builds."""
+    handlers = _ensure_handlers()
+    if handlers is None:
+        return None
+
+    handler = handlers.get_handler(handler_name)
+    if getattr(handler, "_md", None) is None:
+        from markdown import Markdown  # noqa: PLC0415
+
+        handler._update_env(Markdown(), config=handlers._tool_config)
+    return handlers, handler
+
+
+def get_mkdocstrings_extension(
+    handlers: dict[str, Any] | None = None,
+    *,
+    custom_templates: str | None = None,
+    enable_inventory: bool = True,  # noqa: ARG001
+    default_handler: str = "python",
+    locale: str = "en",
+    config: dict[str, Any],
+) -> MkdocstringsExtension:
+    """Create the mkdocstrings Markdown extension."""
+    from mkdocstrings import (  # noqa: PLC0415  # ty:ignore[unresolved-import]
+        MkdocstringsExtension,
+    )
+
+    autorefs = get_autorefs_store()
+    autorefs.record_backlinks = _python_handler_has_backlinks(handlers)
+    handlers_instance = _get_handlers(
+        handlers,
+        custom_templates=custom_templates,
+        default_handler=default_handler,
+        locale=locale,
+        config=config,
+    )
+    return MkdocstringsExtension(
+        handlers=handlers_instance,
+        autorefs=autorefs,
+    )
 
 
 def get_inventory(cached: bytes | None) -> bytes:
     """Get inventory bytes, merging cached entries with fresh handlers data."""
+    if HANDLERS is None:
+        return cached or b""
+
     try:
         from mkdocstrings import (  # noqa: PLC0415  # ty:ignore[unresolved-import]
             Inventory,
         )
     except ImportError:
-        return cached or b""
-
-    if HANDLERS is None:
         return cached or b""
 
     if not cached:
@@ -129,6 +207,53 @@ def get_inventory(cached: bytes | None) -> bytes:
     base.version = HANDLERS.inventory.version
 
     return base.format_sphinx()
+
+
+def get_backlink_aliases(handler_name: str, identifier: str) -> list[str]:
+    """Return aliases used by a handler for a backlink placeholder."""
+    result = _get_backlink_handler(handler_name)
+    if result is None:
+        return []
+    _, handler = result
+    return list(handler.get_aliases(identifier))
+
+
+def render_backlinks(
+    handler_name: str,
+    backlinks: list[tuple[str, list[list[tuple[str, str]]]]],
+) -> str:
+    """Turn serializable backlink crumbs into handler-rendered HTML."""
+    if not backlinks:
+        return ""
+    result = _get_backlink_handler(handler_name)
+    if result is None:
+        return ""
+    handlers, handler = result
+
+    from inspect import signature  # noqa: PLC0415
+
+    from mkdocs_autorefs import (  # noqa: PLC0415  # ty:ignore[unresolved-import]
+        Backlink,
+    )
+
+    # Rust already returns these paths sorted and deduplicated. Preserve that
+    # order instead of introducing Python's process-random set order again.
+    data = {
+        backlink_type: tuple(
+            Backlink(
+                tuple(
+                    _SortableBacklinkCrumb(title=title, url=url)
+                    for title, url in crumbs
+                )
+            )
+            for crumbs in backlink_list
+        )
+        for backlink_type, backlink_list in backlinks
+    }
+    kwargs = {}
+    if "locale" in signature(handler.render_backlinks).parameters:
+        kwargs["locale"] = handlers._locale
+    return handler.render_backlinks(data, **kwargs)
 
 
 def reset() -> None:

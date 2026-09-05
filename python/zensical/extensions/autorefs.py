@@ -28,7 +28,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from html import escape
 from typing import TYPE_CHECKING, Any, TypeAlias
-from xml.etree.ElementTree import Element
+from xml.etree.ElementTree import Comment, Element
 
 from markdown.core import Markdown
 from markdown.extensions import Extension
@@ -40,8 +40,6 @@ from markdown.inlinepatterns import (
 from markdown.treeprocessors import Treeprocessor
 from markdown.util import HTML_PLACEHOLDER_RE, INLINE_PLACEHOLDER_RE
 from markupsafe import Markup
-
-from zensical.extensions.context import ContextPreprocessor
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -56,8 +54,6 @@ if TYPE_CHECKING:
 # Constants
 # ----------------------------------------------------------------------------
 
-
-HTAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 
 # URL order determines which target wins when several are equally
 # suitable. Dict keys give us that order plus constant-time lookups.
@@ -209,9 +205,16 @@ class AutorefsInlineProcessor(ReferenceInlineProcessor):
     # This can be changed to something else if we update mkdocstrings.
     name = "mkdocs-autorefs"
     hook: AutorefsHookInterface | None = None
+    backlink_marker = "data-zensical-autoref"
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        record_backlinks: bool = False,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(REFERENCE_RE, *args, **kwargs)
+        self._record_backlinks = record_backlinks
 
     @property
     def stashed_nodes(self) -> dict[str, Element | str]:
@@ -300,6 +303,8 @@ class AutorefsInlineProcessor(ReferenceInlineProcessor):
     ) -> Element:
         """Create a tag that can be resolved after site settlement."""
         el = Element("autoref")
+        if self._record_backlinks:
+            el.set(self.backlink_marker, "")
         if self.hook:
             identifier = self.hook.expand_identifier(identifier)
             el.attrib.update(self.hook.get_context().as_dict())
@@ -310,109 +315,24 @@ class AutorefsInlineProcessor(ReferenceInlineProcessor):
         return el
 
 
-class AutorefsAnchorsTreeprocessor(Treeprocessor):
-    """Tree processor to scan and register HTML anchors."""
+class BacklinkContextTreeProcessor(Treeprocessor):
+    """Expose one Markdown conversion's backlink context to the Rust visitor.
 
-    name = "autorefs-anchors"
+    Mkdocstrings mutates ``initial_id`` around nested Markdown conversions. The
+    two constant-time boundary markers preserve that context without walking
+    the ElementTree in Python.
+    """
 
-    class PendingAnchors:
-        """An accumulating collection of HTML anchors."""
-
-        def __init__(self, store: AutorefsStore, page: Page):
-            self.store = store
-            self.page = page
-            self.anchors: list[str] = []
-
-        def append(self, anchor: str) -> None:
-            self.anchors.append(anchor)
-
-        def flush(
-            self, alias_to: str | None = None, title: str | None = None
-        ) -> None:
-            for anchor in self.anchors:
-                self.store.register_anchor(
-                    self.page, anchor, alias_to, title=title, primary=True
-                )
-            self.anchors.clear()
-
-    def __init__(self, md: Markdown) -> None:
-        super().__init__(md)
+    name = "mkdocs-autorefs-backlinks"
+    initial_id: str | None = None
 
     def run(self, root: Element) -> None:
-        """Run the tree processor."""
-        if context := ContextPreprocessor.from_markdown(self.md):
-            store = get_autorefs_store()
-            pending_anchors = self.PendingAnchors(store, context.page)
-            self._scan_anchors(root, pending_anchors)
-            pending_anchors.flush()
-
-    def _scan_anchors(
-        self,
-        parent: Element,
-        pending_anchors: PendingAnchors,
-        last_heading: str | None = None,
-    ) -> None:
-        for el in parent:
-            if el.tag == "a":
-                # We found an anchor. Record its id if it has one.
-                if anchor_id := el.get("id"):
-                    pending_anchors.append(anchor_id)
-                # If the element has text or a link, it's not an alias.
-                # Non-whitespace text after the element interrupts the chain,
-                # aliases can't apply.
-                if el.text or el.get("href") or (el.tail and el.tail.strip()):
-                    pending_anchors.flush(title=last_heading)
-
-            elif el.tag == "p":
-                # A `p` tag is a no-op for our purposes, just recurse into it
-                # in the context of the current collection of anchors.
-                self._scan_anchors(el, pending_anchors, last_heading)
-                # Non-whitespace text after the element interrupts the chain,
-                # aliases can't apply.
-                if el.tail and el.tail.strip():
-                    pending_anchors.flush()
-
-            elif el.tag in HTAGS:
-                # If the element is a heading, that turns the pending anchors
-                # into aliases.
-                last_heading = el.text
-                pending_anchors.flush(el.get("id"), title=last_heading)
-
-            else:
-                # But if it's some other interruption, flush anchors anyway
-                # as non-aliases.
-                pending_anchors.flush(title=last_heading)
-                # Recurse into sub-elements, in a *separate* context.
-                self.run(el)
-
-
-class AutorefsHeadingsTreeprocessor(Treeprocessor):
-    """Tree processor to scan and register HTML headings."""
-
-    name = "autorefs-headings"
-
-    def __init__(self, md: Markdown) -> None:
-        super().__init__(md)
-
-    def run(self, root: Element) -> None:
-        """Run the tree processor."""
-        if context := ContextPreprocessor.from_markdown(self.md):
-            store = get_autorefs_store()
-            self._scan_headings(root, store, context.page)
-
-    def _scan_headings(
-        self, parent: Element, store: AutorefsStore, page: Page
-    ) -> None:
-        for el in parent:
-            if el.tag in HTAGS:
-                if h_id := el.get("id"):
-                    store.register_anchor(
-                        page,
-                        h_id,
-                        title=el.text,
-                    )
-            else:
-                self._scan_headings(el, store, page)
+        """Bracket this rendered fragment with its initial heading ID."""
+        start = "zensical:autoref-context:start"
+        if self.initial_id:
+            start = f"{start}:{self.initial_id.encode().hex()}"
+        root.insert(0, Comment(start))
+        root.append(Comment("zensical:autoref-context:end"))
 
 
 class AutorefsExtension(Extension):
@@ -426,6 +346,7 @@ class AutorefsExtension(Extension):
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the extension."""
         self._enabled: bool = kwargs.pop("enabled", True)
+        self._record_backlinks: bool = kwargs.pop("record_backlinks", False)
 
     def extendMarkdown(self, md: Markdown) -> None:
         """Register the Markdown extension."""
@@ -433,26 +354,24 @@ class AutorefsExtension(Extension):
             return
         md.registerExtension(self)
 
-        inline_processor = AutorefsInlineProcessor(md)
+        record_backlinks = self._record_backlinks and (
+            "attr_list" in md.treeprocessors or "toc" in md.treeprocessors
+        )
+        inline_processor = AutorefsInlineProcessor(
+            md,
+            record_backlinks=record_backlinks,
+        )
         md.inlinePatterns.register(
             inline_processor,
             AutorefsInlineProcessor.name,
             168,  # after markdown.inlinepatterns.ReferenceInlineProcessor
         )
 
-        headings_treeprocessor = AutorefsHeadingsTreeprocessor(md)
-        md.treeprocessors.register(
-            headings_treeprocessor,
-            AutorefsHeadingsTreeprocessor.name,
-            0,
-        )
-
-        anchors_treeprocessor = AutorefsAnchorsTreeprocessor(md)
-        md.treeprocessors.register(
-            anchors_treeprocessor,
-            AutorefsAnchorsTreeprocessor.name,
-            0,
-        )
+        if record_backlinks:
+            store = get_autorefs_store()
+            store.record_backlinks = True
+            processor = BacklinkContextTreeProcessor(md)
+            md.treeprocessors.register(processor, processor.name, 0)
 
 
 # ----------------------------------------------------------------------------

@@ -73,6 +73,8 @@ pub struct Config {
     output_root: OutputRoot,
     /// Resolved Python Markdown extensions after compatibility shims.
     markdown_extensions: Arc<[String]>,
+    /// Whether auto-references should be collected as backlinks.
+    record_backlinks: bool,
     /// Configuration hash.
     pub hash: u64,
 }
@@ -100,39 +102,53 @@ impl Config {
                 "configuration path must be valid UTF-8",
             )
         })?;
-        let (project, markdown_extensions) = Python::attach(|py| {
-            // Reset global data in compatibility modules
-            py.import("zensical.extensions.autorefs")?
-                .call_method0("reset")?;
-            py.import("zensical.compat.mkdocstrings")?
-                .call_method0("reset")?;
+        let (project, markdown_extensions, record_backlinks) =
+            Python::attach(|py| {
+                // Reset global data in compatibility modules
+                py.import("zensical.extensions.autorefs")?
+                    .call_method0("reset")?;
+                py.import("zensical.compat.mkdocstrings")?
+                    .call_method0("reset")?;
 
-            // Configuration is parsed in Python, since we must support certain
-            // YAML tags like `!ENV`, and allow to reference Python functions
-            // in configuration. For TOML, this is technically not necessary,
-            // but we'll move it through the same pipeline for consistency.
-            let module = py.import("zensical.config")?;
-            let config = module.call_method1("parse_config", (value,))?;
-            let markdown_extensions = config
-                .get_item("markdown_extensions")?
-                .extract::<Vec<String>>()?;
+                // Configuration is parsed in Python, since we must support certain
+                // YAML tags like `!ENV`, and allow to reference Python functions
+                // in configuration. For TOML, this is technically not necessary,
+                // but we'll move it through the same pipeline for consistency.
+                let module = py.import("zensical.config")?;
+                let config = module.call_method1("parse_config", (value,))?;
+                let markdown_extensions = config
+                    .get_item("markdown_extensions")?
+                    .extract::<Vec<String>>()?;
+                let autorefs = config
+                    .get_item("mdx_configs")?
+                    .call_method1("get", ("zensical.extensions.autorefs",))?;
+                let record_backlinks = if autorefs.is_none()
+                    || !markdown_extensions.iter().any(|extension| {
+                        extension == "zensical.extensions.autorefs"
+                    }) {
+                    false
+                } else {
+                    autorefs
+                        .call_method1("get", ("record_backlinks", false))?
+                        .extract::<bool>()?
+                };
 
-            // Validate raw native tags configuration before derived project
-            // extraction can replace its precise diagnostic with generic
-            // nested-field context from PyO3.
-            config
-                .get_item("plugins")?
-                .get_item("tags")?
-                .extract::<TagsPlugin>()?;
-            config
-                .get_item("plugins")?
-                .get_item("blogs")?
-                .extract::<BlogPlugin>()?;
-            let project = config.extract::<Project>()?;
+                // Validate raw native plugin configuration before derived project
+                // extraction can replace its precise diagnostic with generic
+                // nested-field context from PyO3.
+                config
+                    .get_item("plugins")?
+                    .get_item("tags")?
+                    .extract::<TagsPlugin>()?;
+                config
+                    .get_item("plugins")?
+                    .get_item("blogs")?
+                    .extract::<BlogPlugin>()?;
+                let project = config.extract::<Project>()?;
 
-            // Return configuration and theme directory
-            Ok::<_, PyErr>((project, markdown_extensions))
-        })?;
+                // Return configuration and theme directory
+                Ok::<_, PyErr>((project, markdown_extensions, record_backlinks))
+            })?;
 
         // Merge theme directories, giving precedence to custom directory over
         // the main theme directory to allow for overrides.
@@ -164,6 +180,7 @@ impl Config {
             docs_root,
             output_root,
             markdown_extensions: markdown_extensions.into(),
+            record_backlinks,
             hash,
         })
     }
@@ -173,6 +190,11 @@ impl Config {
         self.markdown_extensions
             .iter()
             .any(|extension| extension == name)
+    }
+
+    /// Returns whether resolved auto-references should become backlinks.
+    pub fn records_backlinks(&self) -> bool {
+        self.record_backlinks
     }
 
     /// Returns the canonical documentation source root.

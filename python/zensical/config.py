@@ -44,6 +44,7 @@ from tomli import load as toml_load
 from yaml import Loader, YAMLError
 from yaml.constructor import ConstructorError
 
+from zensical.compat.mkdocstrings import _python_handler_has_backlinks
 from zensical.extensions.autorefs import AutorefsExtension
 from zensical.extensions.emoji import to_svg, twemoji
 from zensical.extensions.glightbox import GlightboxExtension
@@ -800,10 +801,10 @@ def _apply_defaults(config: dict, path: str) -> dict:
     config["plugins"] = _convert_plugins(config.get("plugins", []), config)
 
     # Map plugins configuration to Markdown extensions
+    _shim_mkdocstrings(config)
     _shim_autorefs(config)
     _shim_callouts(config)
     _shim_markdown_exec(config)
-    _shim_mkdocstrings(config)
     _shim_glightbox(config)
     _shim_macros(config)
     _shim_table_reader(config)
@@ -944,22 +945,29 @@ def _resolve_toc(config: dict[str, Any]) -> None:
 
 
 def _shim_autorefs(config: dict[str, Any]) -> None:
-    # The Markdown extension is already enabled
+    mkdocstrings_enabled = (
+        MkdocstringsExtension.name in config["markdown_extensions"]
+    )
+
+    # An explicit extension setting takes precedence over either plugin.
     if AutorefsExtension.name in config["markdown_extensions"]:
-        return
-    # Map autorefs plugin configuration to the extension configuration
-    if "autorefs" in config["plugins"]:
+        options = config["mdx_configs"].get(AutorefsExtension.name, {})
+        if not options.get("enabled", True):
+            config["markdown_extensions"].remove(AutorefsExtension.name)
+            return
+    elif "autorefs" in config["plugins"]:
         plugin = config["plugins"]["autorefs"]["config"]
-        if plugin.get("enabled", True):
-            config["markdown_extensions"].append(AutorefsExtension.name)
-    elif "mkdocstrings" in config["plugins"]:
-        # mkdocstrings enables autorefs itself
-        plugin = config["plugins"]["mkdocstrings"]["config"]
-        if plugin.get("enabled", True):
-            config["markdown_extensions"].append(AutorefsExtension.name)
-    elif "zensical.extensions.mkdocstrings" in config["markdown_extensions"]:
-        # same when mkdocstrings is enabled as a Markdown extension
+        if not plugin.get("enabled", True):
+            return
         config["markdown_extensions"].append(AutorefsExtension.name)
+    elif mkdocstrings_enabled:
+        config["markdown_extensions"].append(AutorefsExtension.name)
+
+    if mkdocstrings_enabled:
+        mkdocstrings = config["mdx_configs"].get(MkdocstringsExtension.name, {})
+        config["mdx_configs"].setdefault(AutorefsExtension.name, {})[
+            "record_backlinks"
+        ] = _python_handler_has_backlinks(mkdocstrings.get("handlers"))
 
 
 def _shim_callouts(config: dict[str, Any]) -> None:
@@ -1023,6 +1031,9 @@ def _shim_markdown_exec(config: dict[str, Any]) -> None:
 def _shim_mkdocstrings(config: dict[str, Any]) -> None:
     # The Markdown extension is already enabled
     if MkdocstringsExtension.name in config["markdown_extensions"]:
+        options = config["mdx_configs"].get(MkdocstringsExtension.name, {})
+        if not options.get("enabled", True):
+            config["markdown_extensions"].remove(MkdocstringsExtension.name)
         return
     # Map mkdocstrings plugin configuration to the extension configuration
     if "mkdocstrings" in config["plugins"]:

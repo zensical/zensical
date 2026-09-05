@@ -730,13 +730,100 @@ class TestPluginShimming:
         assert AutorefsExtension.name not in config["markdown_extensions"]
         assert MkdocstringsExtension.name not in config["markdown_extensions"]
 
-    def test_mkdocstrings_enabled_autorefs_also_added(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    def test_mkdocstrings_disabled_extension_is_not_added(
+        self, tmp_path: Path
+    ) -> None:
+        config = self._parse_yaml(
+            tmp_path,
+            markdown_extensions=[
+                {MkdocstringsExtension.name: {"enabled": False}}
+            ],
+        )
+        assert AutorefsExtension.name not in config["markdown_extensions"]
+        assert MkdocstringsExtension.name not in config["markdown_extensions"]
+
+    @pytest.mark.parametrize("options", [{}, {"backlinks": False}])
+    def test_mkdocstrings_without_backlinks_does_not_record(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        options: dict[str, object],
     ) -> None:
         monkeypatch.setattr("zensical.config.find_spec", lambda _name: True)
-        config = self._parse_yaml(tmp_path, plugins={"mkdocstrings": {}})
+        config = self._parse_yaml(
+            tmp_path,
+            plugins={
+                "mkdocstrings": {"handlers": {"python": {"options": options}}}
+            },
+        )
+
         assert AutorefsExtension.name in config["markdown_extensions"]
         assert MkdocstringsExtension.name in config["markdown_extensions"]
+        assert not config["mdx_configs"][AutorefsExtension.name][
+            "record_backlinks"
+        ]
+
+    def test_disabled_autorefs_extension_stays_disabled_with_backlinks(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Mkdocstrings must not reactivate an explicitly disabled extension."""
+        monkeypatch.setattr("zensical.config.find_spec", lambda _name: True)
+        config = self._parse_yaml(
+            tmp_path,
+            markdown_extensions=[{AutorefsExtension.name: {"enabled": False}}],
+            plugins={
+                "mkdocstrings": {
+                    "handlers": {"python": {"options": {"backlinks": "tree"}}}
+                }
+            },
+        )
+
+        assert AutorefsExtension.name not in config["markdown_extensions"]
+        assert not config["mdx_configs"][AutorefsExtension.name].get(
+            "record_backlinks", False
+        )
+
+    @pytest.mark.parametrize(
+        "configuration",
+        [
+            pytest.param(
+                {
+                    "plugins": {
+                        "mkdocstrings": {
+                            "handlers": {
+                                "python": {"options": {"backlinks": "flat"}}
+                            }
+                        }
+                    }
+                },
+                id="plugin",
+            ),
+            pytest.param(
+                {
+                    "markdown_extensions": [
+                        {
+                            MkdocstringsExtension.name: {
+                                "handlers": {
+                                    "python": {"options": {"backlinks": "tree"}}
+                                }
+                            }
+                        }
+                    ]
+                },
+                id="extension",
+            ),
+        ],
+    )
+    def test_mkdocstrings_backlinks_enable_collection(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        configuration: dict[str, object],
+    ) -> None:
+        monkeypatch.setattr("zensical.config.find_spec", lambda _name: True)
+        config = self._parse_yaml(tmp_path, **configuration)
+        assert AutorefsExtension.name in config["markdown_extensions"]
+        assert config["mdx_configs"][AutorefsExtension.name]["record_backlinks"]
 
     def test_mkdocstrings_not_installed_raises(
         self,
