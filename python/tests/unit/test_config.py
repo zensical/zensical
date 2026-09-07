@@ -256,9 +256,7 @@ class TestPluginShimming:
             "mdx_configs": {},
         }
 
-    def test_literate_nav_is_disabled_when_absent(
-        self, tmp_path: Path
-    ) -> None:
+    def test_literate_nav_is_disabled_when_absent(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins=[])
         assert config["plugins"]["literate_nav"]["config"]["enabled"] is False
 
@@ -305,9 +303,7 @@ class TestPluginShimming:
             },
         }
 
-    def test_awesome_nav_is_disabled_when_absent(
-        self, tmp_path: Path
-    ) -> None:
+    def test_awesome_nav_is_disabled_when_absent(self, tmp_path: Path) -> None:
         plugin = self._parse_yaml(tmp_path, plugins=[])["plugins"]
         assert plugin["awesome_nav"]["config"]["enabled"] is False
 
@@ -388,9 +384,7 @@ class TestPluginShimming:
             "cache_safe": False,
         }
 
-    def test_minify_plugin_is_disabled_by_default(
-        self, tmp_path: Path
-    ) -> None:
+    def test_minify_plugin_is_disabled_by_default(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins=[])
         plugin = config["plugins"]["minify"]["config"]
         assert plugin["enabled"] is False
@@ -418,9 +412,7 @@ class TestPluginShimming:
             "tags",
         ]
         assert instances[0]["config"]["listings_directive"] == "$tags"
-        assert instances[1]["config"]["filters"] == {
-            "include": ["private/**"]
-        }
+        assert instances[1]["config"]["filters"] == {"include": ["private/**"]}
         assert instances[1]["config"]["tags_name_property"] == "labels"
         assert "tags_slugify" not in instances[0]["config"]
 

@@ -266,9 +266,7 @@ def test_explicit_page_title_precedes_metadata_and_heading(
     docs.mkdir()
     overrides = tmp_path / "overrides"
     overrides.mkdir()
-    (overrides / "main.html").write_text(
-        "{{ page.title }}", encoding="utf-8"
-    )
+    (overrides / "main.html").write_text("{{ page.title }}", encoding="utf-8")
     (docs / "index.md").write_text(
         "---\ntitle: Metadata title\n---\n\n# Heading title\n",
         encoding="utf-8",
