@@ -23,12 +23,17 @@
 
 from __future__ import annotations
 
+import os
 from io import StringIO
 from typing import TYPE_CHECKING
 
 import pandas
 import pytest
-from jinja2.exceptions import TemplateSyntaxError, UndefinedError
+from jinja2.exceptions import (
+    TemplateNotFound,
+    TemplateSyntaxError,
+    UndefinedError,
+)
 
 from tests.unit.extensions.conftest import soup
 from zensical.extensions.context import ContextPreprocessor
@@ -50,6 +55,18 @@ if TYPE_CHECKING:
 
     from markdown import Markdown
     from pandas import DataFrame
+
+
+_INCLUDE_CONFIG = {
+    "config": {
+        "markdown_extensions": {
+            "zensical.extensions.macros": {
+                "include_dir": "snippets",
+                "on_error_fail": True,
+            },
+        },
+    },
+}
 
 
 # ---------------------------------------------------------------------------
@@ -362,6 +379,47 @@ class TestPreprocessor:
                     "config": {
                         "markdown_extensions": {
                             "zensical.extensions.macros": {
+                                "include_dir": "snippets",
+                                "on_error_fail": True,
+                            },
+                        },
+                    },
+                },
+                id="nested_include",
+            ),
+        ],
+        indirect=["md"],
+    )
+    def test_renders_nested_include(
+        self,
+        md: Markdown,
+        tmp_path: Path,
+    ) -> None:
+        include_dir = tmp_path / "snippets" / "sub"
+        include_dir.mkdir(parents=True)
+        include_dir.joinpath("fragment.md").write_text(
+            "Included fragment text.", encoding="utf-8"
+        )
+
+        context = ContextPreprocessor.from_markdown(md)
+        assert context is not None
+        if os.name == "nt":
+            # Rust canonicalizes the configuration path before parsing it.
+            root = str(tmp_path)
+            if not root.startswith("\\\\?\\"):
+                context.config["root_dir"] = "\\\\?\\" + root
+
+        html = soup(md.convert('{% include "sub/fragment.md" %}'))
+        assert html.get_text() == "Included fragment text."
+
+    @pytest.mark.parametrize(
+        "md",
+        [
+            pytest.param(
+                {
+                    "config": {
+                        "markdown_extensions": {
+                            "zensical.extensions.macros": {
                                 "render_by_default": True
                             },
                         },
@@ -492,6 +550,68 @@ class TestPreprocessor:
         assert "python" not in code.get_text()
         # Source broken into syntax-highlighted spans
         assert code.select("span")
+
+
+@pytest.mark.parametrize(
+    "md",
+    [pytest.param(_INCLUDE_CONFIG, id="include_dir")],
+    indirect=["md"],
+)
+class TestIncludeLoader:
+    def test_renders_nested_include_and_refreshes_changed_source(
+        self,
+        md: Markdown,
+        tmp_path: Path,
+    ) -> None:
+        include_dir = tmp_path / "snippets" / "sub"
+        include_dir.mkdir(parents=True)
+        fragment = include_dir / "fragment.md"
+        fragment.write_text("First fragment.", encoding="utf-8")
+
+        template = '{% include "sub/fragment.md" %}'
+        assert soup(md.convert(template)).get_text() == "First fragment."
+
+        fragment.write_text("Updated fragment.", encoding="utf-8")
+        assert soup(md.convert(template)).get_text() == "Updated fragment."
+
+    def test_missing_include_raises_template_not_found(
+        self,
+        md: Markdown,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "snippets").mkdir()
+
+        with pytest.raises(TemplateNotFound) as error:
+            md.convert('{% include "missing.md" %}')
+
+        assert error.value.name == "missing.md"
+
+    def test_parent_traversal_is_rejected(
+        self,
+        md: Markdown,
+        tmp_path: Path,
+    ) -> None:
+        (tmp_path / "snippets").mkdir()
+        (tmp_path / "outside.md").write_text("Outside.", encoding="utf-8")
+
+        with pytest.raises(TemplateNotFound):
+            md.convert('{% include "../outside.md" %}')
+
+    def test_template_error_reports_included_source(
+        self,
+        md: Markdown,
+        tmp_path: Path,
+    ) -> None:
+        include_dir = tmp_path / "snippets"
+        include_dir.mkdir()
+        fragment = include_dir / "invalid.md"
+        fragment.write_text("{% if %}", encoding="utf-8")
+
+        with pytest.raises(TemplateSyntaxError) as error:
+            md.convert('{% include "invalid.md" %}')
+
+        assert error.value.filename is not None
+        assert os.path.samefile(error.value.filename, fragment)
 
 
 # ---------------------------------------------------------------------------

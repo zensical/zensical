@@ -41,6 +41,7 @@ from urllib.parse import urlparse
 import jinja2
 import yaml
 from jinja2.exceptions import UndefinedError
+from jinja2.loaders import split_template_path
 from markdown import Extension
 from markdown.preprocessors import Preprocessor
 
@@ -300,7 +301,7 @@ class MacrosPreprocessor(Preprocessor):
                 include_dir_path := project_root / self.config.include_dir
             ).exists()
         ):
-            env_kw["loader"] = jinja2.FileSystemLoader(include_dir_path)
+            env_kw["loader"] = _make_include_loader(include_dir_path)
 
         env = jinja2.Environment(**env_kw)  # noqa: S701
 
@@ -402,6 +403,38 @@ class MacrosExtension(Extension):
 def makeExtension(**kwargs: Any) -> MacrosExtension:
     """Register Markdown extension."""
     return MacrosExtension(**kwargs)
+
+
+# -----------------------------------------------------------------------------
+
+
+def _make_include_loader(root: Path) -> jinja2.FunctionLoader:
+    """Create a loader that joins template names with native separators.
+
+    Jinja joins filesystem search paths with POSIX separators. Windows
+    extended-length paths require backslashes, so resolve each safe template
+    component with `Path` instead.
+    """
+
+    def load(
+        template: str,
+    ) -> tuple[str, str, Callable[[], bool]] | None:
+        path = root.joinpath(*split_template_path(template))
+        try:
+            source = path.read_text(encoding="utf-8")
+            mtime = path.stat().st_mtime
+        except OSError:
+            return None
+
+        def uptodate() -> bool:
+            try:
+                return path.stat().st_mtime == mtime
+            except OSError:
+                return False
+
+        return source, str(path), uptodate
+
+    return jinja2.FunctionLoader(load)
 
 
 # -----------------------------------------------------------------------------
