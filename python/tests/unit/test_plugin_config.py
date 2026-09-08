@@ -44,6 +44,7 @@ PYTHON_PLUGINS = (
     "mkdocstrings",
     "glightbox",
     "macros",
+    "table-reader",
 )
 
 SHIM_PLUGINS = (
@@ -52,11 +53,12 @@ SHIM_PLUGINS = (
     "mkdocstrings",
     "glightbox",
     "macros",
+    "table-reader",
 )
 
 
 def _convert_plugins(value: Any) -> dict[str, dict[str, Any]]:
-    config = {"extra": {"polyfills": []}}
+    config = {"extra": {"polyfills": []}, "root_dir": "."}
     return config_module._convert_plugins(value, config)
 
 
@@ -215,6 +217,16 @@ def test_normalizes_null_shim_configuration(name: str) -> None:
             },
             id="macros",
         ),
+        pytest.param(
+            "table-reader",
+            {
+                "enabled": True,
+                "data_path": "tables",
+                "allow_missing_files": True,
+                "select_readers": ["read_csv", "read_raw"],
+            },
+            id="table-reader",
+        ),
     ],
 )
 def test_accepts_supported_shim_options(
@@ -284,6 +296,36 @@ def test_accepts_supported_shim_options(
         ("glightbox", {"effect": "slide"}, "effect must be"),
         ("macros", {"include_yaml": [42]}, "include_yaml must be a list"),
         ("macros", {"on_undefined": "silent"}, "on_undefined must be"),
+        (
+            "table-reader",
+            {"enabled": "yes"},
+            "enabled must be a boolean",
+        ),
+        (
+            "table-reader",
+            {"data_path": 42},
+            "data_path must be a string",
+        ),
+        (
+            "table-reader",
+            {"allow_missing_files": "yes"},
+            "allow_missing_files must be a boolean",
+        ),
+        (
+            "table-reader",
+            {"select_readers": "read_csv"},
+            "select_readers must be a list",
+        ),
+        (
+            "table-reader",
+            {"select_readers": [42]},
+            "select_readers must be a list",
+        ),
+        (
+            "table-reader",
+            {"select_readers": ["read_unknown"]},
+            "unknown table-reader reader",
+        ),
     ],
 )
 def test_rejects_invalid_plugin_options(

@@ -39,15 +39,17 @@ from tests.unit.extensions.conftest import soup
 from zensical.extensions.context import ContextPreprocessor
 from zensical.extensions.macros import (
     MacroEnv,
-    _add_indentation,
-    _convert_to_md_table,
     _fix_url,
-    _get_fake_table_readers,
-    _get_table_readers,
     _load_module,
     _load_one_yaml,
     _merge_include_yaml,
     _pretty,
+)
+from zensical.extensions.table_reader import (
+    _add_indentation,
+    _convert_to_md_table,
+    _get_fake_table_readers,
+    _get_table_readers,
 )
 
 if TYPE_CHECKING:

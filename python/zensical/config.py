@@ -46,6 +46,7 @@ from zensical.extensions.emoji import to_svg, twemoji
 from zensical.extensions.glightbox import GlightboxExtension
 from zensical.extensions.macros import MacrosExtension
 from zensical.extensions.mkdocstrings import MkdocstringsExtension
+from zensical.extensions.table_reader import TABLE_READERS, TableReaderExtension
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -686,6 +687,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     _shim_mkdocstrings(config)
     _shim_glightbox(config)
     _shim_macros(config)
+    _shim_table_reader(config)
 
     # List files along with their hashes, so we can rebuild when they change
     watched_files = (
@@ -924,6 +926,31 @@ def _shim_macros(config: dict[str, Any]) -> None:
         if plugin.get("enabled", True):
             config["markdown_extensions"].append(MacrosExtension.name)
             config["mdx_configs"][MacrosExtension.name] = plugin
+
+
+def _shim_table_reader(config: dict[str, Any]) -> None:
+    """Map table-reader configuration to its compatibility extension."""
+    if "table-reader" not in config["plugins"]:
+        return
+
+    plugin = config["plugins"]["table-reader"]["config"]
+    if not plugin.get("enabled", True):
+        return
+
+    # With macros enabled, the shared readers are added directly to its Jinja
+    # environment, matching the integration behavior of the MkDocs plugins.
+    macros_config = config["mdx_configs"].get(MacrosExtension.name, {})
+    macros_enabled = MacrosExtension.name in config[
+        "markdown_extensions"
+    ] and macros_config.get("enabled", True)
+    if (
+        macros_enabled
+        or TableReaderExtension.name in config["markdown_extensions"]
+    ):
+        return
+
+    config["markdown_extensions"].append(TableReaderExtension.name)
+    config["mdx_configs"][TableReaderExtension.name] = plugin
 
 
 # ----------------------------------------------------------------------------
@@ -1863,6 +1890,47 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             raise ConfigurationError(
                 "macros on_undefined must be 'keep' or 'strict'"
             )
+
+    if "table-reader" in plugins:
+        table_reader = plugins["table-reader"]
+        _reject_unknown_options(
+            "table-reader",
+            table_reader,
+            {
+                "enabled",
+                "data_path",
+                "allow_missing_files",
+                "select_readers",
+            },
+        )
+        _validate_boolean_options(
+            "table-reader", table_reader, ("enabled", "allow_missing_files")
+        )
+        _validate_string_options("table-reader", table_reader, ("data_path",))
+
+        if "data_path" in table_reader:
+            root = Path(config["root_dir"]).resolve()
+            data_path = Path(table_reader["data_path"])
+            if not data_path.is_absolute():
+                data_path = root / data_path
+            if not data_path.resolve().is_relative_to(root):
+                raise ConfigurationError(
+                    "table-reader data_path must be within project root"
+                )
+
+        if "select_readers" in table_reader:
+            selected = table_reader["select_readers"]
+            if not isinstance(selected, list) or not all(
+                isinstance(reader, str) for reader in selected
+            ):
+                raise ConfigurationError(
+                    "table-reader select_readers must be a list of reader names"
+                )
+            if unsupported := set(selected) - set(TABLE_READERS):
+                reader = sorted(unsupported)[0]
+                raise ConfigurationError(
+                    f"unknown table-reader reader: {reader}"
+                )
 
     # Add one level of indirection by moving every plugin configuration into a
     # `config` property, matching Material's template-facing representation.
