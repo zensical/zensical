@@ -26,6 +26,7 @@
 //! Redirect output.
 
 use anyhow::{bail, Result};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufWriter, Write};
 
@@ -34,21 +35,27 @@ use crate::path::OutputRoot;
 use super::plan::Snapshot;
 
 /// Redirect document emitted by mkdocs-redirects 1.2.2.
-const HTML_TEMPLATE: &str = r##"
+const HTML_TEMPLATE: &str = r#"
 <!doctype html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <title>Redirecting...</title>
     <link rel="canonical" href="{url}">
-    <script>var anchor=window.location.hash.substr(1);location.href="{url}"+(anchor?"#"+anchor:"")</script>
+    <script>{script}</script>
     <meta http-equiv="refresh" content="0; url={url}">
 </head>
 <body>
 You're being redirected to a <a href="{url}">new destination</a>.
 </body>
 </html>
-"##;
+"#;
+
+/// Upstream-compatible redirect script.
+const SCRIPT: &str = r##"var anchor=window.location.hash.substr(1);location.href="{url}"+(anchor?"#"+anchor:"")"##;
+
+/// Redirect script with fragment-specific destinations.
+const SCRIPT_WITH_FRAGMENTS: &str = r#"var anchor=window.location.hash,redirects={redirects},target;for(var source in redirects)if(new URL(source,location.href).hash===anchor){target=redirects[source];break}location.href=target||"{url}"+anchor"#;
 
 // ----------------------------------------------------------------------------
 // Functions
@@ -66,7 +73,7 @@ pub fn write(
         let path = output.join(&redirect.output);
         if let Some(target) = &redirect.target {
             fs::create_dir_all(path.parent().expect("redirect has parent"))?;
-            fs::write(path, render(target))?;
+            fs::write(path, render(target, &redirect.fragments))?;
         } else if path.is_file() {
             fs::remove_file(path)?;
         }
@@ -89,8 +96,20 @@ pub fn write(
 }
 
 /// Renders the upstream-compatible redirect document.
-fn render(target: &str) -> String {
-    HTML_TEMPLATE.replace("{url}", target)
+fn render(target: &str, fragments: &BTreeMap<String, String>) -> String {
+    let script = if fragments.is_empty() {
+        SCRIPT.replace("{url}", target)
+    } else {
+        let fragments = serde_json::to_string(fragments)
+            .expect("redirect fragments are strings")
+            .replace("</", "<\\/");
+        SCRIPT_WITH_FRAGMENTS
+            .replace("{url}", target)
+            .replace("{redirects}", &fragments)
+    };
+    HTML_TEMPLATE
+        .replace("{url}", target)
+        .replace("{script}", &script)
 }
 
 // ----------------------------------------------------------------------------
@@ -107,7 +126,7 @@ mod tests {
 
     #[test]
     fn renders_upstream_document() {
-        let html = render("../new/");
+        let html = render("../new/", &BTreeMap::new());
         assert_eq!(
             html,
             r##"
@@ -129,6 +148,35 @@ You're being redirected to a <a href="../new/">new destination</a>.
     }
 
     #[test]
+    fn renders_fragment_specific_destinations() {
+        let html = render(
+            "../new/",
+            &BTreeMap::from([(
+                "#install".into(),
+                "../guides/install/#linux".into(),
+            )]),
+        );
+        assert_eq!(
+            html,
+            r##"
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Redirecting...</title>
+    <link rel="canonical" href="../new/">
+    <script>var anchor=window.location.hash,redirects={"#install":"../guides/install/#linux"},target;for(var source in redirects)if(new URL(source,location.href).hash===anchor){target=redirects[source];break}location.href=target||"../new/"+anchor</script>
+    <meta http-equiv="refresh" content="0; url=../new/">
+</head>
+<body>
+You're being redirected to a <a href="../new/">new destination</a>.
+</body>
+</html>
+"##
+        );
+    }
+
+    #[test]
     fn removes_a_stale_redirect_when_its_target_disappears() {
         let directory = tempfile::tempdir().unwrap();
         let output = "old/index.html".parse::<SitePath>().unwrap();
@@ -136,6 +184,7 @@ You're being redirected to a <a href="../new/">new destination</a>.
             redirects: vec![Redirect {
                 output: output.clone(),
                 target: Some("../new/".into()),
+                fragments: BTreeMap::new(),
             }],
             anchors: Some(BTreeMap::new()),
             warnings: Vec::new(),
@@ -148,6 +197,7 @@ You're being redirected to a <a href="../new/">new destination</a>.
             redirects: vec![Redirect {
                 output: output.clone(),
                 target: None,
+                fragments: BTreeMap::new(),
             }],
             anchors: Some(BTreeMap::new()),
             warnings: vec!["missing".into()],

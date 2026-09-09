@@ -64,8 +64,15 @@ enum Target {
 enum Source {
     /// Page redirect emitted as a physical HTML artifact.
     Page(SitePath),
-    /// Anchor redirect emitted into the site-wide redirect manifest.
-    Anchor(String),
+    /// Anchor redirect emitted into the manifest and matching redirect page.
+    Anchor {
+        /// Site-relative source URL including its fragment.
+        url: String,
+        /// Physical redirect output for the source page.
+        output: SitePath,
+        /// Source fragment including its leading `#`.
+        fragment: String,
+    },
 }
 
 // ----------------------------------------------------------------------------
@@ -98,6 +105,8 @@ pub struct Redirect {
     pub output: SitePath,
     /// Resolved redirect target, or `None` when the target is missing.
     pub target: Option<String>,
+    /// Fragment-specific targets relative to this redirect output.
+    pub fragments: BTreeMap<String, String>,
 }
 
 // ----------------------------------------------------------------------------
@@ -172,13 +181,17 @@ impl Plan {
                 Source::Page(output)
             } else {
                 let route = PageRoute::from_source(config, source)?;
-                let source = format!("{}{fragment}", route.url);
-                if !plan.anchors.insert(source.clone()) {
+                let url = format!("{}{fragment}", route.url);
+                if !plan.anchors.insert(url.clone()) {
                     bail!(
                         "redirect source '{configured_source}' is configured more than once"
                     )
                 }
-                Source::Anchor(source)
+                Source::Anchor {
+                    url,
+                    output: route.destination,
+                    fragment: fragment.into(),
+                }
             };
 
             let target = if is_external(configured_target) {
@@ -225,6 +238,8 @@ impl Snapshot {
 
         let mut redirects = Vec::with_capacity(plan.specifications.len());
         let mut anchors = BTreeMap::new();
+        let mut fragments =
+            BTreeMap::<SitePath, BTreeMap<String, String>>::new();
         let mut warnings = plan.warnings.clone();
         for specification in &plan.specifications {
             let target = match &specification.target {
@@ -238,7 +253,9 @@ impl Snapshot {
                                 fragment,
                                 use_directory_urls,
                             ),
-                            Source::Anchor(_) => format!("{url}{fragment}"),
+                            Source::Anchor { .. } => {
+                                format!("{url}{fragment}")
+                            }
                         })
                     } else {
                         warnings.push(format!(
@@ -250,14 +267,50 @@ impl Snapshot {
             };
             match &specification.source {
                 Source::Page(output) => {
-                    redirects.push(Redirect { output: output.clone(), target });
+                    redirects.push(Redirect {
+                        output: output.clone(),
+                        target,
+                        fragments: BTreeMap::new(),
+                    });
                 }
-                Source::Anchor(source) => {
+                Source::Anchor {
+                    url,
+                    output,
+                    fragment: source_fragment,
+                } => {
                     if let Some(target) = target {
-                        anchors.insert(source.clone(), target);
+                        anchors.insert(url.clone(), target);
+
+                        // A physical redirect page loads before the UI, so it
+                        // must resolve its own fragment-specific destinations.
+                        if plan.outputs.contains(output) {
+                            let target = match &specification.target {
+                                Target::External(target) => target.clone(),
+                                Target::Internal {
+                                    source,
+                                    fragment: target_fragment,
+                                    ..
+                                } => relative_target(
+                                    output,
+                                    routes
+                                        .get(source)
+                                        .expect("resolved target"),
+                                    target_fragment,
+                                    use_directory_urls,
+                                ),
+                            };
+                            fragments
+                                .entry(output.clone())
+                                .or_default()
+                                .insert(source_fragment.clone(), target);
+                        }
                     }
                 }
             }
+        }
+        for redirect in &mut redirects {
+            redirect.fragments =
+                fragments.remove(&redirect.output).unwrap_or_default();
         }
         Ok(Self {
             redirects,

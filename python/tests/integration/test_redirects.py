@@ -114,6 +114,32 @@ def test_anchor_redirects_generate_site_manifest(tmp_path: Path) -> None:
     }
 
 
+def test_page_redirects_override_configured_anchor_targets(
+    tmp_path: Path,
+) -> None:
+    """Physical redirects send configured fragments to their own targets."""
+    config = _write_project(
+        tmp_path,
+        """\
+        old.md: new.md
+        old.md#install: guide/topic.md#details
+        old.md#external: https://example.com/new#there
+""",
+    )
+    zensical.build(str(config), {"clean": False, "strict": True})
+
+    old = (tmp_path / "site" / "old" / "index.html").read_text()
+    assert (
+        'redirects={"#external":"https://example.com/new#there",'
+        '"#install":"../guide/topic/#details"}' in old
+    )
+    assert 'location.href=target||"../new/"+anchor' in old
+    assert json.loads((tmp_path / "site" / "redirect.json").read_text()) == {
+        "old/#external": "https://example.com/new#there",
+        "old/#install": "guide/topic/#details",
+    }
+
+
 def test_redirects_without_directory_urls_write_html_files(
     tmp_path: Path,
 ) -> None:
@@ -122,7 +148,7 @@ def test_redirects_without_directory_urls_write_html_files(
         tmp_path,
         """\
         old.md: new.md
-        new.md#old: guide/topic.md#details
+        old.md#old: guide/topic.md#details
 """,
     )
     with config.open("a", encoding="utf-8") as file:
@@ -131,8 +157,9 @@ def test_redirects_without_directory_urls_write_html_files(
 
     old = (tmp_path / "site" / "old.html").read_text()
     assert '<link rel="canonical" href="new.html">' in old
+    assert 'redirects={"#old":"guide/topic.html#details"}' in old
     assert json.loads((tmp_path / "site" / "redirect.json").read_text()) == {
-        "new.html#old": "guide/topic.html#details"
+        "old.html#old": "guide/topic.html#details"
     }
 
 
