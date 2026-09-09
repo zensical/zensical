@@ -24,6 +24,12 @@
 // ----------------------------------------------------------------------------
 
 //! Redirect planning.
+//!
+//! Redirects pass through three representations:
+//!
+//! 1. [`Plan`] validates configuration and resolves redirect chains once.
+//! 2. [`Snapshot`] resolves final internal targets against settled page routes.
+//! 3. The output stage writes physical page redirects and `redirect.json`.
 
 use anyhow::{bail, Result};
 use std::collections::{BTreeMap, BTreeSet};
@@ -59,6 +65,21 @@ enum Target {
 
 // ----------------------------------------------------------------------------
 
+/// Final redirect target resolved against the current page routes.
+enum ResolvedTarget<'a> {
+    /// External target that is already ready for output.
+    External(&'a str),
+    /// Internal target composed from a public page URL and fragment.
+    Internal {
+        /// Site-relative public page URL.
+        url: &'a str,
+        /// Fragment including its leading `#`, when present.
+        fragment: &'a str,
+    },
+}
+
+// ----------------------------------------------------------------------------
+
 /// Redirect source classification prepared before route settlement.
 #[derive(Clone, Debug)]
 enum Source {
@@ -66,8 +87,8 @@ enum Source {
     Page(SitePath),
     /// Anchor redirect emitted into the manifest and matching redirect page.
     Anchor {
-        /// Site-relative source URL including its fragment.
-        url: String,
+        /// Site-relative manifest key including its fragment.
+        manifest_key: String,
         /// Physical redirect output for the source page.
         output: SitePath,
         /// Source fragment including its leading `#`.
@@ -86,11 +107,11 @@ pub struct Plan {
     enabled: bool,
     /// Generated paths reserved by configured redirects.
     outputs: BTreeSet<SitePath>,
-    /// Anchor sources reserved by configured redirects.
-    anchors: BTreeSet<String>,
+    /// Site-relative manifest keys reserved by configured redirects.
+    manifest_keys: BTreeSet<String>,
     /// Internal source paths needed from the live route relation.
-    targets: BTreeSet<String>,
-    /// Validated redirect specifications in configuration order.
+    route_sources: BTreeSet<String>,
+    /// Validated redirects in deterministic configured-source order.
     specifications: Vec<Specification>,
     /// Diagnostics that depend only on configuration.
     warnings: Vec<String>,
@@ -105,17 +126,17 @@ pub struct Redirect {
     pub output: SitePath,
     /// Resolved redirect target, or `None` when the target is missing.
     pub target: Option<String>,
-    /// Fragment-specific targets relative to this redirect output.
-    pub fragments: BTreeMap<String, String>,
+    /// Fragment-specific target overrides relative to this output.
+    pub overrides: BTreeMap<String, String>,
 }
 
 // ----------------------------------------------------------------------------
 
-/// One validated configuration entry awaiting target resolution.
+/// One validated redirect mapping awaiting route resolution.
 #[derive(Clone, Debug)]
 struct Specification {
     /// Original configured source used to resolve redirect chains.
-    configured_source: String,
+    configured: String,
     /// Prepared page or anchor source.
     source: Source,
     /// Prepared internal or external target.
@@ -129,14 +150,62 @@ struct Specification {
 pub struct Snapshot {
     /// Redirects ordered by configured source URI.
     pub redirects: Vec<Redirect>,
-    /// Anchor redirects keyed by their resolved source URL.
-    pub anchors: Option<BTreeMap<String, String>>,
+    /// Anchor redirect manifest, or `None` when the plugin is disabled.
+    pub manifest: Option<BTreeMap<String, String>>,
     /// Compatibility warnings emitted for this snapshot.
     pub warnings: Vec<String>,
 }
 
 // ----------------------------------------------------------------------------
 // Implementations
+// ----------------------------------------------------------------------------
+
+impl Target {
+    /// Resolves an internal target against the current page routes.
+    fn resolve<'a>(
+        &'a self, routes: &'a BTreeMap<String, String>,
+    ) -> Option<ResolvedTarget<'a>> {
+        match self {
+            Self::External(target) => Some(ResolvedTarget::External(target)),
+            Self::Internal { source, fragment, .. } => routes
+                .get(source)
+                .map(|url| ResolvedTarget::Internal { url, fragment }),
+        }
+    }
+
+    /// Returns the configured value for a missing internal target.
+    fn missing(&self) -> Option<&str> {
+        match self {
+            Self::External(_) => None,
+            Self::Internal { configured, .. } => Some(configured),
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+
+impl ResolvedTarget<'_> {
+    /// Formats this target for the site-wide anchor manifest.
+    fn for_manifest(&self) -> String {
+        match self {
+            Self::External(target) => (*target).into(),
+            Self::Internal { url, fragment } => format!("{url}{fragment}"),
+        }
+    }
+
+    /// Formats this target relative to one physical redirect page.
+    fn for_redirect(
+        &self, output: &SitePath, use_directory_urls: bool,
+    ) -> String {
+        match self {
+            Self::External(target) => (*target).into(),
+            Self::Internal { url, fragment } => {
+                relative_target(output, url, fragment, use_directory_urls)
+            }
+        }
+    }
+}
+
 // ----------------------------------------------------------------------------
 
 impl Plan {
@@ -157,68 +226,25 @@ impl Plan {
             &"redirect.json".parse().expect("static site path"),
         )?;
         for (configured_source, configured_target) in &plugin.redirect_maps {
-            let (source, fragment) = split_fragment(configured_source);
-            let source = normalize_source(source)?;
-
-            if !MARKDOWN_SUFFIXES
-                .iter()
-                .any(|suffix| source.as_str().ends_with(suffix))
-            {
-                plan.warnings.push(format!(
-                    "redirects plugin: '{source}' is not a valid markdown file!"
-                ));
-            }
-
-            let source = if fragment.is_empty() {
-                let output = PageRoute::destination(
-                    &source,
-                    config.project.use_directory_urls,
-                )?;
-                if !plan.outputs.insert(output.clone()) {
-                    bail!(
-                        "redirect output '{output}' is configured more than once"
-                    )
-                }
-                validate_output(config, &output)?;
-                Source::Page(output)
-            } else {
-                let route = PageRoute::from_source(config, source)?;
-                let url = format!("{}{fragment}", route.url);
-                if !plan.anchors.insert(url.clone()) {
-                    bail!(
-                        "redirect source '{configured_source}' is configured more than once"
-                    )
-                }
-                Source::Anchor {
-                    url,
-                    output: route.destination,
-                    fragment: fragment.into(),
-                }
-            };
-
-            let target = if is_external(configured_target) {
-                Target::External(configured_target.clone())
-            } else {
-                let (source, fragment) = split_fragment(configured_target);
-                Target::Internal {
-                    configured: configured_target.clone(),
-                    source: source.into(),
-                    fragment: fragment.into(),
-                }
-            };
+            let source = prepare_source(config, &mut plan, configured_source)?;
+            let target = prepare_target(configured_target);
             plan.specifications.push(Specification {
-                configured_source: configured_source.clone(),
+                configured: configured_source.clone(),
                 source,
                 target,
             });
         }
+
+        // Chains are configuration-only. Resolve them before collecting the
+        // page routes needed by the remaining final internal targets.
         resolve_chains(&mut plan.specifications)?;
-        plan.targets.extend(plan.specifications.iter().filter_map(
-            |specification| match &specification.target {
-                Target::Internal { source, .. } => Some(source.clone()),
-                Target::External(_) => None,
-            },
-        ));
+        plan.route_sources
+            .extend(plan.specifications.iter().filter_map(|specification| {
+                match &specification.target {
+                    Target::Internal { source, .. } => Some(source.clone()),
+                    Target::External(_) => None,
+                }
+            }));
         Ok(plan)
     }
 }
@@ -235,9 +261,11 @@ impl Snapshot {
             return Ok(Self::default());
         }
 
+        // Retain only routes that can become final targets. Collision checks
+        // still inspect every page because redirect outputs are exclusive.
         let mut routes = BTreeMap::new();
         for route in page_routes {
-            if plan.targets.contains(route.source.as_str()) {
+            if plan.route_sources.contains(route.source.as_str()) {
                 routes.insert(route.source.to_string(), route.url.clone());
             }
             if plan.outputs.contains(&route.destination) {
@@ -249,84 +277,70 @@ impl Snapshot {
         }
 
         let mut redirects = Vec::with_capacity(plan.specifications.len());
-        let mut anchors = BTreeMap::new();
-        let mut fragments =
+        let mut manifest = BTreeMap::new();
+        let mut overrides =
             BTreeMap::<SitePath, BTreeMap<String, String>>::new();
         let mut warnings = plan.warnings.clone();
+
+        // Build the public manifest and physical redirects together. Physical
+        // anchor overrides are collected by output path and attached after
+        // this loop, because configuration order is not significant.
         for specification in &plan.specifications {
-            let target = match &specification.target {
-                Target::External(target) => Some(target.clone()),
-                Target::Internal { configured, source, fragment } => {
-                    if let Some(url) = routes.get(source) {
-                        Some(match &specification.source {
-                            Source::Page(output) => relative_target(
-                                output,
-                                url,
-                                fragment,
-                                use_directory_urls,
-                            ),
-                            Source::Anchor { .. } => {
-                                format!("{url}{fragment}")
-                            }
-                        })
-                    } else {
-                        warnings.push(format!(
-                            "Redirect target '{configured}' does not exist!"
-                        ));
-                        None
-                    }
-                }
-            };
+            let target = specification.target.resolve(&routes);
+            if target.is_none()
+                && let Some(configured) = specification.target.missing()
+            {
+                warnings.push(format!(
+                    "Redirect target '{configured}' does not exist!"
+                ));
+            }
+
             match &specification.source {
                 Source::Page(output) => {
                     redirects.push(Redirect {
                         output: output.clone(),
-                        target,
-                        fragments: BTreeMap::new(),
+                        target: target.as_ref().map(|target| {
+                            target.for_redirect(output, use_directory_urls)
+                        }),
+                        overrides: BTreeMap::new(),
                     });
                 }
                 Source::Anchor {
-                    url,
+                    manifest_key,
                     output,
                     fragment: source_fragment,
                 } => {
-                    if let Some(target) = target {
-                        anchors.insert(url.clone(), target);
+                    if let Some(target) = &target {
+                        manifest.insert(
+                            manifest_key.clone(),
+                            target.for_manifest(),
+                        );
 
                         // A physical redirect page loads before the UI, so it
                         // must resolve its own fragment-specific destinations.
                         if plan.outputs.contains(output) {
-                            let target = match &specification.target {
-                                Target::External(target) => target.clone(),
-                                Target::Internal {
-                                    source,
-                                    fragment: target_fragment,
-                                    ..
-                                } => relative_target(
-                                    output,
-                                    routes
-                                        .get(source)
-                                        .expect("resolved target"),
-                                    target_fragment,
-                                    use_directory_urls,
-                                ),
-                            };
-                            fragments
+                            overrides
                                 .entry(output.clone())
                                 .or_default()
-                                .insert(source_fragment.clone(), target);
+                                .insert(
+                                    source_fragment.clone(),
+                                    target.for_redirect(
+                                        output,
+                                        use_directory_urls,
+                                    ),
+                                );
                         }
                     }
                 }
             }
         }
         for redirect in &mut redirects {
-            redirect.fragments =
-                fragments.remove(&redirect.output).unwrap_or_default();
+            redirect.overrides =
+                overrides.remove(&redirect.output).unwrap_or_default();
         }
         Ok(Self {
             redirects,
-            anchors: Some(anchors),
+            manifest: Some(manifest),
             warnings,
         })
     }
@@ -336,15 +350,79 @@ impl Snapshot {
 // Functions
 // ----------------------------------------------------------------------------
 
+/// Validates and classifies one configured redirect source.
+fn prepare_source(
+    config: &Config, plan: &mut Plan, configured: &str,
+) -> Result<Source> {
+    let (source, fragment) = split_fragment(configured);
+    let source = normalize_source(source)?;
+
+    // Match mkdocs-redirects: warn about unusual source suffixes, but continue
+    // generating the configured redirect.
+    if !MARKDOWN_SUFFIXES
+        .iter()
+        .any(|suffix| source.as_str().ends_with(suffix))
+    {
+        plan.warnings.push(format!(
+            "redirects plugin: '{source}' is not a valid markdown file!"
+        ));
+    }
+
+    let route = PageRoute::from_source(config, source)?;
+    if fragment.is_empty() {
+        // Whole-page redirects own physical HTML outputs and must not collide
+        // with another configured redirect or output producer.
+        if !plan.outputs.insert(route.destination.clone()) {
+            bail!(
+                "redirect output '{}' is configured more than once",
+                route.destination
+            )
+        }
+        validate_output(config, &route.destination)?;
+        Ok(Source::Page(route.destination))
+    } else {
+        // Anchor redirects share their source page, so only their public URL
+        // must be unique. Their matching physical output is retained so page
+        // redirects can embed fragment-specific overrides later.
+        let manifest_key = format!("{}{fragment}", route.url);
+        if !plan.manifest_keys.insert(manifest_key.clone()) {
+            bail!("redirect source '{configured}' is configured more than once")
+        }
+        Ok(Source::Anchor {
+            manifest_key,
+            output: route.destination,
+            fragment: fragment.into(),
+        })
+    }
+}
+
+/// Classifies one configured redirect target.
+fn prepare_target(configured: &str) -> Target {
+    if is_external(configured) {
+        Target::External(configured.into())
+    } else {
+        let (source, fragment) = split_fragment(configured);
+        Target::Internal {
+            configured: configured.into(),
+            source: source.into(),
+            fragment: fragment.into(),
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+
 /// Resolves configured redirect chains and rejects cycles.
 fn resolve_chains(specifications: &mut [Specification]) -> Result<()> {
+    // Redirect targets refer to the exact source keys used in configuration.
+    // The index turns every chain step into a logarithmic lookup.
     let sources = specifications
         .iter()
         .enumerate()
-        .map(|(index, specification)| {
-            (specification.configured_source.clone(), index)
-        })
+        .map(|(index, specification)| (specification.configured.clone(), index))
         .collect::<BTreeMap<_, _>>();
+
+    // Cache terminal targets so shared chain tails are resolved only once.
     let mut resolved = vec![None; specifications.len()];
     for index in 0..specifications.len() {
         resolve_chain(
@@ -370,11 +448,14 @@ fn resolve_chain(
     if let Some(target) = &resolved[index] {
         return Ok(target.clone());
     }
+
+    // The active recursion stack identifies the complete cycle for a useful
+    // configuration error instead of allowing a browser redirect loop.
     if let Some(position) = visiting.iter().position(|other| *other == index) {
         let cycle = visiting[position..]
             .iter()
             .chain(std::iter::once(&index))
-            .map(|index| specifications[*index].configured_source.as_str())
+            .map(|index| specifications[*index].configured.as_str())
             .collect::<Vec<_>>()
             .join(" -> ");
         bail!("redirect cycle detected: {cycle}")
@@ -442,6 +523,9 @@ fn validate_output(config: &Config, output: &SitePath) -> Result<()> {
         .config
         .enabled
         .then_some(config.project.plugins.meta.config.meta_file.as_str());
+
+    // Ordinary documentation assets are copied to the site unchanged.
+    // Metadata files and extra templates are consumed by other producers.
     if docs_asset.is_file()
         && metadata_file != Some(output.file_name())
         && !extra_templates
@@ -451,6 +535,8 @@ fn validate_output(config: &Config, output: &SitePath) -> Result<()> {
         bail!("redirect output '{output}' collides with a documentation asset")
     }
 
+    // Non-HTML theme files are copied assets; HTML files are templates and
+    // therefore checked with the rendered template outputs below.
     if config.theme_dirs.iter().any(|directory| {
         let path = directory.join(output.as_str());
         path.is_file() && path.extension().is_none_or(|ext| ext != "html")
@@ -458,6 +544,7 @@ fn validate_output(config: &Config, output: &SitePath) -> Result<()> {
         bail!("redirect output '{output}' collides with a theme asset")
     }
 
+    // Static and extra templates render to the site root under their basename.
     let templates = config
         .project
         .theme
@@ -523,6 +610,9 @@ fn relative_path(target: &Path, base: &Path) -> String {
         .zip(&base)
         .take_while(|(left, right)| left == right)
         .count();
+
+    // Leave the unmatched base suffix, then append the unmatched target
+    // suffix.
     let mut parts = vec!["..".into(); base.len() - common];
     parts.extend(target[common..].iter().map(|part| {
         part.to_str()

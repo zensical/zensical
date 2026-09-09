@@ -34,7 +34,7 @@ use crate::path::OutputRoot;
 
 use super::plan::Snapshot;
 
-/// Redirect document emitted by mkdocs-redirects 1.2.2.
+/// Shared shell for physical redirect documents.
 const HTML_TEMPLATE: &str = r#"
 <!doctype html>
 <html lang="en">
@@ -51,10 +51,11 @@ You're being redirected to a <a href="{url}">new destination</a>.
 </html>
 "#;
 
-/// Upstream-compatible redirect script.
+/// Redirect script emitted by mkdocs-redirects 1.2.2.
 const SCRIPT: &str = r##"var anchor=window.location.hash.substr(1);location.href="{url}"+(anchor?"#"+anchor:"")"##;
 
-/// Redirect script with fragment-specific destinations.
+/// Redirect script that checks configured fragment overrides before falling
+/// back to the whole-page target and preserving the original fragment.
 const SCRIPT_WITH_FRAGMENTS: &str = r#"var anchor=window.location.hash,redirects={redirects},target;for(var source in redirects)if(new URL(source,location.href).hash===anchor){target=redirects[source];break}location.href=target||"{url}"+anchor"#;
 
 // ----------------------------------------------------------------------------
@@ -73,17 +74,19 @@ pub fn write(
         let path = output.join(&redirect.output);
         if let Some(target) = &redirect.target {
             fs::create_dir_all(path.parent().expect("redirect has parent"))?;
-            fs::write(path, render(target, &redirect.fragments))?;
+            fs::write(path, render(target, &redirect.overrides))?;
         } else if path.is_file() {
             fs::remove_file(path)?;
         }
     }
-    if let Some(anchors) = &snapshot.anchors {
+    if let Some(manifest) = &snapshot.manifest {
+        // Fragments never reach the server, so anchor redirects are written
+        // into one manifest for the browser integration to resolve.
         let path =
             output.join(&"redirect.json".parse().expect("static site path"));
         fs::create_dir_all(path.parent().expect("invariant"))?;
         let mut writer = BufWriter::new(fs::File::create(path)?);
-        serde_json::to_writer(&mut writer, anchors)?;
+        serde_json::to_writer(&mut writer, manifest)?;
         writer.flush()?;
     }
     for warning in &snapshot.warnings {
@@ -95,17 +98,21 @@ pub fn write(
     Ok(())
 }
 
-/// Renders the upstream-compatible redirect document.
-fn render(target: &str, fragments: &BTreeMap<String, String>) -> String {
-    let script = if fragments.is_empty() {
+/// Renders one physical redirect document.
+///
+/// Redirects without fragment overrides retain the upstream script verbatim.
+/// When overrides exist, JSON supplies only the fragments belonging to this
+/// page. Escaping closing tags keeps that JSON inside the script.
+fn render(target: &str, overrides: &BTreeMap<String, String>) -> String {
+    let script = if overrides.is_empty() {
         SCRIPT.replace("{url}", target)
     } else {
-        let fragments = serde_json::to_string(fragments)
+        let overrides = serde_json::to_string(overrides)
             .expect("redirect fragments are strings")
             .replace("</", "<\\/");
         SCRIPT_WITH_FRAGMENTS
             .replace("{url}", target)
-            .replace("{redirects}", &fragments)
+            .replace("{redirects}", &overrides)
     };
     HTML_TEMPLATE
         .replace("{url}", target)
@@ -184,9 +191,9 @@ You're being redirected to a <a href="../new/">new destination</a>.
             redirects: vec![Redirect {
                 output: output.clone(),
                 target: Some("../new/".into()),
-                fragments: BTreeMap::new(),
+                overrides: BTreeMap::new(),
             }],
-            anchors: Some(BTreeMap::new()),
+            manifest: Some(BTreeMap::new()),
             warnings: Vec::new(),
         };
         let root = OutputRoot::prepare(directory.path()).unwrap();
@@ -197,9 +204,9 @@ You're being redirected to a <a href="../new/">new destination</a>.
             redirects: vec![Redirect {
                 output: output.clone(),
                 target: None,
-                fragments: BTreeMap::new(),
+                overrides: BTreeMap::new(),
             }],
-            anchors: Some(BTreeMap::new()),
+            manifest: Some(BTreeMap::new()),
             warnings: vec!["missing".into()],
         };
         write(&root, &missing, false).unwrap();
@@ -213,7 +220,7 @@ You're being redirected to a <a href="../new/">new destination</a>.
         let root = OutputRoot::prepare(directory.path()).unwrap();
         let snapshot = Snapshot {
             redirects: Vec::new(),
-            anchors: Some(BTreeMap::from([(
+            manifest: Some(BTreeMap::from([(
                 "guide/#old".into(),
                 "reference/#new".into(),
             )])),
