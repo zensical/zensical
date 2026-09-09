@@ -33,6 +33,8 @@ import zensical
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import pytest
+
 
 _BUILD_OPTIONS: dict[str, Any] = {"clean": False, "strict": False}
 
@@ -147,6 +149,27 @@ def test_search_artifacts_match_mkdocs_contract(tmp_path: Path) -> None:
     assert (tmp_path / "site" / "search.js").read_text() == (
         f"var __index = {compact};"
     )
+
+
+def test_unsupported_material_options_are_silently_ignored(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Known Material options are ignored to keep migration frictionless."""
+    config = _write_project(
+        tmp_path,
+        plugins=(
+            "  - material/search:\n"
+            "      lang:\n"
+            "        - de\n"
+            "      pipeline:\n"
+            "        - stemmer"
+        ),
+    )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    assert _read_index(tmp_path)["config"]["lang"] == ["en"]
+    assert capsys.readouterr().err == ""
 
 
 def test_search_exclusion_and_disabled_output(tmp_path: Path) -> None:
