@@ -146,6 +146,35 @@ def test_rejects_unknown_python_plugin_options(name: str) -> None:
         _convert_plugins({name: {"unknown": True}})
 
 
+@pytest.mark.parametrize("plugin", ["search", "material/search"])
+def test_silently_discards_unsupported_search_options(
+    plugin: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    unsupported = {
+        "fields": {"title": {"boost": 2}},
+        "indexing": "titles",
+        "jieba_dict": "dict.txt",
+        "jieba_dict_user": "user-dict.txt",
+        "lang": ["en", "de"],
+        "min_search_length": 2,
+        "pipeline": ["stemmer"],
+        "prebuild_index": True,
+    }
+    configured = {
+        "enabled": False,
+        "separator": "[\\s-]+",
+        **unsupported,
+    }
+
+    plugins = _convert_plugins({plugin: configured})
+
+    assert plugins["search"]["config"] == {
+        "enabled": False,
+        "separator": "[\\s-]+",
+    }
+    assert capsys.readouterr().err == ""
+
+
 @pytest.mark.parametrize("name", SHIM_PLUGINS)
 def test_normalizes_null_shim_configuration(name: str) -> None:
     plugins = _convert_plugins({name: None})

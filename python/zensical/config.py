@@ -67,7 +67,6 @@ representation in Rust. Thus, we just keep the configuration on the Python
 side, and use it directly when needed. It's a hack but will do for now.
 """
 
-
 # ----------------------------------------------------------------------------
 # Constants
 # ----------------------------------------------------------------------------
@@ -1448,7 +1447,22 @@ def _convert_plugins(value: Any, config: dict) -> dict:
 
     # Search is enabled by default, even when it isn't explicitly configured.
     search = plugins.pop("search", {})
-    _reject_unknown_options("search", search, {"enabled", "separator"})
+    supported = {"enabled", "separator"}
+    # Keep recognized upstream options non-fatal during migration, but discard
+    # them before extracting the typed native search configuration in Rust.
+    unsupported = {
+        "fields",
+        "indexing",
+        "jieba_dict",
+        "jieba_dict_user",
+        "lang",
+        "min_search_length",
+        "pipeline",
+        "prebuild_index",
+    }
+    _reject_unknown_options("search", search, supported | unsupported)
+    for name in sorted(unsupported & search.keys()):
+        search.pop(name)
     set_default(search, "enabled", True)
     set_default(search, "separator", '[\\s\\-_,:!=\\[\\]()\\\\"`/]+|\\.(?!\\d)')
     _validate_boolean_options("search", search, ("enabled",))
