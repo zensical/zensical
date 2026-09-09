@@ -140,6 +140,53 @@ def test_page_redirects_override_configured_anchor_targets(
     }
 
 
+def test_redirect_chains_resolve_to_final_targets(tmp_path: Path) -> None:
+    """Page, anchor, and mixed chains emit their final destinations."""
+    config = _write_project(
+        tmp_path,
+        """\
+        first.md: second.md
+        second.md: new.md
+        first.md#install: new.md#old
+        new.md#old: new.md#intermediate
+        new.md#intermediate: guide/topic.md#details
+""",
+    )
+    zensical.build(str(config), {"clean": False, "strict": True})
+
+    first = (tmp_path / "site" / "first" / "index.html").read_text()
+    second = (tmp_path / "site" / "second" / "index.html").read_text()
+    assert '<link rel="canonical" href="../new/">' in first
+    assert '<link rel="canonical" href="../new/">' in second
+    assert 'redirects={"#install":"../guide/topic/#details"}' in first
+    assert json.loads((tmp_path / "site" / "redirect.json").read_text()) == {
+        "first/#install": "guide/topic/#details",
+        "new/#intermediate": "guide/topic/#details",
+        "new/#old": "guide/topic/#details",
+    }
+
+
+@pytest.mark.parametrize(
+    "redirect_maps",
+    [
+        "        old.md: old.md\n",
+        "        first.md: second.md\n        second.md: first.md\n",
+        (
+            "        new.md#first: new.md#second\n"
+            "        new.md#second: new.md#first\n"
+        ),
+        "        old.md: new.md#old\n        new.md#old: old.md\n",
+    ],
+)
+def test_redirect_cycles_are_rejected(
+    tmp_path: Path, redirect_maps: str
+) -> None:
+    """Self, page, anchor, and mixed redirect cycles fail planning."""
+    config = _write_project(tmp_path, redirect_maps)
+    with pytest.raises(RuntimeError, match="redirect cycle detected"):
+        zensical.build(str(config), _BUILD_OPTIONS)
+
+
 def test_redirects_without_directory_urls_write_html_files(
     tmp_path: Path,
 ) -> None:

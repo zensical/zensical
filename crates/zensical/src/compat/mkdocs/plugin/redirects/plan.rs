@@ -114,6 +114,8 @@ pub struct Redirect {
 /// One validated configuration entry awaiting target resolution.
 #[derive(Clone, Debug)]
 struct Specification {
+    /// Original configured source used to resolve redirect chains.
+    configured_source: String,
     /// Prepared page or anchor source.
     source: Source,
     /// Prepared internal or external target.
@@ -198,15 +200,25 @@ impl Plan {
                 Target::External(configured_target.clone())
             } else {
                 let (source, fragment) = split_fragment(configured_target);
-                plan.targets.insert(source.into());
                 Target::Internal {
                     configured: configured_target.clone(),
                     source: source.into(),
                     fragment: fragment.into(),
                 }
             };
-            plan.specifications.push(Specification { source, target });
+            plan.specifications.push(Specification {
+                configured_source: configured_source.clone(),
+                source,
+                target,
+            });
         }
+        resolve_chains(&mut plan.specifications)?;
+        plan.targets.extend(plan.specifications.iter().filter_map(
+            |specification| match &specification.target {
+                Target::Internal { source, .. } => Some(source.clone()),
+                Target::External(_) => None,
+            },
+        ));
         Ok(plan)
     }
 }
@@ -323,6 +335,72 @@ impl Snapshot {
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
+
+/// Resolves configured redirect chains and rejects cycles.
+fn resolve_chains(specifications: &mut [Specification]) -> Result<()> {
+    let sources = specifications
+        .iter()
+        .enumerate()
+        .map(|(index, specification)| {
+            (specification.configured_source.clone(), index)
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut resolved = vec![None; specifications.len()];
+    for index in 0..specifications.len() {
+        resolve_chain(
+            index,
+            specifications,
+            &sources,
+            &mut Vec::new(),
+            &mut resolved,
+        )?;
+    }
+    for (specification, target) in specifications.iter_mut().zip(resolved) {
+        specification.target = target.expect("every redirect was resolved");
+    }
+    Ok(())
+}
+
+/// Resolves one redirect target recursively against configured sources.
+fn resolve_chain(
+    index: usize, specifications: &[Specification],
+    sources: &BTreeMap<String, usize>, visiting: &mut Vec<usize>,
+    resolved: &mut [Option<Target>],
+) -> Result<Target> {
+    if let Some(target) = &resolved[index] {
+        return Ok(target.clone());
+    }
+    if let Some(position) = visiting.iter().position(|other| *other == index) {
+        let cycle = visiting[position..]
+            .iter()
+            .chain(std::iter::once(&index))
+            .map(|index| specifications[*index].configured_source.as_str())
+            .collect::<Vec<_>>()
+            .join(" -> ");
+        bail!("redirect cycle detected: {cycle}")
+    }
+
+    visiting.push(index);
+    let target = match &specifications[index].target {
+        Target::Internal { configured, .. } => {
+            if let Some(next) = sources.get(configured) {
+                resolve_chain(
+                    *next,
+                    specifications,
+                    sources,
+                    visiting,
+                    resolved,
+                )?
+            } else {
+                specifications[index].target.clone()
+            }
+        }
+        Target::External(_) => specifications[index].target.clone(),
+    };
+    visiting.pop();
+    resolved[index] = Some(target.clone());
+    Ok(target)
+}
 
 /// Rejects redirect sources that could escape the site directory.
 fn normalize_source(source: &str) -> Result<SourcePath> {
