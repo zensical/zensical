@@ -27,6 +27,7 @@
 
 use anyhow::{bail, Result};
 use std::fs;
+use std::io::{BufWriter, Write};
 
 use crate::path::OutputRoot;
 
@@ -70,6 +71,14 @@ pub fn write(
             fs::remove_file(path)?;
         }
     }
+    if let Some(anchors) = &snapshot.anchors {
+        let path =
+            output.join(&"redirect.json".parse().expect("static site path"));
+        fs::create_dir_all(path.parent().expect("invariant"))?;
+        let mut writer = BufWriter::new(fs::File::create(path)?);
+        serde_json::to_writer(&mut writer, anchors)?;
+        writer.flush()?;
+    }
     for warning in &snapshot.warnings {
         eprintln!("WARNING -  {warning}");
     }
@@ -93,6 +102,8 @@ mod tests {
     use super::{render, write};
     use crate::compat::mkdocs::plugin::redirects::plan::{Redirect, Snapshot};
     use crate::path::{OutputRoot, SitePath};
+    use std::collections::BTreeMap;
+    use std::fs;
 
     #[test]
     fn renders_upstream_document() {
@@ -126,6 +137,7 @@ You're being redirected to a <a href="../new/">new destination</a>.
                 output: output.clone(),
                 target: Some("../new/".into()),
             }],
+            anchors: Some(BTreeMap::new()),
             warnings: Vec::new(),
         };
         let root = OutputRoot::prepare(directory.path()).unwrap();
@@ -137,10 +149,31 @@ You're being redirected to a <a href="../new/">new destination</a>.
                 output: output.clone(),
                 target: None,
             }],
+            anchors: Some(BTreeMap::new()),
             warnings: vec!["missing".into()],
         };
         write(&root, &missing, false).unwrap();
         assert!(!directory.path().join(output.as_str()).exists());
         assert!(write(&root, &missing, true).is_err());
+    }
+
+    #[test]
+    fn writes_anchor_redirect_manifest() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = OutputRoot::prepare(directory.path()).unwrap();
+        let snapshot = Snapshot {
+            redirects: Vec::new(),
+            anchors: Some(BTreeMap::from([(
+                "guide/#old".into(),
+                "reference/#new".into(),
+            )])),
+            warnings: Vec::new(),
+        };
+
+        write(&root, &snapshot, false).unwrap();
+        assert_eq!(
+            fs::read_to_string(directory.path().join("redirect.json")).unwrap(),
+            r#"{"guide/#old":"reference/#new"}"#
+        );
     }
 }

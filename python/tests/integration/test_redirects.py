@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import time
@@ -86,19 +87,53 @@ def test_redirects_generate_mkdocs_compatible_artifacts(tmp_path: Path) -> None:
         '<link rel="canonical" href="https://example.com/new?q=1">' in external
     )
     assert "noindex" not in old
+    assert json.loads((tmp_path / "site" / "redirect.json").read_text()) == {}
+
+
+def test_anchor_redirects_generate_site_manifest(tmp_path: Path) -> None:
+    """Anchor mappings retain live pages and use resolved public URLs."""
+    config = _write_project(
+        tmp_path,
+        """\
+        old.md: new.md
+        new.md#old: guide/topic.md#details
+        new.md#legacy: new.md#new
+        new.md#external: https://example.com/new#there
+        guide/topic.md#summary: new.md#new
+""",
+    )
+    zensical.build(str(config), {"clean": False, "strict": True})
+
+    assert (tmp_path / "site" / "old" / "index.html").is_file()
+    assert "<h1" in (tmp_path / "site" / "new" / "index.html").read_text()
+    assert json.loads((tmp_path / "site" / "redirect.json").read_text()) == {
+        "guide/topic/#summary": "new/#new",
+        "new/#external": "https://example.com/new#there",
+        "new/#legacy": "new/#new",
+        "new/#old": "guide/topic/#details",
+    }
 
 
 def test_redirects_without_directory_urls_write_html_files(
     tmp_path: Path,
 ) -> None:
     """File-style URLs retain MkDocs' relative target calculation."""
-    config = _write_project(tmp_path, "        old.md: new.md\n")
+    config = _write_project(
+        tmp_path,
+        """\
+        old.md: new.md
+        new.md#old: guide/topic.md#details
+""",
+    )
     with config.open("a", encoding="utf-8") as file:
         file.write("use_directory_urls: false\n")
     zensical.build(str(config), _BUILD_OPTIONS)
 
     old = (tmp_path / "site" / "old.html").read_text()
     assert '<link rel="canonical" href="new.html">' in old
+    assert json.loads((tmp_path / "site" / "redirect.json").read_text()) == {
+        "new.html#old": "guide/topic.html#details"
+    }
 
 
 def test_missing_redirect_target_warns_and_strict_mode_fails(

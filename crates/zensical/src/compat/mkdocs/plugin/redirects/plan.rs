@@ -58,14 +58,29 @@ enum Target {
 }
 
 // ----------------------------------------------------------------------------
+
+/// Redirect source classification prepared before route settlement.
+#[derive(Clone, Debug)]
+enum Source {
+    /// Page redirect emitted as a physical HTML artifact.
+    Page(SitePath),
+    /// Anchor redirect emitted into the site-wide redirect manifest.
+    Anchor(String),
+}
+
+// ----------------------------------------------------------------------------
 // Structs
 // ----------------------------------------------------------------------------
 
 /// Redirect configuration prepared independently of live page routes.
 #[derive(Clone, Debug, Default)]
 pub struct Plan {
+    /// Whether the redirects plugin is enabled.
+    enabled: bool,
     /// Generated paths reserved by configured redirects.
     outputs: BTreeSet<SitePath>,
+    /// Anchor sources reserved by configured redirects.
+    anchors: BTreeSet<String>,
     /// Internal source paths needed from the live route relation.
     targets: BTreeSet<String>,
     /// Validated redirect specifications in configuration order.
@@ -90,8 +105,8 @@ pub struct Redirect {
 /// One validated configuration entry awaiting target resolution.
 #[derive(Clone, Debug)]
 struct Specification {
-    /// Site-relative output path.
-    output: SitePath,
+    /// Prepared page or anchor source.
+    source: Source,
     /// Prepared internal or external target.
     target: Target,
 }
@@ -103,6 +118,8 @@ struct Specification {
 pub struct Snapshot {
     /// Redirects ordered by configured source URI.
     pub redirects: Vec<Redirect>,
+    /// Anchor redirects keyed by their resolved source URL.
+    pub anchors: Option<BTreeMap<String, String>>,
     /// Compatibility warnings emitted for this snapshot.
     pub warnings: Vec<String>,
 }
@@ -115,24 +132,22 @@ impl Plan {
     /// Validates route-independent configuration once for the workflow.
     pub fn new(config: &Config) -> Result<Self> {
         let plugin = &config.project.plugins.redirects.config;
-        if !plugin.enabled || plugin.redirect_maps.is_empty() {
+        if !plugin.enabled {
             return Ok(Self::default());
         }
 
         let mut plan = Self {
+            enabled: true,
             specifications: Vec::with_capacity(plugin.redirect_maps.len()),
             ..Self::default()
         };
-        for (source, configured_target) in &plugin.redirect_maps {
+        validate_output(
+            config,
+            &"redirect.json".parse().expect("static site path"),
+        )?;
+        for (configured_source, configured_target) in &plugin.redirect_maps {
+            let (source, fragment) = split_fragment(configured_source);
             let source = normalize_source(source)?;
-            let output = PageRoute::destination(
-                &source,
-                config.project.use_directory_urls,
-            )?;
-            if !plan.outputs.insert(output.clone()) {
-                bail!("redirect output '{output}' is configured more than once")
-            }
-            validate_output(config, &output)?;
 
             if !MARKDOWN_SUFFIXES
                 .iter()
@@ -142,6 +157,29 @@ impl Plan {
                     "redirects plugin: '{source}' is not a valid markdown file!"
                 ));
             }
+
+            let source = if fragment.is_empty() {
+                let output = PageRoute::destination(
+                    &source,
+                    config.project.use_directory_urls,
+                )?;
+                if !plan.outputs.insert(output.clone()) {
+                    bail!(
+                        "redirect output '{output}' is configured more than once"
+                    )
+                }
+                validate_output(config, &output)?;
+                Source::Page(output)
+            } else {
+                let route = PageRoute::from_source(config, source)?;
+                let source = format!("{}{fragment}", route.url);
+                if !plan.anchors.insert(source.clone()) {
+                    bail!(
+                        "redirect source '{configured_source}' is configured more than once"
+                    )
+                }
+                Source::Anchor(source)
+            };
 
             let target = if is_external(configured_target) {
                 Target::External(configured_target.clone())
@@ -154,7 +192,7 @@ impl Plan {
                     fragment: fragment.into(),
                 }
             };
-            plan.specifications.push(Specification { output, target });
+            plan.specifications.push(Specification { source, target });
         }
         Ok(plan)
     }
@@ -168,7 +206,7 @@ impl Snapshot {
         plan: &Plan, page_routes: impl Iterator<Item = &'a PageRoute>,
         use_directory_urls: bool,
     ) -> Result<Self> {
-        if plan.specifications.is_empty() {
+        if !plan.enabled {
             return Ok(Self::default());
         }
 
@@ -186,18 +224,22 @@ impl Snapshot {
         }
 
         let mut redirects = Vec::with_capacity(plan.specifications.len());
+        let mut anchors = BTreeMap::new();
         let mut warnings = plan.warnings.clone();
         for specification in &plan.specifications {
             let target = match &specification.target {
                 Target::External(target) => Some(target.clone()),
                 Target::Internal { configured, source, fragment } => {
                     if let Some(url) = routes.get(source) {
-                        Some(relative_target(
-                            &specification.output,
-                            url,
-                            fragment,
-                            use_directory_urls,
-                        ))
+                        Some(match &specification.source {
+                            Source::Page(output) => relative_target(
+                                output,
+                                url,
+                                fragment,
+                                use_directory_urls,
+                            ),
+                            Source::Anchor(_) => format!("{url}{fragment}"),
+                        })
                     } else {
                         warnings.push(format!(
                             "Redirect target '{configured}' does not exist!"
@@ -206,12 +248,22 @@ impl Snapshot {
                     }
                 }
             };
-            redirects.push(Redirect {
-                output: specification.output.clone(),
-                target,
-            });
+            match &specification.source {
+                Source::Page(output) => {
+                    redirects.push(Redirect { output: output.clone(), target });
+                }
+                Source::Anchor(source) => {
+                    if let Some(target) = target {
+                        anchors.insert(source.clone(), target);
+                    }
+                }
+            }
         }
-        Ok(Self { redirects, warnings })
+        Ok(Self {
+            redirects,
+            anchors: Some(anchors),
+            warnings,
+        })
     }
 }
 
@@ -297,7 +349,7 @@ fn is_external(target: &str) -> bool {
     target.starts_with("http://") || target.starts_with("https://")
 }
 
-/// Splits an internal target into source URI and hash fragment.
+/// Splits a configured URI into its path and hash fragment.
 fn split_fragment(target: &str) -> (&str, &str) {
     target
         .find('#')
