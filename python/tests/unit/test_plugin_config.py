@@ -266,6 +266,20 @@ def test_accepts_supported_shim_options(
 
 
 @pytest.mark.parametrize(
+    "option", ["resolve_closest", "link_titles", "strip_title_tags"]
+)
+@pytest.mark.parametrize(
+    "value", [True, False, "auto", "external", 42, [], {}, None]
+)
+def test_silently_discards_unsupported_autorefs_options(
+    option: str, value: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    plugins = _convert_plugins({"autorefs": {"enabled": True, option: value}})
+    assert plugins["autorefs"]["config"] == {"enabled": True}
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize(
     ("name", "config", "message"),
     [
         ("search", {"enabled": "yes"}, "enabled must be a boolean"),

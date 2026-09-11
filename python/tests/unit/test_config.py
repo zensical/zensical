@@ -572,8 +572,14 @@ class TestPluginShimming:
             )
 
     def test_autorefs_standalone(self, tmp_path: Path) -> None:
-        config = self._parse_yaml(tmp_path, plugins={"autorefs": {}})
+        options = {
+            "resolve_closest": True,
+            "link_titles": "external",
+            "strip_title_tags": False,
+        }
+        config = self._parse_yaml(tmp_path, plugins={"autorefs": options})
         assert AutorefsExtension.name in config["markdown_extensions"]
+        assert config["plugins"]["autorefs"]["config"] == {}
 
     def test_autorefs_disabled_not_added(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

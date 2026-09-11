@@ -1695,8 +1695,16 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     # Validate settings forwarded by the plugin-to-extension shims.
     if "autorefs" in plugins:
         autorefs = plugins["autorefs"]
-        _reject_unknown_options("autorefs", autorefs, {"enabled"})
+        _reject_unknown_options(
+            "autorefs",
+            autorefs,
+            {"enabled", "resolve_closest", "link_titles", "strip_title_tags"},
+        )
         _validate_boolean_options("autorefs", autorefs, ("enabled",))
+        # Ignore these upstream settings: the Rust resolver currently uses
+        # fixed resolution and title behavior.
+        for name in ("resolve_closest", "link_titles", "strip_title_tags"):
+            autorefs.pop(name, None)
 
     if "markdown-exec" in plugins:
         markdown_exec = plugins["markdown-exec"]
