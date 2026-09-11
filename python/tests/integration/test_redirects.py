@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import time
@@ -86,19 +87,127 @@ def test_redirects_generate_mkdocs_compatible_artifacts(tmp_path: Path) -> None:
         '<link rel="canonical" href="https://example.com/new?q=1">' in external
     )
     assert "noindex" not in old
+    assert json.loads((tmp_path / "site" / "redirect.json").read_text()) == {}
+
+
+def test_anchor_redirects_generate_site_manifest(tmp_path: Path) -> None:
+    """Anchor mappings retain live pages and use resolved public URLs."""
+    config = _write_project(
+        tmp_path,
+        """\
+        old.md: new.md
+        new.md#old: guide/topic.md#details
+        new.md#legacy: new.md#new
+        new.md#external: https://example.com/new#there
+        guide/topic.md#summary: new.md#new
+""",
+    )
+    zensical.build(str(config), {"clean": False, "strict": True})
+
+    assert (tmp_path / "site" / "old" / "index.html").is_file()
+    assert "<h1" in (tmp_path / "site" / "new" / "index.html").read_text()
+    assert json.loads((tmp_path / "site" / "redirect.json").read_text()) == {
+        "guide/topic/#summary": "new/#new",
+        "new/#external": "https://example.com/new#there",
+        "new/#legacy": "new/#new",
+        "new/#old": "guide/topic/#details",
+    }
+
+
+def test_page_redirects_override_configured_anchor_targets(
+    tmp_path: Path,
+) -> None:
+    """Physical redirects send configured fragments to their own targets."""
+    config = _write_project(
+        tmp_path,
+        """\
+        old.md: new.md
+        old.md#install: guide/topic.md#details
+        old.md#external: https://example.com/new#there
+""",
+    )
+    zensical.build(str(config), {"clean": False, "strict": True})
+
+    old = (tmp_path / "site" / "old" / "index.html").read_text()
+    assert (
+        'redirects={"#external":"https://example.com/new#there",'
+        '"#install":"../guide/topic/#details"}' in old
+    )
+    assert 'location.href=target||"../new/"+anchor' in old
+    assert json.loads((tmp_path / "site" / "redirect.json").read_text()) == {
+        "old/#external": "https://example.com/new#there",
+        "old/#install": "guide/topic/#details",
+    }
+
+
+def test_redirect_chains_resolve_to_final_targets(tmp_path: Path) -> None:
+    """Page, anchor, and mixed chains emit their final destinations."""
+    config = _write_project(
+        tmp_path,
+        """\
+        first.md: second.md
+        second.md: new.md
+        first.md#install: new.md#old
+        new.md#old: new.md#intermediate
+        new.md#intermediate: guide/topic.md#details
+""",
+    )
+    zensical.build(str(config), {"clean": False, "strict": True})
+
+    first = (tmp_path / "site" / "first" / "index.html").read_text()
+    second = (tmp_path / "site" / "second" / "index.html").read_text()
+    assert '<link rel="canonical" href="../new/">' in first
+    assert '<link rel="canonical" href="../new/">' in second
+    assert 'redirects={"#install":"../guide/topic/#details"}' in first
+    assert json.loads((tmp_path / "site" / "redirect.json").read_text()) == {
+        "first/#install": "guide/topic/#details",
+        "new/#intermediate": "guide/topic/#details",
+        "new/#old": "guide/topic/#details",
+    }
+
+
+@pytest.mark.parametrize(
+    "redirect_maps",
+    [
+        "        old.md: old.md\n",
+        "        first.md: second.md\n        second.md: first.md\n",
+        (
+            "        new.md#first: new.md#second\n"
+            "        new.md#second: new.md#first\n"
+        ),
+        "        old.md: new.md#old\n        new.md#old: old.md\n",
+    ],
+)
+def test_redirect_cycles_are_rejected(
+    tmp_path: Path, redirect_maps: str
+) -> None:
+    """Self, page, anchor, and mixed redirect cycles fail planning."""
+    config = _write_project(tmp_path, redirect_maps)
+    with pytest.raises(RuntimeError, match="redirect cycle detected"):
+        zensical.build(str(config), _BUILD_OPTIONS)
 
 
 def test_redirects_without_directory_urls_write_html_files(
     tmp_path: Path,
 ) -> None:
     """File-style URLs retain MkDocs' relative target calculation."""
-    config = _write_project(tmp_path, "        old.md: new.md\n")
+    config = _write_project(
+        tmp_path,
+        """\
+        old.md: new.md
+        old.md#old: guide/topic.md#details
+""",
+    )
     with config.open("a", encoding="utf-8") as file:
         file.write("use_directory_urls: false\n")
     zensical.build(str(config), _BUILD_OPTIONS)
 
     old = (tmp_path / "site" / "old.html").read_text()
     assert '<link rel="canonical" href="new.html">' in old
+    assert 'redirects={"#old":"guide/topic.html#details"}' in old
+    assert json.loads((tmp_path / "site" / "redirect.json").read_text()) == {
+        "old.html#old": "guide/topic.html#details"
+    }
 
 
 def test_missing_redirect_target_warns_and_strict_mode_fails(

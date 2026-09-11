@@ -127,10 +127,10 @@ where
     /// use zensical_serve::handler::Teapot;
     /// use zensical_serve::server::Builder;
     ///
-    /// // Create server builder and bind to address
+    /// // Create server builder and bind to an available local port
     /// let mut builder = Builder::new(Teapot)?;
     /// let server = builder
-    ///     .bind("127.0.0.1:8080")?
+    ///     .bind("127.0.0.1:0")?
     ///     .listen()?;
     /// # Ok(())
     /// # }
