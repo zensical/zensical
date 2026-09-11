@@ -2579,7 +2579,7 @@ dependencies = [
 
 [[package]]
 name = "zensical"
-version = "0.0.60"
+version = "0.0.61"
 dependencies = [
  "ahash",
  "anyhow",
@@ -2621,7 +2621,7 @@ dependencies = [
 
 [[package]]
 name = "zensical-serve"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "base64",
  "crossbeam",
