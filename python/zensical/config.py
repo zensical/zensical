@@ -117,6 +117,7 @@ DEFAULT_MARKDOWN_EXTENSIONS = {
 # Discard these before validation, hashing and forwarding to native modules or
 # Markdown extensions. Empty tuples mark plugins with no ignored options.
 _PLUGIN_UNSUPPORTED_OPTIONS = {
+    "api-autonav": (),
     "autorefs": (),
     "awesome-nav": (),
     "blog": (),
@@ -144,6 +145,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
         "javascript_dir",
     ),
     "minify": (),
+    "mkdocs-autoapi": (),
     "mkdocstrings": (
         # TODO: Merge the removed plugin watch setting into project.watch.
         "watch",
@@ -1673,6 +1675,31 @@ def _normalize_rss(raw: dict[str, Any]) -> dict[str, Any]:
     return rss
 
 
+def _validate_string_list(label: str, plugin: dict, name: str) -> None:
+    """Validate a list of paths or patterns without coercing its entries."""
+    value = plugin[name]
+    if not isinstance(value, list) or not all(
+        isinstance(item, str) for item in value
+    ):
+        raise ConfigurationError(f"{label} {name} must be a list of strings")
+
+
+def _validate_api_root(label: str, plugin: dict, name: str) -> None:
+    """Keep generated documentation within its documentation source root."""
+    value = plugin[name].replace("\\", "/").rstrip("/")
+    if (
+        not value
+        or value.startswith("/")
+        or any(
+            part in {"", ".", ".."} or ":" in part for part in value.split("/")
+        )
+    ):
+        raise ConfigurationError(
+            f"{label} {name} must be a relative directory path"
+        )
+    plugin[name] = value
+
+
 def _convert_plugins(value: Any, config: dict) -> dict:
     """Convert plugins configuration to something we can work with."""
     plugins: dict[str, Any] = {}
@@ -1773,6 +1800,140 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             "redirects redirect_maps must be a mapping of strings to strings"
         )
     plugins["redirects"] = redirects
+
+    # Normalize API generators without importing or executing either plugin.
+    present = "mkdocs-autoapi" in plugins
+    autoapi = plugins.pop("mkdocs-autoapi", {})
+    defaults = {
+        "enabled": present,
+        "autoapi_dir": ".",
+        "autoapi_file_patterns": ["*.py", "*.pyi"],
+        "autoapi_ignore": [],
+        "autoapi_keep_files": False,
+        "autoapi_generate_api_docs": True,
+        "autoapi_add_nav_entry": True,
+        "autoapi_root": "autoapi",
+    }
+    _reject_unknown_options("mkdocs-autoapi", autoapi, set(defaults))
+    for name, default in defaults.items():
+        set_default(autoapi, name, default)
+    _validate_boolean_options(
+        "mkdocs-autoapi",
+        autoapi,
+        ("enabled", "autoapi_keep_files", "autoapi_generate_api_docs"),
+    )
+    _validate_string_options(
+        "mkdocs-autoapi", autoapi, ("autoapi_dir", "autoapi_root")
+    )
+    if not isinstance(autoapi["autoapi_add_nav_entry"], (str, bool)):
+        raise ConfigurationError(
+            "mkdocs-autoapi autoapi_add_nav_entry must be a string or boolean"
+        )
+    for name in ("autoapi_file_patterns", "autoapi_ignore"):
+        _validate_string_list("mkdocs-autoapi", autoapi, name)
+    if autoapi["enabled"]:
+        directory = Path(config["root_dir"], autoapi["autoapi_dir"]).resolve()
+        if not directory.is_dir():
+            raise ConfigurationError(
+                f"mkdocs-autoapi autoapi_dir is not a directory: {directory}"
+            )
+        autoapi["autoapi_dir"] = str(directory)
+    _validate_api_root("mkdocs-autoapi", autoapi, "autoapi_root")
+    autoapi["handler"] = (
+        plugins.get("mkdocstrings", {}).get("default_handler", "python")
+        or "python"
+    )
+    if autoapi["enabled"] and autoapi["autoapi_generate_api_docs"]:
+        if autoapi["handler"] not in {"python", "vba"}:
+            raise ConfigurationError(
+                "mkdocs-autoapi requires the python or vba mkdocstrings handler"
+            )
+        plugins.setdefault("mkdocstrings", {})
+    plugins["autoapi"] = autoapi
+
+    present = "api-autonav" in plugins
+    autonav = plugins.pop("api-autonav", {})
+    defaults = {
+        "enabled": present,
+        "modules": [],
+        "module_options": {},
+        "exclude": [],
+        "nav_section_title": "API Reference",
+        "api_root_uri": "reference",
+        "nav_item_prefix": (
+            '<code class="doc-symbol doc-symbol-nav doc-symbol-module"></code>'
+        ),
+        "exclude_private": True,
+        "show_full_namespace": False,
+        "on_implicit_namespace_package": "warn",
+    }
+    _reject_unknown_options("api-autonav", autonav, set(defaults))
+    for name, default in defaults.items():
+        set_default(autonav, name, default)
+    _validate_boolean_options(
+        "api-autonav",
+        autonav,
+        ("enabled", "exclude_private", "show_full_namespace"),
+    )
+    _validate_string_options(
+        "api-autonav",
+        autonav,
+        (
+            "nav_section_title",
+            "api_root_uri",
+            "nav_item_prefix",
+            "on_implicit_namespace_package",
+        ),
+    )
+    for name in ("modules", "exclude"):
+        _validate_string_list("api-autonav", autonav, name)
+    if autonav["on_implicit_namespace_package"] not in {
+        "raise",
+        "warn",
+        "skip",
+    }:
+        raise ConfigurationError(
+            "api-autonav on_implicit_namespace_package "
+            "must be raise, warn or skip"
+        )
+    options = autonav["module_options"]
+    if not isinstance(options, dict) or not all(
+        isinstance(pattern, str)
+        and isinstance(local, dict)
+        and all(isinstance(key, str) for key in local)
+        for pattern, local in options.items()
+    ):
+        raise ConfigurationError(
+            "api-autonav module_options must be a mapping "
+            "of strings to mappings"
+        )
+    try:
+        for pattern in [
+            *options,
+            *(p[3:] for p in autonav["exclude"] if p.startswith("re:")),
+        ]:
+            re.compile(pattern)
+    except re.error as error:
+        raise ConfigurationError(
+            f"api-autonav invalid regular expression {pattern!r}: {error}"
+        ) from error
+    if autonav["enabled"]:
+        modules = []
+        for module in autonav["modules"]:
+            module_path = Path(config["root_dir"], module).resolve()
+            if not module_path.is_dir() and not (
+                module_path.is_file() and module_path.suffix == ".py"
+            ):
+                raise ConfigurationError(
+                    "api-autonav module is not a Python file or directory: "
+                    f"{module_path}"
+                )
+            modules.append(str(module_path))
+        autonav["modules"] = modules
+        # Upstream enables mkdocstrings when omitted.
+        plugins.setdefault("mkdocstrings", {})
+    _validate_api_root("api-autonav", autonav, "api_root_uri")
+    plugins["api_autonav"] = autonav
 
     # Normalize the complete mkdocs-minify-plugin configuration surface. Asset
     # settings are retained for the dedicated copy/output stage; the inline

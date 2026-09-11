@@ -65,6 +65,7 @@ enum Level {
 #[derive(Clone, Debug)]
 pub struct AwesomeNav {
     settings: Arc<Settings>,
+    api: Arc<super::api::Snapshot>,
 }
 
 /// Inputs required to derive revision-complete navigation.
@@ -129,6 +130,7 @@ impl AwesomeNav {
             bail!("awesome-nav filename must not be empty")
         }
         Ok(Self {
+            api: config.api.clone(),
             settings: Arc::new(Settings {
                 enabled: plugin.enabled,
                 docs: config.project.docs_dir.clone(),
@@ -187,15 +189,14 @@ impl AwesomeNav {
                 Some(Pages(Arc::new(pages.values().cloned().collect())))
             },
         );
+        let api = self.api.clone();
         let navigation = pages.product(&documents).map(
             move |pages: &Pages, documents: &Documents| {
-                let (navigation, diagnostics) = resolver::resolve(
-                    &settings,
-                    &documents.0,
-                    pages.0.as_ref(),
-                )?;
+                let ordinary = api.ordinary_pages(&pages.0);
+                let (navigation, diagnostics) =
+                    resolver::resolve(&settings, &documents.0, &ordinary)?;
                 report(&diagnostics, settings.strict)?;
-                Ok::<_, anyhow::Error>(navigation)
+                Ok::<_, anyhow::Error>(api.awesome(&navigation, &pages.0))
             },
         );
         navigation.reduce(

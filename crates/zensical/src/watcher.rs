@@ -82,6 +82,10 @@ impl Watcher {
         let (changes, receiver) = unbounded();
         let mut sources = Vec::default();
 
+        // Admit generated sources with the initial physical source revision.
+        // They share docs identities; physical collisions are masked below.
+        let mut generated = config.api.changes(config);
+
         // Add docs directory and theme directories
         sources.push(SourceMount::new(
             config.docs_root().as_path().to_owned(),
@@ -104,6 +108,16 @@ impl Watcher {
             config.output_root().as_path().to_owned(),
             String::from("."),
         ));
+        for (i, root) in config.api.roots.iter().enumerate() {
+            sources.push(SourceMount::new(
+                if root.is_file() {
+                    root.parent().unwrap().to_owned()
+                } else {
+                    root.clone()
+                },
+                format!("api/{i}"),
+            ));
+        }
         sources.push(SourceMount::new(path, String::from(".")));
 
         // Track seen files to restart on config or template change
@@ -158,6 +172,17 @@ impl Watcher {
                     // which avoids mismatches between equivalent path forms.
                     let event_path = canonical_or_clone(&event.path());
 
+                    if config.api.changed(&event_path)
+                        || matches!(&event, Event::Rename { from, .. } if config.api.changed(from))
+                    {
+                        return Err(Error::Disconnected);
+                    }
+                    // API inputs only trigger rediscovery; they are not site assets.
+                    if config.api.is_source(&event_path)
+                        && !event_path.starts_with(config.docs_root().as_path())
+                    {
+                        continue;
+                    }
                     // Check if the config file reloaded, and terminate agent,
                     // as we need to kick off the entire pipeline again
                     if event_path == config_path
@@ -254,6 +279,18 @@ impl Watcher {
                     }
                 }
 
+                // Apply ownership to both sides of renames, then add the
+                // initial generated sources in this same settled revision.
+                batch.retain(|change| {
+                    let key = match change {
+                        Change::Insert(key, _) | Change::Remove(key) => key,
+                    };
+                    key[0].context() != config.project.docs_dir
+                        || key[0].location().parse::<SourcePath>().is_ok_and(
+                            |path| !config.api.files.contains_key(&path),
+                        )
+                });
+                batch.append(&mut generated);
                 if !batch.is_empty() {
                     changes.send(batch)?;
                 }
@@ -285,6 +322,9 @@ impl Watcher {
         }
 
         // Watch files used by extensions
+        for root in &config.api.roots {
+            agent.watch(root)?;
+        }
         for (path, _) in &config.project.watched_files {
             agent.watch(path)?;
         }
