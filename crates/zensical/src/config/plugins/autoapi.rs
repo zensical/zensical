@@ -23,13 +23,11 @@
 
 // ----------------------------------------------------------------------------
 
-//! API documentation generator settings.
+//! mkdocs-autoapi settings.
 
 use crate::structure::dynamic::Dynamic;
-use pyo3::types::{PyAny, PyAnyMethods, PyDict, PyDictMethods};
-use pyo3::{Bound, FromPyObject, PyResult};
+use pyo3::FromPyObject;
 use serde::Serialize;
-use std::collections::BTreeMap;
 
 /// AutoAPI plugin.
 #[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
@@ -61,49 +59,4 @@ pub struct AutoApiConfig {
     pub autoapi_root: String,
     /// Configured mkdocstrings default handler.
     pub handler: String,
-}
-
-/// API autonav plugin.
-#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
-#[pyo3(from_item_all)]
-pub struct ApiAutonavPlugin {
-    /// Validated configuration.
-    pub config: ApiAutonavConfig,
-}
-
-/// API autonav settings.
-#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
-#[pyo3(from_item_all)]
-pub struct ApiAutonavConfig {
-    /// Whether the generator is enabled.
-    pub enabled: bool,
-    /// Absolute module or package paths.
-    pub modules: Vec<String>,
-    /// Ordered regex-to-option mappings; later matches override earlier ones.
-    #[pyo3(from_py_with = module_options)]
-    pub module_options: Vec<(String, BTreeMap<String, Dynamic>)>,
-    /// Identifier prefixes and re:-prefixed expressions to exclude.
-    pub exclude: Vec<String>,
-    /// Navigation section title.
-    pub nav_section_title: String,
-    /// Documentation-relative output directory.
-    pub api_root_uri: String,
-    /// HTML prefix for navigation labels.
-    pub nav_item_prefix: String,
-    /// Whether any private namespace component excludes a module.
-    pub exclude_private: bool,
-    /// Whether navigation labels contain the entire identifier.
-    pub show_full_namespace: bool,
-    /// Policy for directories with Python files but no initializer.
-    pub on_implicit_namespace_package: String,
-}
-
-fn module_options(
-    value: &Bound<'_, PyAny>,
-) -> PyResult<Vec<(String, BTreeMap<String, Dynamic>)>> {
-    value
-        .cast::<PyDict>()?
-        .iter()
-        .map(|(key, value)| Ok((key.extract()?, value.extract()?)))
-        .collect()
 }

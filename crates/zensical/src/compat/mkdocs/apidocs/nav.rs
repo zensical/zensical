@@ -32,7 +32,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 
 #[derive(Default)]
-pub(super) struct Node {
+pub(in crate::compat::mkdocs) struct Node {
     path: Option<String>,
     children: Vec<(String, Node)>,
 }
@@ -210,7 +210,9 @@ fn item(
 }
 
 impl Node {
-    pub(super) fn insert(&mut self, parts: &[String], path: String) {
+    pub(in crate::compat::mkdocs) fn insert(
+        &mut self, parts: &[String], path: String,
+    ) {
         let mut node = self;
         for part in parts {
             let position = node
@@ -226,7 +228,7 @@ impl Node {
         node.path = Some(path);
     }
 
-    pub(super) fn items(
+    pub(in crate::compat::mkdocs) fn items(
         &self, prefix: &str, full: bool, ancestors: &[String],
     ) -> Vec<NavigationItem> {
         self.children
@@ -256,7 +258,7 @@ impl Node {
             .collect()
     }
 
-    pub(super) fn summary(
+    pub(in crate::compat::mkdocs) fn summary(
         &self, depth: usize, root: &str, output: &mut String,
     ) {
         for (name, node) in &self.children {

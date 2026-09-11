@@ -62,7 +62,7 @@ pub use project::Project;
 #[derive(Clone, Debug)]
 pub struct Config {
     /// API sources and navigation generated for this build.
-    pub api: Arc<crate::compat::mkdocs::plugin::api::Snapshot>,
+    pub api: Arc<crate::compat::mkdocs::apidocs::Snapshot>,
     /// Path to configuration file.
     pub path: PathBuf,
     /// Project settings.

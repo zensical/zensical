@@ -23,15 +23,13 @@
 
 // ----------------------------------------------------------------------------
 
-//! Native API page discovery, Markdown generation, and navigation.
+//! Shared generated sources, source tracking, and navigation for API plugins.
 //!
 //! A build owns one immutable snapshot. Generated sources enter the normal
 //! document relation; source changes restart discovery like mkdocstrings.
 
-use anyhow::{bail, Context, Result};
-use globset::{GlobBuilder, GlobMatcher};
-use pyo3::types::PyAnyMethods;
-use pyo3::Python;
+use anyhow::{Context, Result};
+use globset::GlobMatcher;
 use std::collections::BTreeMap;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -45,10 +43,8 @@ use crate::path::SourcePath;
 use crate::structure::nav::NavigationItem;
 use crate::watcher::Source;
 
-mod autoapi;
-mod autonav;
 mod nav;
-use nav::Node;
+pub(super) use nav::Node;
 
 /// One generated source and its optional repository edit target.
 #[derive(Clone, Debug)]
@@ -70,18 +66,18 @@ pub struct Snapshot {
     pub roots: Vec<PathBuf>,
     /// Initial source content hashes, also used to invalidate render caches.
     pub observed: BTreeMap<PathBuf, u64>,
-    sections: Vec<Section>,
-    patterns: Vec<GlobMatcher>,
-    ignored_roots: Vec<PathBuf>,
+    pub(super) sections: Vec<Section>,
+    pub(super) patterns: Vec<GlobMatcher>,
+    pub(super) ignored_roots: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
-struct Section {
-    root: String,
-    title: Option<String>,
-    children: Vec<NavigationItem>,
-    autonav: bool,
-    generated: bool,
+pub(super) struct Section {
+    pub(super) root: String,
+    pub(super) title: Option<String>,
+    pub(super) children: Vec<NavigationItem>,
+    pub(super) autonav: bool,
+    pub(super) generated: bool,
 }
 
 impl Snapshot {
@@ -99,14 +95,14 @@ impl Snapshot {
             ],
             ..Self::default()
         };
-        snapshot.autoapi(config)?;
-        snapshot.autonav(config, strict)?;
+        super::plugin::autoapi::generate(config, &mut snapshot)?;
+        super::plugin::api_autonav::generate(config, strict, &mut snapshot)?;
         snapshot.roots.sort();
         snapshot.roots.dedup();
         Ok(snapshot)
     }
 
-    fn add(
+    pub(super) fn add(
         &mut self, path: &str, content: String, edit: Option<PathBuf>,
         control: bool,
     ) -> Result<()> {
@@ -124,7 +120,7 @@ impl Snapshot {
         Ok(())
     }
 
-    fn observe(&mut self, path: &Path) -> Result<()> {
+    pub(super) fn observe(&mut self, path: &Path) -> Result<()> {
         if self.is_source(path) {
             self.observed
                 .insert(path.to_owned(), fingerprint(&fs::read(path)?));
@@ -186,7 +182,7 @@ impl Snapshot {
     }
 }
 
-fn module_path(
+pub(super) fn module_path(
     relative: &Path, root: &str, escape_index: bool,
 ) -> Result<(Vec<String>, String)> {
     let mut path = relative.with_extension("md");
@@ -211,31 +207,6 @@ fn module_path(
     ))
 }
 
-fn glob(pattern: &str) -> Result<GlobMatcher> {
-    Ok(GlobBuilder::new(pattern)
-        .literal_separator(true)
-        .backslash_escape(false)
-        .build()
-        .with_context(|| format!("invalid AutoAPI glob pattern: {pattern}"))?
-        .compile_matcher())
-}
-
-// Use Python's regex engine for compatibility with lookarounds, backreferences
-// and inline flags. Discovery, merging, and Markdown generation remain native.
-fn regex_matches(
-    pattern: &str, identifier: &str, anchored: bool,
-) -> Result<bool> {
-    Python::attach(|py| {
-        Ok(!py
-            .import("re")?
-            .call_method1(
-                if anchored { "match" } else { "search" },
-                (pattern, identifier),
-            )?
-            .is_none())
-    })
-}
-
 fn ignored(path: &Path) -> bool {
     path.components().any(|part| {
         matches!(
@@ -245,7 +216,7 @@ fn ignored(path: &Path) -> bool {
     })
 }
 
-fn walk(
+pub(super) fn walk(
     root: &Path, ignored_roots: &[PathBuf], files: &mut Vec<PathBuf>,
 ) -> Result<()> {
     if ignored(root) || ignored_roots.iter().any(|path| root.starts_with(path))
@@ -284,30 +255,9 @@ fn under(path: &str, root: &str) -> bool {
         .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
-fn write_kept(config: &Config, path: &SourcePath, content: &str) -> Result<()> {
-    let target = config.docs_root().join(path);
-    let parent = target.parent().context("generated source has no parent")?;
-    let existing = parent
-        .ancestors()
-        .find(|path| path.exists())
-        .context("generated source has no existing ancestor")?;
-    if !existing
-        .canonicalize()?
-        .starts_with(config.docs_root().as_path())
-        || target.is_symlink()
-    {
-        bail!("generated AutoAPI source escapes docs_dir: {path}");
-    }
-    fs::create_dir_all(parent)?;
-    if fs::read_to_string(&target).ok().as_deref() != Some(content) {
-        fs::write(target, content)?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{glob, module_path, Snapshot};
+    use super::{module_path, Snapshot};
     use std::{fs, path::Path};
 
     #[test]
@@ -329,17 +279,6 @@ mod tests {
                 .1,
             "api/pkg/sub/mod.md"
         );
-    }
-
-    #[test]
-    fn patterns_distinguish_recursive_includes_from_rooted_ignores() {
-        let include = glob("**/*.py").unwrap();
-        assert!(include.is_match("module.py"));
-        assert!(include.is_match("pkg/module.py"));
-        let ignore = glob("pkg/*.py").unwrap();
-        assert!(ignore.is_match("pkg/module.py"));
-        assert!(!ignore.is_match("other/pkg/module.py"));
-        assert!(!ignore.is_match("pkg/sub/module.py"));
     }
 
     #[test]

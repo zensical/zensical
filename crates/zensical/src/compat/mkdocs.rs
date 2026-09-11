@@ -25,6 +25,7 @@
 
 //! MkDocs compatibility modules.
 
+pub mod apidocs;
 pub mod html;
 pub mod plugin;
 pub mod resource;

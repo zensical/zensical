@@ -206,7 +206,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     };
 
     config.api = std::sync::Arc::new(
-        compat::mkdocs::plugin::api::Snapshot::new(&config, strict)
+        compat::mkdocs::apidocs::Snapshot::new(&config, strict)
             .map_err(|error| PyRuntimeError::new_err(format!("{error:#}")))?,
     );
     // Source edits must invalidate generated-page rendering, even when the

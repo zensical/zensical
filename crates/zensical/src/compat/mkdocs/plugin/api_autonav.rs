@@ -24,97 +24,95 @@
 // ----------------------------------------------------------------------------
 
 //! mkdocs-api-autonav discovery and local mkdocstrings options.
-use super::{module_path, regex_matches, walk, Node, Section, Snapshot};
+use crate::compat::mkdocs::apidocs::{
+    module_path, walk, Node, Section, Snapshot,
+};
 use crate::config::plugins::ApiAutonavConfig;
 use crate::config::Config;
 use crate::structure::dynamic::Dynamic;
 use anyhow::{bail, Context, Result};
+use pyo3::types::PyAnyMethods;
+use pyo3::Python;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-impl Snapshot {
-    pub(super) fn autonav(
-        &mut self, config: &Config, strict: bool,
-    ) -> Result<()> {
-        let auto = &config.project.plugins.api_autonav.config;
-        if auto.enabled {
-            let mut tree = Node::default();
-            for root in &auto.modules {
-                let root = PathBuf::from(root);
-                self.roots.push(root.clone());
-                let mut files = Vec::new();
-                walk(&root, &self.ignored_roots, &mut files)?;
-                for file in &files {
-                    self.observe(file)?;
+/// Adds mkdocs-api-autonav pages and navigation to this build.
+pub fn generate(
+    config: &Config, strict: bool, sources: &mut Snapshot,
+) -> Result<()> {
+    let auto = &config.project.plugins.api_autonav.config;
+    if auto.enabled {
+        let mut tree = Node::default();
+        for root in &auto.modules {
+            let root = PathBuf::from(root);
+            sources.roots.push(root.clone());
+            let mut files = Vec::new();
+            walk(&root, &sources.ignored_roots, &mut files)?;
+            for file in &files {
+                sources.observe(file)?;
+            }
+            let base = root.parent().context("module path has no parent")?;
+            let mut skipped = Vec::<PathBuf>::new();
+            for file in files {
+                if file.extension().is_none_or(|extension| extension != "py") {
+                    continue;
                 }
-                let base =
-                    root.parent().context("module path has no parent")?;
-                let mut skipped = Vec::<PathBuf>::new();
-                for file in files {
-                    if file
-                        .extension()
-                        .is_none_or(|extension| extension != "py")
-                    {
-                        continue;
-                    }
-                    check_namespace(
-                        &file,
-                        &root,
-                        base,
-                        &mut skipped,
-                        &auto.on_implicit_namespace_package,
-                        strict,
-                    )?;
-                    if skipped.iter().any(|path| file.starts_with(path)) {
-                        continue;
-                    }
-                    let (parts, path) = module_path(
-                        file.strip_prefix(base)?,
-                        &auto.api_root_uri,
-                        true,
-                    )?;
-                    if parts.is_empty() {
-                        continue;
-                    }
-                    if auto.exclude_private
-                        && parts.iter().any(|part| part.starts_with('_'))
-                    {
-                        continue;
-                    }
-                    let identifier = parts.join(".");
-                    let mut excluded = false;
-                    for pattern in &auto.exclude {
-                        excluded |= if let Some(pattern) =
-                            pattern.strip_prefix("re:")
-                        {
+                check_namespace(
+                    &file,
+                    &root,
+                    base,
+                    &mut skipped,
+                    &auto.on_implicit_namespace_package,
+                    strict,
+                )?;
+                if skipped.iter().any(|path| file.starts_with(path)) {
+                    continue;
+                }
+                let (parts, path) = module_path(
+                    file.strip_prefix(base)?,
+                    &auto.api_root_uri,
+                    true,
+                )?;
+                if parts.is_empty() {
+                    continue;
+                }
+                if auto.exclude_private
+                    && parts.iter().any(|part| part.starts_with('_'))
+                {
+                    continue;
+                }
+                let identifier = parts.join(".");
+                let mut excluded = false;
+                for pattern in &auto.exclude {
+                    excluded |=
+                        if let Some(pattern) = pattern.strip_prefix("re:") {
                             regex_matches(pattern, &identifier, false)?
                         } else {
                             identifier.starts_with(pattern)
                         };
-                    }
-                    if excluded {
-                        continue;
-                    }
-                    let content = module_markdown(auto, &parts)?;
-                    self.add(&path, content, None, false)?;
-                    tree.insert(&parts, path);
                 }
+                if excluded {
+                    continue;
+                }
+                let content = module_markdown(auto, &parts)?;
+                sources.add(&path, content, None, false)?;
+                tree.insert(&parts, path);
             }
-            self.sections.push(Section {
-                root: auto.api_root_uri.clone(),
-                title: Some(auto.nav_section_title.clone()),
-                children: tree.items(
-                    &auto.nav_item_prefix,
-                    auto.show_full_namespace,
-                    &[],
-                ),
-                autonav: true,
-                generated: true,
-            });
         }
-        Ok(())
+        sources.sections.push(Section {
+            root: auto.api_root_uri.clone(),
+            title: Some(auto.nav_section_title.clone()),
+            children: tree.items(
+                &auto.nav_item_prefix,
+                auto.show_full_namespace,
+                &[],
+            ),
+            autonav: true,
+            generated: true,
+        });
     }
+    Ok(())
 }
 
 fn check_namespace(
@@ -196,4 +194,20 @@ fn module_markdown(
         serde_json::to_string(&options)?
     );
     Ok(content)
+}
+
+// Use Python's regex engine for compatibility with lookarounds, backreferences
+// and inline flags. Discovery, merging, and Markdown generation remain native.
+fn regex_matches(
+    pattern: &str, identifier: &str, anchored: bool,
+) -> Result<bool> {
+    Python::attach(|py| {
+        Ok(!py
+            .import("re")?
+            .call_method1(
+                if anchored { "match" } else { "search" },
+                (pattern, identifier),
+            )?
+            .is_none())
+    })
 }

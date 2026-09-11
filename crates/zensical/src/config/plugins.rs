@@ -29,12 +29,14 @@ use pyo3::FromPyObject;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-mod api;
+mod api_autonav;
+mod autoapi;
 mod blog;
 mod rss;
 mod tags;
 
-pub use api::{ApiAutonavConfig, ApiAutonavPlugin, AutoApiPlugin};
+pub use api_autonav::{ApiAutonavConfig, ApiAutonavPlugin};
+pub use autoapi::AutoApiPlugin;
 pub use blog::{BlogPlugin, BlogPluginConfig, CategorySort, ExcerptPolicy};
 pub use rss::{RssDateConfig, RssPlugin, RssPluginConfig};
 pub use tags::{

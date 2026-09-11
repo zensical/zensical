@@ -50,7 +50,7 @@ mod resolver;
 #[derive(Clone, Debug)]
 pub struct LiterateNav {
     settings: Arc<Settings>,
-    api: Arc<super::api::Snapshot>,
+    api: Arc<crate::compat::mkdocs::apidocs::Snapshot>,
 }
 
 /// Inputs required to derive revision-complete navigation.
