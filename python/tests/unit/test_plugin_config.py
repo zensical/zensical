@@ -128,6 +128,36 @@ def test_normalizes_mike_defaults() -> None:
     }
 
 
+@pytest.mark.parametrize("version_selector", [False, True])
+def test_preserves_mike_version_selector(version_selector: bool) -> None:
+    plugins = _convert_plugins({"mike": {"version_selector": version_selector}})
+
+    assert plugins["mike"]["config"]["version_selector"] is version_selector
+
+
+def test_silently_discards_unsupported_mike_options(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    plugins = _convert_plugins(
+        {
+            "mike": {
+                "version_selector": False,
+                "css_dir": "assets/css",
+                "javascript_dir": "assets/js",
+            }
+        }
+    )
+
+    assert plugins["mike"]["config"] == {
+        "alias_type": "symlink",
+        "redirect_template": None,
+        "deploy_prefix": "",
+        "canonical_version": None,
+        "version_selector": False,
+    }
+    assert capsys.readouterr().err == ""
+
+
 @pytest.mark.parametrize("name", [*PYTHON_PLUGINS, "tags", "external"])
 def test_plugin_configuration_must_be_a_mapping(name: str) -> None:
     with pytest.raises(
@@ -328,6 +358,11 @@ def test_silently_discards_unsupported_autorefs_options(
         ),
         ("offline", {"enabled": "yes"}, "enabled must be a boolean"),
         ("mike", {"canonical_version": 42}, "must be a string or null"),
+        (
+            "mike",
+            {"version_selector": "false"},
+            "version_selector must be a boolean",
+        ),
         ("autorefs", {"enabled": "yes"}, "enabled must be a boolean"),
         ("markdown-exec", {"ansi": "sometimes"}, "ansi must be"),
         (
