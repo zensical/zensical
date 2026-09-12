@@ -233,6 +233,50 @@ class TestPluginShimming:
         config = self._parse_yaml(tmp_path, plugins={"glightbox": {}})
         assert GlightboxExtension.name in config["markdown_extensions"]
 
+    def test_ignored_plugin_settings_do_not_affect_hashes_or_shims(
+        self, tmp_path: Path
+    ) -> None:
+        plugins: dict[str, dict[str, Any]] = {
+            "autorefs": {},
+            "glightbox": {"auto": False},
+            "macros": {"render_by_default": False},
+            "mike": {"version_selector": False},
+            "mkdocstrings": {"enabled": False},
+            "search": {"separator": r"\s+"},
+            "table-reader": {"enabled": False},
+            "material/tags": {"enabled": False},
+        }
+        baseline = self._parse_yaml(tmp_path, plugins=plugins)
+        for name, options in {
+            "autorefs": {"link_titles": "external"},
+            "glightbox": {"slide_effect": "fade"},
+            "macros": {"force_render_paths": "guides/**"},
+            "mike": {"javascript_dir": "scripts"},
+            "mkdocstrings": {"enable_inventory": False, "watch": ["src"]},
+            "search": {"lang": ["en", "fr"]},
+            "table-reader": {
+                "base_path": "docs_dir",
+                "search_page_directory": False,
+            },
+            "material/tags": {"tags_file": "tags.md", "export_only": True},
+        }.items():
+            plugins[name].update(options)
+        plugins["external"] = {"enabled": ["not", "a", "boolean"]}
+        config_file = tmp_path / "mkdocs.yml"
+        config_file.write_text(_minimal_yaml(plugins=plugins))
+
+        configured = parse_config(str(config_file))
+
+        for key in (
+            "plugins",
+            "plugins_hash",
+            "markdown_extensions",
+            "mdx_configs",
+            "mdx_configs_hash",
+            "watched_files",
+        ):
+            assert configured[key] == baseline[key]
+
     @pytest.mark.parametrize(
         "entry",
         ["meta", {"meta": None}, "material/meta", {"material/meta": None}],
@@ -498,10 +542,13 @@ class TestPluginShimming:
         self, tmp_path: Path
     ) -> None:
         config = self._parse_yaml(
-            tmp_path, plugins={"glightbox": {"loop": True}}
+            tmp_path,
+            plugins={"glightbox": {"width": "80%", "slide_effect": "fade"}},
         )
         assert GlightboxExtension.name in config["markdown_extensions"]
-        assert config["mdx_configs"][GlightboxExtension.name] == {"loop": True}
+        assert config["mdx_configs"][GlightboxExtension.name] == {
+            "width": "80%"
+        }
 
     def test_macros_plugin_shimmed(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins={"macros": {}})

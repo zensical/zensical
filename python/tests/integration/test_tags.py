@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 import zensical
+from zensical.config import ConfigurationError, parse_config
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -549,37 +550,47 @@ def test_leading_hierarchy_separator_keeps_identity_and_listing_link(
 
 
 @pytest.mark.parametrize(
-    ("option", "replacement"),
+    "option",
     [
-        ("tags_compare", "tags_sort_by"),
-        ("tags_compare_reverse", "tags_sort_reverse"),
-        ("tags_pages_compare", "listings_sort_by"),
-        ("tags_pages_compare_reverse", "listings_sort_reverse"),
-        ("tags_file", "material/tags"),
-        ("tags_extra_files", "material/tags"),
+        "tags_compare",
+        "tags_compare_reverse",
+        "tags_pages_compare",
+        "tags_pages_compare_reverse",
+        "tags_file",
+        "tags_extra_files",
+        "export",
+        "export_file",
+        "export_only",
     ],
 )
-def test_rust_rejects_deprecated_tags_options(
-    tmp_path: Path, option: str, replacement: str
-) -> None:
-    """The native configuration boundary owns deprecated-option errors."""
-    config = _write_project(tmp_path, plugin=f"      {option}: value\n")
-
-    with pytest.raises(ValueError, match=option) as error:
-        zensical.build(str(config), _BUILD_OPTIONS)
-
-    assert replacement in str(error.value)
-
-
-@pytest.mark.parametrize("option", ["export_only", "tags_hierachy"])
-def test_rust_rejects_unsupported_tags_options(
+def test_ignores_unimplemented_tags_options(
     tmp_path: Path, option: str
 ) -> None:
-    """Unsupported behavior and misspellings cannot silently disappear."""
+    """Legacy options never reach Rust and do not suppress native listings."""
     config = _write_project(tmp_path, plugin=f"      {option}: true\n")
 
-    with pytest.raises(ValueError, match=option):
-        zensical.build(str(config), _BUILD_OPTIONS)
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    listing = (tmp_path / "site" / "index.html").read_text()
+    assert '<h2 id="tag:guide">' in listing
+    assert "Rust page" in listing
+    assert not (tmp_path / "site" / "tags.json").exists()
+    assert not (tmp_path / "site" / "ignored-tags.json").exists()
+
+
+@pytest.mark.parametrize("option", ["unknown", "tags_hierachy"])
+def test_config_rejects_unknown_tags_options(
+    tmp_path: Path, option: str
+) -> None:
+    """Unknown options fail even when known legacy options are ignored."""
+    config = _write_project(
+        tmp_path, plugin=f"      export_only: true\n      {option}: true\n"
+    )
+
+    with pytest.raises(
+        ConfigurationError, match=rf"unknown tags option: {option}"
+    ):
+        parse_config(str(config))
 
 
 def test_scalar_configuration_and_metadata_match_python_names(
