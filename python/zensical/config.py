@@ -145,8 +145,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
     ),
     "minify": (),
     "mkdocstrings": (
-        # TODO: Gate native objects.inv generation on this setting.
-        "enable_inventory",
+        # TODO: Merge the removed plugin watch setting into project.watch.
         "watch",
     ),
     "offline": (),
@@ -2055,11 +2054,18 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             string_options
             | {
                 "enabled",
+                "enable_inventory",
                 "handlers",
                 "custom_templates",
             },
         )
         _validate_boolean_options("mkdocstrings", mkdocstrings, ("enabled",))
+        if mkdocstrings.get("enable_inventory") is not None and not isinstance(
+            mkdocstrings["enable_inventory"], bool
+        ):
+            raise ConfigurationError(
+                "mkdocstrings enable_inventory must be a boolean or null"
+            )
         if (
             "handlers" in mkdocstrings
             and mkdocstrings["handlers"] is not None

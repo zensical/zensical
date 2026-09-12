@@ -291,7 +291,7 @@ class TestPluginShimming:
             "callouts": {"aliases": False, "breakless_lists": False},
             "glightbox": {"slide_effect": "fade"},
             "mike": {"javascript_dir": "scripts"},
-            "mkdocstrings": {"enable_inventory": False, "watch": ["src"]},
+            "mkdocstrings": {"watch": ["src"]},
             "search": {"lang": ["en", "fr"]},
             "material/tags": {"tags_file": "tags.md", "export_only": True},
         }.items():
@@ -847,6 +847,28 @@ class TestPluginShimming:
         assert AutorefsExtension.name in config["markdown_extensions"]
         autorefs = config["mdx_configs"][AutorefsExtension.name]
         assert autorefs["record_backlinks"] is (backlinks is not False)
+
+    @pytest.mark.parametrize("value", [True, False, None])
+    def test_mkdocstrings_inventory_setting_forwarded_and_hashed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        value: bool | None,
+    ) -> None:
+        monkeypatch.setattr("zensical.config.find_spec", lambda _name: True)
+        baseline = self._parse_yaml(tmp_path, plugins={"mkdocstrings": {}})
+        config_file = tmp_path / "mkdocs.yml"
+        config_file.write_text(
+            _minimal_yaml(plugins={"mkdocstrings": {"enable_inventory": value}})
+        )
+        configured = parse_config(str(config_file))
+        assert (
+            configured["mdx_configs"][MkdocstringsExtension.name][
+                "enable_inventory"
+            ]
+            is value
+        )
+        assert configured["plugins_hash"] != baseline["plugins_hash"]
 
     def test_mkdocstrings_not_installed_raises(
         self,

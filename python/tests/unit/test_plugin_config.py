@@ -289,7 +289,6 @@ def test_rejects_invalid_blog_configuration(name: str, data: Any) -> None:
         ("glightbox", "shadow"),
         ("mike", "css_dir"),
         ("mike", "javascript_dir"),
-        ("mkdocstrings", "enable_inventory"),
         ("mkdocstrings", "watch"),
         ("search", "fields"),
         ("search", "indexing"),
@@ -416,6 +415,7 @@ def test_normalizes_null_shim_configuration(name: str) -> None:
             "mkdocstrings",
             {
                 "enabled": False,
+                "enable_inventory": False,
                 "handlers": {"python": {"options": {}}},
                 "custom_templates": None,
                 "default_handler": "python",
@@ -478,6 +478,24 @@ def test_accepts_supported_shim_options(
 ) -> None:
     plugins = _convert_plugins({name: config})
     assert plugins[name]["config"] == config
+
+
+@pytest.mark.parametrize("plugin", ["mkdocstrings", "material/mkdocstrings"])
+@pytest.mark.parametrize("value", [True, False, None])
+def test_preserves_mkdocstrings_inventory_setting(
+    plugin: str, value: bool | None
+) -> None:
+    data = {"enable_inventory": value}
+    assert _convert_plugins({plugin: data})["mkdocstrings"]["config"] == data
+
+
+@pytest.mark.parametrize("value", [0, 1, "true", "auto", [], {}])
+def test_rejects_invalid_mkdocstrings_inventory_setting(value: Any) -> None:
+    with pytest.raises(
+        ConfigurationError,
+        match="mkdocstrings enable_inventory must be a boolean or null",
+    ):
+        _convert_plugins({"mkdocstrings": {"enable_inventory": value}})
 
 
 @pytest.mark.parametrize("plugin", ["macros", "material/macros"])
