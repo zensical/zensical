@@ -588,7 +588,23 @@ class TestPluginShimming:
             "redirect_template": None,
             "deploy_prefix": "",
             "canonical_version": None,
+            "version_selector": True,
         }
+
+    def test_disabled_mike_does_not_adjust_versioned_site_url(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        # A disabled plugin must stay inactive even during a mike deployment.
+        monkeypatch.setenv("MIKE_DOCS_VERSION", "0.3")
+
+        config = self._parse_yaml(
+            tmp_path,
+            site_url="https://example.com/docs/",
+            plugins={"mike": {"enabled": False, "version_selector": False}},
+        )
+
+        assert config["site_url"] == "https://example.com/docs/"
+        assert "mike" not in config["plugins"]
 
     def test_glightbox_adds_extension_and_forwards_config(
         self, tmp_path: Path

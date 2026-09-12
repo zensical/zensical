@@ -1957,6 +1957,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
                 *nullable_strings,
             },
         )
+        set_default(mike, "version_selector", True)
         _validate_boolean_options("mike", mike, ("enabled", "version_selector"))
         for name, default in string_defaults.items():
             set_default(mike, name, default)
@@ -1967,7 +1968,9 @@ def _convert_plugins(value: Any, config: dict) -> dict:
                 raise ConfigurationError(
                     f"mike {name} must be a string or null"
                 )
-        plugins["mike"] = mike
+        # Disabled plugins must not affect the theme or versioned site URL.
+        if mike.get("enabled", True):
+            plugins["mike"] = mike
 
     # Validate settings for plugins enabled through Markdown extensions.
     if "autorefs" in plugins:
@@ -2275,7 +2278,7 @@ def _apply_mike_plugin(
     version: str | None,
 ) -> None:
     """Apply project-wide effects of a mike versioned build."""
-    if not version or not config.get("site_url"):
+    if not version or not config.get("site_url") or "mike" not in plugins:
         return
     mike = plugins["mike"]["config"]
 

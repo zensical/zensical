@@ -181,6 +181,7 @@ def test_normalizes_mike_defaults() -> None:
         "redirect_template": None,
         "deploy_prefix": "",
         "canonical_version": None,
+        "version_selector": True,
     }
 
 

@@ -60,6 +60,10 @@ pub struct Plugins {
     #[pyo3(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub autorefs: Option<AutorefsPlugin>,
+    /// Mike plugin, when explicitly configured or used for this build.
+    #[pyo3(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mike: Option<MikePlugin>,
     /// Search plugin.
     pub search: SearchPlugin,
     /// Material meta plugin.
@@ -118,6 +122,24 @@ impl Default for AutorefsTitleSetting {
     fn default() -> Self {
         Self::Mode("auto".into())
     }
+}
+
+// ----------------------------------------------------------------------------
+
+/// Mike plugin.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct MikePlugin {
+    /// Plugin configuration.
+    pub config: MikePluginConfig,
+}
+
+/// Mike plugin configuration used by the theme.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct MikePluginConfig {
+    /// Whether to show the version selector.
+    pub version_selector: bool,
 }
 
 // ----------------------------------------------------------------------------
