@@ -281,7 +281,6 @@ class TestPluginShimming:
         plugins: dict[str, dict[str, Any]] = {
             "callouts": {},
             "glightbox": {"auto": False},
-            "macros": {"render_by_default": False},
             "mike": {"version_selector": False},
             "mkdocstrings": {"enabled": False},
             "search": {"separator": r"\s+"},
@@ -291,7 +290,6 @@ class TestPluginShimming:
         for name, options in {
             "callouts": {"aliases": False, "breakless_lists": False},
             "glightbox": {"slide_effect": "fade"},
-            "macros": {"force_render_paths": "guides/**"},
             "mike": {"javascript_dir": "scripts"},
             "mkdocstrings": {"enable_inventory": False, "watch": ["src"]},
             "search": {"lang": ["en", "fr"]},
@@ -633,6 +631,23 @@ class TestPluginShimming:
     def test_macros_plugin_shimmed(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins={"macros": {}})
         assert MacrosExtension.name in config["markdown_extensions"]
+
+    @pytest.mark.parametrize(
+        ("option", "value"),
+        [("force_render_paths", "guides/\n!guides/drafts/"), ("verbose", True)],
+    )
+    def test_macros_settings_forwarded_and_hashed(
+        self, tmp_path: Path, option: str, value: str | bool
+    ) -> None:
+        baseline = self._parse_yaml(tmp_path, plugins={"macros": {}})
+        config_file = tmp_path / "mkdocs.yml"
+        config_file.write_text(
+            _minimal_yaml(plugins={"macros": {option: value}})
+        )
+        configured = parse_config(str(config_file))
+
+        assert configured["mdx_configs"][MacrosExtension.name][option] == value
+        assert configured["plugins_hash"] != baseline["plugins_hash"]
 
     def test_table_reader_plugin_shimmed(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins={"table-reader": {}})

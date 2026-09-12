@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
 import platform
 import subprocess
 import traceback
@@ -38,10 +39,13 @@ from urllib.parse import urlparse
 
 import jinja2
 import yaml
+from click import echo, style
 from jinja2.exceptions import UndefinedError
 from jinja2.loaders import split_template_path
 from markdown import Extension
 from markdown.preprocessors import Preprocessor
+from pathspec import PathSpec
+from pathspec.patterns.gitignore.spec import GitIgnoreSpecPattern
 
 from zensical.extensions.context import ContextPreprocessor
 from zensical.extensions.table_reader import (
@@ -59,6 +63,8 @@ if TYPE_CHECKING:
 # Constants
 # -----------------------------------------------------------------------------
 
+
+_LOGGER = logging.getLogger(__name__)
 
 VariablesType: TypeAlias = dict[str, Any]
 MacrosType: TypeAlias = dict[str, Callable[..., Any]]
@@ -151,11 +157,32 @@ See also the [Jinja2 documentation on builtin filters](https://jinja.palletsproj
 class MacroEnv:
     """Minimal env object for compatibility with MkDocs Macros."""
 
-    def __init__(self, conf: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self, conf: dict[str, Any] | None = None, *, verbose: bool = False
+    ) -> None:
         self.conf = conf if conf is not None else {}
+        self._verbose = verbose
         self.variables: VariablesType = {}
         self.macros: MacrosType = {}
         self.filters: FiltersType = {}
+
+    def start_chatting(
+        self, prefix: str, color: str = "yellow"
+    ) -> Callable[..., None]:
+        """Create a module logger enabled by the plugin's verbose setting."""
+
+        def chatter(*args: Any) -> None:
+            if not self._verbose:
+                return
+            label = f"[macros - {prefix}] -"
+            message = " ".join(str(arg) for arg in args)
+            if _LOGGER.hasHandlers():
+                _LOGGER.info("%s %s", label, message)
+            else:
+                # The native CLI does not configure Python logging handlers.
+                echo(f"{style(label, fg=color)} {message}", err=True)
+
+        return chatter
 
     def macro(
         self, fn: Callable[..., Any] | None = None, name: str | None = None
@@ -191,6 +218,7 @@ class MacrosConfig:
     include_yaml: list[str] | dict[str, str] = field(default_factory=list)
     include_dir: str = ""
     render_by_default: bool = True
+    force_render_paths: str = ""
     on_error_fail: bool = False
     on_undefined: Literal["keep", "strict"] = "keep"
     verbose: bool = False
@@ -215,6 +243,10 @@ class MacrosPreprocessor(Preprocessor):
     ) -> None:
         super().__init__(md)
         self.config = config
+        # Use the pattern class behind upstream's deprecated gitwildmatch name.
+        self._render_paths = PathSpec.from_lines(
+            GitIgnoreSpecPattern, config.force_render_paths.splitlines()
+        )
 
     def run(self, lines: list[str]) -> list[str]:
         """Render body as Jinja2 template with built context."""
@@ -223,14 +255,20 @@ class MacrosPreprocessor(Preprocessor):
         page = context.page if context else None
         project_config = context.config if context else {}
         project_root = Path(project_config.get("root_dir", ".")).resolve()
-        macros_env = MacroEnv(conf=project_config)
+        macros_env = MacroEnv(conf=project_config, verbose=self.config.verbose)
+        chatter = macros_env.start_chatting("render")
+        page_path = page.path if page else "<string>"
 
-        # Don't render if not enabled by default and no page-level override
-        if (
+        # Page metadata takes precedence over the default and path selection.
+        render_macros = page.meta.get("render_macros") if page else None
+        if render_macros is False or (
             not self.config.render_by_default
-            and (not page or (page and not page.meta.get("render_macros")))
-        ) or (page and page.meta.get("render_macros") is False):
+            and not render_macros
+            and not (page and self._render_paths.match_file(page.path))
+        ):
+            chatter("Skipping page:", page_path)
             return lines
+        chatter("Rendering page:", page_path)
 
         text = "\n".join(lines)
         variables = {}
@@ -582,6 +620,7 @@ def _load_module(
     env: MacroEnv, module_name: str, project_root: Path | None = None
 ) -> None:
     """Load a module by name (e.g. 'main')."""
+    chatter = env.start_chatting("module")
     if project_root:
         for candidate in [
             project_root / f"{module_name}.py",
@@ -595,6 +634,7 @@ def _load_module(
                 module_name, candidate
             )
             if spec and spec.loader:
+                chatter("Loading local module:", candidate)
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
                 if hasattr(mod, "define_env"):
@@ -605,10 +645,11 @@ def _load_module(
     # Only try import for package-like names (no path separators or "..").
     if "/" in module_name or "\\" in module_name or ".." in module_name:
         return
+    chatter("Importing module:", module_name)
     try:
         mod = importlib.import_module(module_name)
     except ImportError:
-        pass
+        chatter("Module unavailable:", module_name)
     else:
         if hasattr(mod, "define_env"):
             mod.define_env(env)

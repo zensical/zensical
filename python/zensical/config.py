@@ -136,12 +136,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
         "shadow",
     ),
     "literate-nav": (),
-    "macros": (
-        # TODO: Match page paths before deciding whether to render macros.
-        "force_render_paths",
-        # TODO: Add diagnostics for module loading and macro rendering.
-        "verbose",
-    ),
+    "macros": (),
     "markdown-exec": (),
     "meta": (),
     "mike": (
@@ -2135,6 +2130,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
         string_options = {
             "module_name",
             "include_dir",
+            "force_render_paths",
             "j2_block_start_string",
             "j2_block_end_string",
             "j2_variable_start_string",
@@ -2147,6 +2143,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             "enabled",
             "render_by_default",
             "on_error_fail",
+            "verbose",
         }
         _reject_unknown_options(
             "macros",

@@ -287,8 +287,6 @@ def test_rejects_invalid_blog_configuration(name: str, data: Any) -> None:
         ("glightbox", "draggable"),
         ("glightbox", "background"),
         ("glightbox", "shadow"),
-        ("macros", "force_render_paths"),
-        ("macros", "verbose"),
         ("mike", "css_dir"),
         ("mike", "javascript_dir"),
         ("mkdocstrings", "enable_inventory"),
@@ -449,6 +447,8 @@ def test_normalizes_null_shim_configuration(name: str) -> None:
                 "include_yaml": {"data": "data.yml"},
                 "include_dir": "includes",
                 "render_by_default": False,
+                "force_render_paths": "guides/\n!guides/drafts/",
+                "verbose": True,
                 "on_error_fail": True,
                 "on_undefined": "strict",
                 "j2_block_start_string": "<%",
@@ -478,6 +478,44 @@ def test_accepts_supported_shim_options(
 ) -> None:
     plugins = _convert_plugins({name: config})
     assert plugins[name]["config"] == config
+
+
+@pytest.mark.parametrize("plugin", ["macros", "material/macros"])
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("force_render_paths", ""),
+        ("force_render_paths", "# Pages to render\nguides/\n!guides/drafts/"),
+        ("verbose", True),
+        ("verbose", False),
+    ],
+)
+def test_preserves_macros_settings(
+    plugin: str, option: str, value: Any
+) -> None:
+    data = {option: value}
+    plugins = _convert_plugins({plugin: data})
+    assert plugins["macros"]["config"] == data
+    assert data == {option: value}
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("force_render_paths", True),
+        ("force_render_paths", ["guides/"]),
+        ("force_render_paths", {}),
+        ("force_render_paths", 1),
+        ("force_render_paths", None),
+        ("verbose", "true"),
+        ("verbose", 1),
+        ("verbose", []),
+        ("verbose", None),
+    ],
+)
+def test_rejects_invalid_macros_settings(option: str, value: Any) -> None:
+    with pytest.raises(ConfigurationError, match=f"macros {option} must be"):
+        _convert_plugins({"macros": {option: value}})
 
 
 @pytest.mark.parametrize("plugin", ["autorefs", "material/autorefs"])
