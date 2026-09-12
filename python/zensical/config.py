@@ -109,6 +109,104 @@ DEFAULT_MARKDOWN_EXTENSIONS = {
     "pymdownx.tilde": {},
 }
 
+# Supported MkDocs plugins and their recognized but unimplemented options.
+# Discard these before validation, hashing and forwarding to native modules or
+# Markdown extensions. Empty tuples mark plugins with no ignored options.
+_PLUGIN_UNSUPPORTED_OPTIONS = {
+    "autorefs": (
+        # TODO: Configure native URL selection and link title rendering.
+        "resolve_closest",
+        "link_titles",
+        "strip_title_tags",
+    ),
+    "awesome-nav": (),
+    "glightbox": (
+        "touchNavigation",
+        "loop",
+        "effect",
+        "slide_effect",
+        "zoomable",
+        "draggable",
+        "background",
+        "shadow",
+    ),
+    "literate-nav": (),
+    "macros": (
+        # TODO: Match page paths before deciding whether to render macros.
+        "force_render_paths",
+        # TODO: Add diagnostics for module loading and macro rendering.
+        "verbose",
+    ),
+    "markdown-exec": (),
+    "meta": (),
+    "mike": (
+        "css_dir",
+        "javascript_dir",
+    ),
+    "minify": (),
+    "mkdocstrings": (
+        # TODO: Gate native objects.inv generation on this setting.
+        "enable_inventory",
+        "watch",
+    ),
+    "offline": (),
+    "redirects": (),
+    "search": (
+        "fields",
+        "indexing",
+        "jieba_dict",
+        "jieba_dict_user",
+        "lang",
+        "min_search_length",
+        "pipeline",
+        "prebuild_index",
+    ),
+    "table-reader": (),
+    "tags": (
+        "tags_compare",
+        "tags_compare_reverse",
+        "tags_pages_compare",
+        "tags_pages_compare_reverse",
+        "tags_file",
+        "tags_extra_files",
+        "export",
+        "export_file",
+        "export_only",
+    ),
+}
+
+# Tags options forwarded to the native configuration after Python removes
+# recognized but unimplemented options.
+_TAGS_SUPPORTED_OPTIONS = {
+    "enabled",
+    "filters",
+    "tags",
+    "tags_slugify",
+    "tags_slugify_separator",
+    "tags_slugify_format",
+    "tags_hierarchy",
+    "tags_hierarchy_separator",
+    "tags_sort_by",
+    "tags_sort_reverse",
+    "tags_name_property",
+    "tags_name_variable",
+    "tags_allowed",
+    "listings",
+    "listings_map",
+    "listings_sort_by",
+    "listings_sort_reverse",
+    "listings_tags_sort_by",
+    "listings_tags_sort_reverse",
+    "listings_directive",
+    "listings_layout",
+    "listings_toc",
+    "shadow",
+    "shadow_on_serve",
+    "shadow_tags",
+    "shadow_tags_prefix",
+    "shadow_tags_suffix",
+}
+
 
 # ----------------------------------------------------------------------------
 # Classes
@@ -709,11 +807,8 @@ def _apply_defaults(config: dict, path: str) -> dict:
     # Hash all templates, so we rebuild if something changes
     config["template_hash"] = _hash(theme_files)
 
-    # Hash the entire plugins configuration.
-    # This is a special case for plugins because we currently only source
-    # the plugin configuration that we support in Rust,
-    # which means config on other plugins doesn't contribute to the hash,
-    # in turn not triggering full rebuilds.
+    # Include Python-only plugin settings in rebuilds. Unsupported plugins and
+    # ignored legacy options have already been discarded during normalization.
     config["plugins_hash"] = _hash(config["plugins"])
 
     return config
@@ -1411,13 +1506,18 @@ def _convert_plugins(value: Any, config: dict) -> dict:
         if not isinstance(name, str):
             raise ConfigurationError("Plugin names must be strings")
         name = name.removeprefix("material/")
+        if name not in _PLUGIN_UNSUPPORTED_OPTIONS:
+            return
         if data is None:
             data = {}
         elif not isinstance(data, dict):
             raise ConfigurationError(f"{name} configuration must be a mapping")
         else:
             data = dict(data)
+        for option in _PLUGIN_UNSUPPORTED_OPTIONS[name]:
+            data.pop(option, None)
         if name == "tags":
+            _reject_unknown_options("tags", data, _TAGS_SUPPORTED_OPTIONS)
             tags.append({"name": name, "config": data})
         else:
             plugins[name] = data
@@ -1443,29 +1543,13 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     else:
         raise ConfigurationError("plugins must be a list or mapping")
 
-    # Rust owns all tags defaults, validation, scalar coercion and callable
-    # lowering. Python only preserves ordered plugin instances and their raw
-    # configuration, as it does for future native compatibility modules.
+    # Rust owns tags defaults, value validation, scalar coercion and callable
+    # lowering. Python validates option names and preserves ordered instances.
     plugins["tags"] = tags
 
     # Search is enabled by default, even when it isn't explicitly configured.
     search = plugins.pop("search", {})
-    supported = {"enabled", "separator"}
-    # Keep recognized upstream options non-fatal during migration, but discard
-    # them before extracting the typed native search configuration in Rust.
-    unsupported = {
-        "fields",
-        "indexing",
-        "jieba_dict",
-        "jieba_dict_user",
-        "lang",
-        "min_search_length",
-        "pipeline",
-        "prebuild_index",
-    }
-    _reject_unknown_options("search", search, supported | unsupported)
-    for name in sorted(unsupported & search.keys()):
-        search.pop(name)
+    _reject_unknown_options("search", search, {"enabled", "separator"})
     set_default(search, "enabled", True)
     set_default(search, "separator", '[\\s\\-_,:!=\\[\\]()\\\\"`/]+|\\.(?!\\d)')
     _validate_boolean_options("search", search, ("enabled",))
@@ -1678,17 +1762,16 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             "deploy_prefix": "",
         }
         nullable_strings = ("redirect_template", "canonical_version")
-        # Zensical bundles its own version selector assets, so accept and
-        # discard Mike's asset directory options for compatibility.
-        unsupported = {"css_dir", "javascript_dir"}
         _reject_unknown_options(
             "mike",
             mike,
-            {"enabled", "version_selector", *string_defaults, *nullable_strings}
-            | unsupported,
+            {
+                "enabled",
+                "version_selector",
+                *string_defaults,
+                *nullable_strings,
+            },
         )
-        for name in sorted(unsupported & mike.keys()):
-            mike.pop(name)
         _validate_boolean_options("mike", mike, ("enabled", "version_selector"))
         for name, default in string_defaults.items():
             set_default(mike, name, default)
@@ -1704,16 +1787,8 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     # Validate settings forwarded by the plugin-to-extension shims.
     if "autorefs" in plugins:
         autorefs = plugins["autorefs"]
-        _reject_unknown_options(
-            "autorefs",
-            autorefs,
-            {"enabled", "resolve_closest", "link_titles", "strip_title_tags"},
-        )
+        _reject_unknown_options("autorefs", autorefs, {"enabled"})
         _validate_boolean_options("autorefs", autorefs, ("enabled",))
-        # Ignore these upstream settings: the Rust resolver currently uses
-        # fixed resolution and title behavior.
-        for name in ("resolve_closest", "link_titles", "strip_title_tags"):
-            autorefs.pop(name, None)
 
     if "markdown-exec" in plugins:
         markdown_exec = plugins["markdown-exec"]
@@ -1769,7 +1844,6 @@ def _convert_plugins(value: Any, config: dict) -> dict:
                 "enabled",
                 "handlers",
                 "custom_templates",
-                "enable_inventory",
             },
         )
         _validate_boolean_options("mkdocstrings", mkdocstrings, ("enabled",))
@@ -1789,29 +1863,16 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             raise ConfigurationError(
                 "mkdocstrings custom_templates must be a string or null"
             )
-        if (
-            "enable_inventory" in mkdocstrings
-            and mkdocstrings["enable_inventory"] is not None
-            and not isinstance(mkdocstrings["enable_inventory"], bool)
-        ):
-            raise ConfigurationError(
-                "mkdocstrings enable_inventory must be a boolean or null"
-            )
         _validate_string_options("mkdocstrings", mkdocstrings, string_options)
 
     if "glightbox" in plugins:
         glightbox = plugins["glightbox"]
-        string_options = {"width", "height", "background"}
+        string_options = {"width", "height"}
         boolean_options = {
             "enabled",
             "auto",
             "auto_themed",
             "auto_caption",
-            "touchNavigation",
-            "loop",
-            "zoomable",
-            "draggable",
-            "shadow",
         }
         _reject_unknown_options(
             "glightbox",
@@ -1821,7 +1882,6 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             | {
                 "skip_classes",
                 "caption_position",
-                "effect",
                 "manual",
             },
         )
@@ -1842,14 +1902,6 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             raise ConfigurationError(
                 "glightbox caption_position must be 'bottom', 'top', 'left' "
                 "or 'right'"
-            )
-        if "effect" in glightbox and glightbox["effect"] not in {
-            "zoom",
-            "fade",
-            "none",
-        }:
-            raise ConfigurationError(
-                "glightbox effect must be 'zoom', 'fade' or 'none'"
             )
         if (
             "manual" in glightbox
@@ -1877,7 +1929,6 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             "enabled",
             "render_by_default",
             "on_error_fail",
-            "verbose",
         }
         _reject_unknown_options(
             "macros",
