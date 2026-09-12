@@ -276,9 +276,6 @@ def test_rejects_invalid_blog_configuration(name: str, data: Any) -> None:
 @pytest.mark.parametrize(
     ("plugin", "option"),
     [
-        ("autorefs", "resolve_closest"),
-        ("autorefs", "link_titles"),
-        ("autorefs", "strip_title_tags"),
         ("callouts", "aliases"),
         ("callouts", "breakless_lists"),
         ("callouts", "title_from_first_bold"),
@@ -386,14 +383,32 @@ def test_silently_discards_unsupported_search_options(
 @pytest.mark.parametrize("name", SHIM_PLUGINS)
 def test_normalizes_null_shim_configuration(name: str) -> None:
     plugins = _convert_plugins({name: None})
-    assert plugins[name]["config"] == {}
+    expected = (
+        {
+            "resolve_closest": False,
+            "link_titles": "auto",
+            "strip_title_tags": "auto",
+        }
+        if name == "autorefs"
+        else {}
+    )
+    assert plugins[name]["config"] == expected
 
 
 @pytest.mark.parametrize(
     ("name", "config"),
     [
-        pytest.param("autorefs", {"enabled": False}, id="autorefs"),
         pytest.param("callouts", {"enabled": False}, id="callouts"),
+        pytest.param(
+            "autorefs",
+            {
+                "enabled": False,
+                "resolve_closest": True,
+                "link_titles": "external",
+                "strip_title_tags": False,
+            },
+            id="autorefs",
+        ),
         pytest.param(
             "markdown-exec",
             {"enabled": False, "ansi": "off", "languages": ["python"]},
@@ -465,18 +480,50 @@ def test_accepts_supported_shim_options(
     assert plugins[name]["config"] == config
 
 
+@pytest.mark.parametrize("plugin", ["autorefs", "material/autorefs"])
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("resolve_closest", True),
+        ("resolve_closest", False),
+        ("link_titles", True),
+        ("link_titles", False),
+        ("link_titles", "auto"),
+        ("link_titles", "external"),
+        ("strip_title_tags", True),
+        ("strip_title_tags", False),
+        ("strip_title_tags", "auto"),
+    ],
+)
+def test_preserves_autorefs_settings(
+    plugin: str, option: str, value: Any
+) -> None:
+    data = {option: value}
+    plugins = _convert_plugins({plugin: data})
+    assert plugins["autorefs"]["config"][option] == value
+    assert data == {option: value}
+
+
 @pytest.mark.parametrize(
     "option", ["resolve_closest", "link_titles", "strip_title_tags"]
 )
-@pytest.mark.parametrize(
-    "value", [True, False, "auto", "external", 42, [], {}, None]
-)
-def test_silently_discards_unsupported_autorefs_options(
-    option: str, value: Any, capsys: pytest.CaptureFixture[str]
-) -> None:
-    plugins = _convert_plugins({"autorefs": {"enabled": True, option: value}})
-    assert plugins["autorefs"]["config"] == {"enabled": True}
-    assert capsys.readouterr().err == ""
+@pytest.mark.parametrize("value", [0, 1, "invalid", [], {}])
+def test_rejects_invalid_autorefs_settings(option: str, value: Any) -> None:
+    with pytest.raises(ConfigurationError, match=f"autorefs {option} must be"):
+        _convert_plugins({"autorefs": {option: value}})
+
+
+def test_normalizes_null_autorefs_settings() -> None:
+    plugins = _convert_plugins(
+        {
+            "autorefs": {
+                "resolve_closest": None,
+                "link_titles": None,
+                "strip_title_tags": None,
+            }
+        }
+    )
+    assert plugins == _convert_plugins({"autorefs": {}})
 
 
 @pytest.mark.parametrize(
@@ -535,6 +582,12 @@ def test_silently_discards_unsupported_autorefs_options(
         ),
         ("autorefs", {"enabled": "yes"}, "enabled must be a boolean"),
         ("callouts", {"enabled": "yes"}, "enabled must be a boolean"),
+        ("autorefs", {"resolve_closest": "auto"}, "resolve_closest must be"),
+        (
+            "autorefs",
+            {"strip_title_tags": "external"},
+            "strip_title_tags must be",
+        ),
         ("markdown-exec", {"ansi": "sometimes"}, "ansi must be"),
         (
             "markdown-exec",

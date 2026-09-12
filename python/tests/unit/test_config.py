@@ -279,7 +279,6 @@ class TestPluginShimming:
         self, tmp_path: Path
     ) -> None:
         plugins: dict[str, dict[str, Any]] = {
-            "autorefs": {},
             "callouts": {},
             "glightbox": {"auto": False},
             "macros": {"render_by_default": False},
@@ -290,7 +289,6 @@ class TestPluginShimming:
         }
         baseline = self._parse_yaml(tmp_path, plugins=plugins)
         for name, options in {
-            "autorefs": {"link_titles": "external"},
             "callouts": {"aliases": False, "breakless_lists": False},
             "glightbox": {"slide_effect": "fade"},
             "macros": {"force_render_paths": "guides/**"},
@@ -708,7 +706,26 @@ class TestPluginShimming:
         }
         config = self._parse_yaml(tmp_path, plugins={"autorefs": options})
         assert AutorefsExtension.name in config["markdown_extensions"]
-        assert config["plugins"]["autorefs"]["config"] == {}
+        assert config["plugins"]["autorefs"]["config"] == options
+
+    @pytest.mark.parametrize(
+        ("option", "value"),
+        [
+            ("resolve_closest", True),
+            ("link_titles", False),
+            ("strip_title_tags", True),
+        ],
+    )
+    def test_autorefs_settings_affect_rebuild_hash(
+        self, tmp_path: Path, option: str, value: bool
+    ) -> None:
+        baseline = self._parse_yaml(tmp_path, plugins={"autorefs": {}})
+        config_file = tmp_path / "mkdocs.yml"
+        config_file.write_text(
+            _minimal_yaml(plugins={"autorefs": {option: value}})
+        )
+        configured = parse_config(str(config_file))
+        assert configured["plugins_hash"] != baseline["plugins_hash"]
 
     def test_autorefs_disabled_not_added(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

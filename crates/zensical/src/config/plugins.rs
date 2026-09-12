@@ -56,6 +56,10 @@ pub use tags::{
 #[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
 #[pyo3(from_item_all)]
 pub struct Plugins {
+    /// Autorefs plugin, when explicitly configured.
+    #[pyo3(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub autorefs: Option<AutorefsPlugin>,
     /// Search plugin.
     pub search: SearchPlugin,
     /// Material meta plugin.
@@ -76,6 +80,44 @@ pub struct Plugins {
     pub awesome_nav: AwesomeNavPlugin,
     /// Offline plugin.
     pub offline: OfflinePlugin,
+}
+
+// ----------------------------------------------------------------------------
+
+/// Autorefs plugin.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct AutorefsPlugin {
+    /// Plugin configuration.
+    pub config: AutorefsPluginConfig,
+}
+
+/// Autorefs configuration, also used when mkdocstrings enables it implicitly.
+#[derive(Clone, Debug, Default, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct AutorefsPluginConfig {
+    /// Whether to select the closest of multiple primary targets.
+    pub resolve_closest: bool,
+    /// Whether link titles are enabled, automatic, or external-only.
+    pub link_titles: AutorefsTitleSetting,
+    /// Whether title HTML is stripped, or chosen based on theme features.
+    pub strip_title_tags: AutorefsTitleSetting,
+}
+
+/// Boolean or named mode accepted by autorefs title settings.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[serde(untagged)]
+pub enum AutorefsTitleSetting {
+    /// Explicitly enable or disable the setting.
+    Enabled(bool),
+    /// Automatic behavior, or external-only titles.
+    Mode(String),
+}
+
+impl Default for AutorefsTitleSetting {
+    fn default() -> Self {
+        Self::Mode("auto".into())
+    }
 }
 
 // ----------------------------------------------------------------------------

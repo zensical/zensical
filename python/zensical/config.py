@@ -117,12 +117,7 @@ DEFAULT_MARKDOWN_EXTENSIONS = {
 # Discard these before validation, hashing and forwarding to native modules or
 # Markdown extensions. Empty tuples mark plugins with no ignored options.
 _PLUGIN_UNSUPPORTED_OPTIONS = {
-    "autorefs": (
-        # TODO: Configure native URL selection and link title rendering.
-        "resolve_closest",
-        "link_titles",
-        "strip_title_tags",
-    ),
+    "autorefs": (),
     "awesome-nav": (),
     "blog": (),
     "callouts": (
@@ -1980,11 +1975,33 @@ def _convert_plugins(value: Any, config: dict) -> dict:
                 )
         plugins["mike"] = mike
 
-    # Validate settings forwarded by the plugin-to-extension shims.
+    # Validate settings for plugins enabled through Markdown extensions.
     if "autorefs" in plugins:
         autorefs = plugins["autorefs"]
-        _reject_unknown_options("autorefs", autorefs, {"enabled"})
-        _validate_boolean_options("autorefs", autorefs, ("enabled",))
+        _reject_unknown_options(
+            "autorefs",
+            autorefs,
+            {"enabled", "resolve_closest", "link_titles", "strip_title_tags"},
+        )
+        set_default(autorefs, "resolve_closest", False)
+        set_default(autorefs, "link_titles", "auto")
+        set_default(autorefs, "strip_title_tags", "auto")
+        _validate_boolean_options(
+            "autorefs", autorefs, ("enabled", "resolve_closest")
+        )
+        for name, modes in (
+            ("link_titles", ("auto", "external")),
+            ("strip_title_tags", ("auto",)),
+        ):
+            setting = autorefs[name]
+            if not (
+                isinstance(setting, bool)
+                or (isinstance(setting, str) and setting in modes)
+            ):
+                choices = ", ".join(repr(mode) for mode in modes)
+                raise ConfigurationError(
+                    f"autorefs {name} must be a boolean or {choices}"
+                )
 
     if "callouts" in plugins:
         callouts = plugins["callouts"]
