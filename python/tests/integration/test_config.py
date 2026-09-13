@@ -129,6 +129,33 @@ def test_symlinked_config_anchors_relative_paths_to_its_target(
     assert not (alias_dir / "site").exists()
 
 
+@pytest.mark.parametrize(
+    ("config_name", "watch_path"),
+    [
+        ("mkdocs.yml", "mkdocs.yml"),
+        ("zensical.toml", "zensical.toml"),
+        ("mkdocs.yml", "."),
+    ],
+)
+def test_build_with_config_in_watch(
+    tmp_path: Path, config_name: str, watch_path: str
+) -> None:
+    # Include the config directly or through its directory, alongside the docs.
+    if config_name == "zensical.toml":
+        config_path = _make_toml_project(
+            tmp_path, toml_extra=f'watch = ["docs", "{watch_path}"]'
+        )
+    else:
+        config_path = _make_yml_project(
+            tmp_path, yml_extra=f'watch: ["docs", "{watch_path}"]'
+        )
+
+    zensical.build(str(config_path), {"clean": False, "strict": True})
+
+    # A successful exit must also produce the documentation page.
+    assert (tmp_path / "site" / "index.html").is_file()
+
+
 def test_navigation_title_precedes_metadata_and_heading(tmp_path: Path) -> None:
     """Configured titles have the same highest precedence as in MkDocs."""
     config = _make_yml_project(

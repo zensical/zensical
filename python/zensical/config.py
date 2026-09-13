@@ -696,12 +696,15 @@ def _apply_defaults(config: dict, path: str) -> dict:
         | _list_watch_files(config, path)  # watch
     )
 
-    # We watch theme directories by default on the Rust side,
-    # so we need to  prevent duplicates from here, in case
-    # users add theme directories to the watch option
+    # Rust already watches the theme directories and the config file.
     theme_files = _list_templates(config)
-    watched_files -= set(theme_files)
-    config["watched_files"] = sorted(watched_files)
+    excluded_files = {Path(path).resolve() for path, _ in theme_files}
+    excluded_files.add(Path(path).resolve())
+    config["watched_files"] = sorted(
+        (file_path, mtime)
+        for file_path, mtime in watched_files
+        if Path(file_path).resolve() not in excluded_files
+    )
 
     # Hash all templates, so we rebuild if something changes
     config["template_hash"] = _hash(theme_files)
