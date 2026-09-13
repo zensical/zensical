@@ -280,6 +280,7 @@ class TestPluginShimming:
     ) -> None:
         plugins: dict[str, dict[str, Any]] = {
             "autorefs": {},
+            "callouts": {},
             "glightbox": {"auto": False},
             "macros": {"render_by_default": False},
             "mike": {"version_selector": False},
@@ -290,6 +291,7 @@ class TestPluginShimming:
         baseline = self._parse_yaml(tmp_path, plugins=plugins)
         for name, options in {
             "autorefs": {"link_titles": "external"},
+            "callouts": {"aliases": False, "breakless_lists": False},
             "glightbox": {"slide_effect": "fade"},
             "macros": {"force_render_paths": "guides/**"},
             "mike": {"javascript_dir": "scripts"},
@@ -586,6 +588,32 @@ class TestPluginShimming:
         assert config["mdx_configs"][GlightboxExtension.name] == {
             "width": "80%"
         }
+
+    def test_callouts_enables_quotes_callouts(self, tmp_path: Path) -> None:
+        config = self._parse_yaml(
+            tmp_path,
+            markdown_extensions=[{"pymdownx.quotes": {"callouts": False}}],
+            plugins={
+                "callouts": {
+                    "aliases": False,
+                    "breakless_lists": False,
+                    "title_from_first_bold": True,
+                }
+            },
+        )
+
+        assert config["markdown_extensions"].count("pymdownx.quotes") == 1
+        assert config["mdx_configs"]["pymdownx.quotes"] == {"callouts": True}
+        assert config["plugins"]["callouts"]["config"] == {}
+
+    def test_disabled_callouts_does_not_enable_quotes(
+        self, tmp_path: Path
+    ) -> None:
+        config = self._parse_yaml(
+            tmp_path, plugins={"callouts": {"enabled": False}}
+        )
+
+        assert "pymdownx.quotes" not in config["markdown_extensions"]
 
     def test_macros_plugin_shimmed(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins={"macros": {}})

@@ -40,6 +40,7 @@ PYTHON_PLUGINS = (
     "offline",
     "mike",
     "autorefs",
+    "callouts",
     "markdown-exec",
     "mkdocstrings",
     "glightbox",
@@ -49,6 +50,7 @@ PYTHON_PLUGINS = (
 
 SHIM_PLUGINS = (
     "autorefs",
+    "callouts",
     "markdown-exec",
     "mkdocstrings",
     "glightbox",
@@ -221,6 +223,9 @@ def test_ignores_unsupported_plugin_names(name: str) -> None:
         ("autorefs", "resolve_closest"),
         ("autorefs", "link_titles"),
         ("autorefs", "strip_title_tags"),
+        ("callouts", "aliases"),
+        ("callouts", "breakless_lists"),
+        ("callouts", "title_from_first_bold"),
         ("glightbox", "touchNavigation"),
         ("glightbox", "loop"),
         ("glightbox", "effect"),
@@ -332,6 +337,7 @@ def test_normalizes_null_shim_configuration(name: str) -> None:
     ("name", "config"),
     [
         pytest.param("autorefs", {"enabled": False}, id="autorefs"),
+        pytest.param("callouts", {"enabled": False}, id="callouts"),
         pytest.param(
             "markdown-exec",
             {"enabled": False, "ansi": "off", "languages": ["python"]},
@@ -472,6 +478,7 @@ def test_silently_discards_unsupported_autorefs_options(
             "version_selector must be a boolean",
         ),
         ("autorefs", {"enabled": "yes"}, "enabled must be a boolean"),
+        ("callouts", {"enabled": "yes"}, "enabled must be a boolean"),
         ("markdown-exec", {"ansi": "sometimes"}, "ansi must be"),
         (
             "markdown-exec",
