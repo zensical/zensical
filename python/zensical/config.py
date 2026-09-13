@@ -1675,12 +1675,18 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             "deploy_prefix": "",
         }
         nullable_strings = ("redirect_template", "canonical_version")
+        # Zensical bundles its own version selector assets, so accept and
+        # discard Mike's asset directory options for compatibility.
+        unsupported = {"css_dir", "javascript_dir"}
         _reject_unknown_options(
             "mike",
             mike,
-            {"enabled", *string_defaults, *nullable_strings},
+            {"enabled", "version_selector", *string_defaults, *nullable_strings}
+            | unsupported,
         )
-        _validate_boolean_options("mike", mike, ("enabled",))
+        for name in sorted(unsupported & mike.keys()):
+            mike.pop(name)
+        _validate_boolean_options("mike", mike, ("enabled", "version_selector"))
         for name, default in string_defaults.items():
             set_default(mike, name, default)
         _validate_string_options("mike", mike, string_defaults)
