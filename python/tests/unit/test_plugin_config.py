@@ -118,6 +118,27 @@ def test_preserves_plugin_presence_semantics() -> None:
     assert not set(SHIM_PLUGINS) & set(plugins)
 
 
+def test_preserves_zensical_plugin_options() -> None:
+    plugins = _convert_plugins(
+        {
+            "minify": {
+                "enabled": False,
+                "minify_inline_js": True,
+                "minify_inline_css": True,
+            },
+            "glightbox": {"auto": False, "slide_effect": "fade"},
+            "macros": {"include_yaml": {"data": "data.yml"}},
+        }
+    )
+
+    minify = plugins["minify"]["config"]
+    assert minify["enabled"] is False
+    assert minify["minify_inline_js"] is True
+    assert minify["minify_inline_css"] is True
+    assert plugins["glightbox"]["config"] == {"auto": False}
+    assert plugins["macros"]["config"]["include_yaml"] == {"data": "data.yml"}
+
+
 def test_normalizes_mike_defaults() -> None:
     plugins = _convert_plugins({"mike": {}})
     assert plugins["mike"]["config"] == {
@@ -128,7 +149,37 @@ def test_normalizes_mike_defaults() -> None:
     }
 
 
-@pytest.mark.parametrize("name", [*PYTHON_PLUGINS, "tags", "external"])
+@pytest.mark.parametrize("version_selector", [False, True])
+def test_preserves_mike_version_selector(version_selector: bool) -> None:
+    plugins = _convert_plugins({"mike": {"version_selector": version_selector}})
+
+    assert plugins["mike"]["config"]["version_selector"] is version_selector
+
+
+def test_silently_discards_unsupported_mike_options(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    plugins = _convert_plugins(
+        {
+            "mike": {
+                "version_selector": False,
+                "css_dir": "assets/css",
+                "javascript_dir": "assets/js",
+            }
+        }
+    )
+
+    assert plugins["mike"]["config"] == {
+        "alias_type": "symlink",
+        "redirect_template": None,
+        "deploy_prefix": "",
+        "canonical_version": None,
+        "version_selector": False,
+    }
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("name", [*PYTHON_PLUGINS, "tags"])
 def test_plugin_configuration_must_be_a_mapping(name: str) -> None:
     with pytest.raises(
         ConfigurationError,
@@ -137,7 +188,90 @@ def test_plugin_configuration_must_be_a_mapping(name: str) -> None:
         _convert_plugins({name: []})
 
 
-@pytest.mark.parametrize("name", PYTHON_PLUGINS)
+@pytest.mark.parametrize(
+    "name",
+    [
+        "external",  # does not exist
+        "material/blog",  # exists but isn't supported yet
+        "literate_nav",  # misspelling (`_` instead of `-`)
+    ]
+)
+@pytest.mark.parametrize("data", [None, True, 42, "config", [], {42: object()}])
+@pytest.mark.parametrize("as_list", [False, True])
+def test_ignores_unsupported_plugins(
+    name: str, data: Any, as_list: bool, capsys: pytest.CaptureFixture[str]
+) -> None:
+    value = {name: data}
+    plugins = _convert_plugins([value] if as_list else value)
+
+    assert plugins == _convert_plugins([])
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("name", ["external", "material/blog", "literate_nav"])
+def test_ignores_unsupported_plugin_names(name: str) -> None:
+    assert _convert_plugins([name]) == _convert_plugins([])
+
+
+@pytest.mark.parametrize("prefix", ["", "material/"])
+@pytest.mark.parametrize("value", [True, False, "auto", 42, [], {}, None])
+@pytest.mark.parametrize(
+    ("plugin", "option"),
+    [
+        ("autorefs", "resolve_closest"),
+        ("autorefs", "link_titles"),
+        ("autorefs", "strip_title_tags"),
+        ("glightbox", "touchNavigation"),
+        ("glightbox", "loop"),
+        ("glightbox", "effect"),
+        ("glightbox", "slide_effect"),
+        ("glightbox", "zoomable"),
+        ("glightbox", "draggable"),
+        ("glightbox", "background"),
+        ("glightbox", "shadow"),
+        ("macros", "force_render_paths"),
+        ("macros", "verbose"),
+        ("mike", "css_dir"),
+        ("mike", "javascript_dir"),
+        ("mkdocstrings", "enable_inventory"),
+        ("mkdocstrings", "watch"),
+        ("search", "fields"),
+        ("search", "indexing"),
+        ("search", "jieba_dict"),
+        ("search", "jieba_dict_user"),
+        ("search", "lang"),
+        ("search", "min_search_length"),
+        ("search", "pipeline"),
+        ("search", "prebuild_index"),
+        ("table-reader", "base_path"),
+        ("table-reader", "search_page_directory"),
+        ("tags", "tags_compare"),
+        ("tags", "tags_compare_reverse"),
+        ("tags", "tags_pages_compare"),
+        ("tags", "tags_pages_compare_reverse"),
+        ("tags", "tags_file"),
+        ("tags", "tags_extra_files"),
+        ("tags", "export"),
+        ("tags", "export_file"),
+        ("tags", "export_only"),
+    ],
+)
+def test_silently_discards_unimplemented_options(
+    plugin: str,
+    option: str,
+    value: Any,
+    prefix: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    data = {"enabled": False, option: value}
+    plugins = _convert_plugins({prefix + plugin: data})
+
+    assert plugins == _convert_plugins({plugin: {"enabled": False}})
+    assert data == {"enabled": False, option: value}
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("name", [*PYTHON_PLUGINS, "tags"])
 def test_rejects_unknown_python_plugin_options(name: str) -> None:
     with pytest.raises(
         ConfigurationError,
@@ -196,7 +330,6 @@ def test_normalizes_null_shim_configuration(name: str) -> None:
                 "enabled": False,
                 "handlers": {"python": {"options": {}}},
                 "custom_templates": None,
-                "enable_inventory": None,
                 "default_handler": "python",
                 "locale": "fr",
             },
@@ -213,13 +346,6 @@ def test_normalizes_null_shim_configuration(name: str) -> None:
                 "auto_themed": True,
                 "auto_caption": True,
                 "caption_position": "top",
-                "touchNavigation": False,
-                "loop": True,
-                "effect": "fade",
-                "zoomable": False,
-                "draggable": False,
-                "background": "black",
-                "shadow": False,
                 "manual": None,
             },
             id="glightbox",
@@ -235,7 +361,6 @@ def test_normalizes_null_shim_configuration(name: str) -> None:
                 "render_by_default": False,
                 "on_error_fail": True,
                 "on_undefined": "strict",
-                "verbose": True,
                 "j2_block_start_string": "<%",
                 "j2_block_end_string": "%>",
                 "j2_variable_start_string": "<@",
@@ -328,6 +453,11 @@ def test_silently_discards_unsupported_autorefs_options(
         ),
         ("offline", {"enabled": "yes"}, "enabled must be a boolean"),
         ("mike", {"canonical_version": 42}, "must be a string or null"),
+        (
+            "mike",
+            {"version_selector": "false"},
+            "version_selector must be a boolean",
+        ),
         ("autorefs", {"enabled": "yes"}, "enabled must be a boolean"),
         ("markdown-exec", {"ansi": "sometimes"}, "ansi must be"),
         (
@@ -336,7 +466,11 @@ def test_silently_discards_unsupported_autorefs_options(
             "languages must be a list of supported language names",
         ),
         ("mkdocstrings", {"handlers": []}, "handlers must be a mapping"),
-        ("glightbox", {"effect": "slide"}, "effect must be"),
+        (
+            "glightbox",
+            {"caption_position": "center"},
+            "caption_position must be",
+        ),
         ("macros", {"include_yaml": [42]}, "include_yaml must be a list"),
         ("macros", {"on_undefined": "silent"}, "on_undefined must be"),
         (
