@@ -146,6 +146,48 @@ def test_site_dir_docs_dir_cant_be_equal(tmp_path: Path) -> None:
         parse_config(str(config_file))
 
 
+@pytest.mark.parametrize(
+    "watch_path",
+    [
+        "mkdocs.yml",
+        "./mkdocs.yml",
+        "{root}/mkdocs.yml",
+        ".",
+        "aliases/config.yml",
+        "aliases",
+    ],
+)
+def test_watch_excludes_config_file(tmp_path: Path, watch_path: str) -> None:
+    # Keep another file with the same name in the extra watched files.
+    extras = tmp_path / "extras"
+    extras.mkdir()
+    other_config = extras / "mkdocs.yml"
+    other_config.write_text("site_name: Other\n", encoding="utf-8")
+
+    # Cover symlinks as direct watch entries and inside watched directories.
+    if watch_path.startswith("aliases"):
+        aliases = tmp_path / "aliases"
+        aliases.mkdir()
+        try:
+            (aliases / "config.yml").symlink_to(tmp_path / "mkdocs.yml")
+        except OSError as error:
+            pytest.skip(f"symbolic links unavailable: {error}")
+
+    config_file = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(
+            watch=["extras", watch_path.format(root=tmp_path.as_posix())]
+        ),
+    )
+
+    parsed = parse_config(str(config_file))
+
+    # The config is already watched by Rust; unrelated files must stay watched.
+    assert {path for path, _ in parsed["watched_files"]} == {
+        str(other_config.resolve())
+    }
+
+
 # ---------------------------------------------------------------------------
 # Markdown extensions
 # ---------------------------------------------------------------------------
