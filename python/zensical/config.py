@@ -120,6 +120,11 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
         "strip_title_tags",
     ),
     "awesome-nav": (),
+    "callouts": (
+        "aliases",
+        "breakless_lists",
+        "title_from_first_bold",
+    ),
     "glightbox": (
         "touchNavigation",
         "loop",
@@ -780,6 +785,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
 
     # Map plugins configuration to Markdown extensions
     _shim_autorefs(config)
+    _shim_callouts(config)
     _shim_markdown_exec(config)
     _shim_mkdocstrings(config)
     _shim_glightbox(config)
@@ -938,6 +944,21 @@ def _shim_autorefs(config: dict[str, Any]) -> None:
     elif "zensical.extensions.mkdocstrings" in config["markdown_extensions"]:
         # same when mkdocstrings is enabled as a Markdown extension
         config["markdown_extensions"].append(AutorefsExtension.name)
+
+
+def _shim_callouts(config: dict[str, Any]) -> None:
+    """Enable callout blockquotes for an enabled callouts plugin."""
+    if "callouts" not in config["plugins"]:
+        return
+
+    plugin = config["plugins"]["callouts"]["config"]
+    if not plugin.get("enabled", True):
+        return
+
+    extension = "pymdownx.quotes"
+    if extension not in config["markdown_extensions"]:
+        config["markdown_extensions"].append(extension)
+    config["mdx_configs"].setdefault(extension, {})["callouts"] = True
 
 
 def _shim_markdown_exec(config: dict[str, Any]) -> None:
@@ -1789,6 +1810,11 @@ def _convert_plugins(value: Any, config: dict) -> dict:
         autorefs = plugins["autorefs"]
         _reject_unknown_options("autorefs", autorefs, {"enabled"})
         _validate_boolean_options("autorefs", autorefs, ("enabled",))
+
+    if "callouts" in plugins:
+        callouts = plugins["callouts"]
+        _reject_unknown_options("callouts", callouts, {"enabled"})
+        _validate_boolean_options("callouts", callouts, ("enabled",))
 
     if "markdown-exec" in plugins:
         markdown_exec = plugins["markdown-exec"]
