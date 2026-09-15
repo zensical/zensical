@@ -142,6 +142,9 @@ impl Classifier {
                 .unwrap_or(usize::MAX)
         };
         let path = id.location().parse::<SitePath>()?;
+        if path.is_hidden() {
+            return Ok(None);
+        }
         if is_docs {
             if has_extension(&path, "md")
                 || meta::claims(path.as_str(), &self.meta)
@@ -265,6 +268,33 @@ mod tests {
                 "{path}"
             );
         }
+    }
+
+    #[test]
+    fn excludes_hidden_resources() {
+        let classifier = classifier();
+        for (context, path) in [
+            ("docs", ".private.yml"),
+            ("docs", "section/.nav.yml"),
+            ("templates/0", ".icons/logo.svg"),
+            ("templates/0", "assets/.private.css"),
+        ] {
+            assert!(
+                classifier
+                    .classify(&id(context, path), &source(path))
+                    .unwrap()
+                    .is_none(),
+                "{path}"
+            );
+        }
+
+        assert!(classifier
+            .classify(
+                &id("docs", "assets/app.min.js"),
+                &source("assets/app.min.js")
+            )
+            .unwrap()
+            .is_some());
     }
 
     #[test]
