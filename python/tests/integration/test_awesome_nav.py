@@ -168,6 +168,40 @@ nav:
     ]
 
 
+def test_dotfiles_configure_navigation_without_being_published(
+    tmp_path: Path,
+) -> None:
+    """Navigation can read dotfiles without copying them into the site."""
+    docs = tmp_path / "docs"
+    section = docs / "section"
+    section.mkdir(parents=True)
+    _write_template(tmp_path)
+    (docs / "index.md").write_text("# Home\n", encoding="utf-8")
+    (section / "page.md").write_text("# Page\n", encoding="utf-8")
+    (section / "asset.yml").write_text("public: true\n", encoding="utf-8")
+    (docs / ".hidden.md").write_text("# Hidden page\n", encoding="utf-8")
+    (docs / ".nav.yml").write_text(
+        "nav: [section, index.md]\n", encoding="utf-8"
+    )
+    (section / ".nav.yml").write_text(
+        "title: Configured section\n", encoding="utf-8"
+    )
+    (docs / ".private.yml").write_text("private: true\n", encoding="utf-8")
+
+    zensical.build(str(_write_config(tmp_path)), _BUILD_OPTIONS)
+
+    assert _items(tmp_path) == [
+        (0, "Configured section", ""),
+        (1, "Page", "section/page/"),
+        (0, "Home", ""),
+    ]
+    assert (tmp_path / "site" / "section" / "asset.yml").exists()
+    assert not (tmp_path / "site" / ".nav.yml").exists()
+    assert not (tmp_path / "site" / "section" / ".nav.yml").exists()
+    assert not (tmp_path / "site" / ".private.yml").exists()
+    assert not (tmp_path / "site" / ".hidden").exists()
+
+
 def test_explicit_pages_are_claimed_before_earlier_patterns(
     tmp_path: Path,
 ) -> None:

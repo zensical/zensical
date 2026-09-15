@@ -430,14 +430,19 @@ fn route_markdown(
         .expect("invariant"),
     );
     let config = config.clone();
-    files
-        .filter(move |id: &Id| matcher.is_match(id).expect("invariant"))
-        .map(move |id: &Id, input: &Input| {
-            Ok::<_, crate::path::PathError>(RoutedMarkdown {
-                input: input.clone(),
-                route: PageRoute::new(&config, id)?,
-            })
-        })
+    files.filter_map(move |id: &Id, input: &Input| {
+        if !matcher.is_match(id).expect("invariant") {
+            return Ok(None);
+        }
+        let source = id.location().parse::<SourcePath>()?;
+        if source.is_hidden() {
+            return Ok(None);
+        }
+        Ok::<_, crate::path::PathError>(Some(RoutedMarkdown {
+            input: input.clone(),
+            route: PageRoute::from_source(&config, source)?,
+        }))
+    })
 }
 
 /// Create a stream to process routed Markdown files.

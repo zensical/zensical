@@ -63,6 +63,13 @@ impl SourcePath {
         self.0.components()
     }
 
+    /// Returns whether any source path component starts with a dot.
+    #[must_use]
+    pub fn is_hidden(&self) -> bool {
+        self.components()
+            .any(|component| component.starts_with('.'))
+    }
+
     /// Returns the source file name.
     #[must_use]
     pub fn file_name(&self) -> &str {

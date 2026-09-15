@@ -63,6 +63,13 @@ impl SitePath {
         self.0.components()
     }
 
+    /// Returns whether any output path component starts with a dot.
+    #[must_use]
+    pub fn is_hidden(&self) -> bool {
+        self.components()
+            .any(|component| component.starts_with('.'))
+    }
+
     /// Returns the output file name.
     #[must_use]
     pub fn file_name(&self) -> &str {
