@@ -1,0 +1,121 @@
+# Copyright (c) 2025-2026 Zensical and contributors
+
+# SPDX-License-Identifier: MIT
+# All contributions are certified under the DCO
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to
+# deal in the Software without restriction, including without limitation the
+# rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+# sell copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+# IN THE SOFTWARE.
+
+name: Bug report
+description: Report something that isn't working as expected
+body:
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: >-
+        Optional: explain what you were trying to achieve and include any relevant details
+        about your setup. [More](https://zensical.org/contributing/bug-reports/#context)
+      placeholder: |-
+        Describe what you were trying to achieve.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug description
+      description: >-
+        Explain what happened, what you expected, and how it affected your work.
+        Include a workaround if you found one.
+        [More](https://zensical.org/contributing/bug-reports/#bug-description)
+      placeholder: |-
+        Describe the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: >-
+        Attach a __.zip file__ containing a __minimal reproduction__, following
+        our [reproduction guide](https://zensical.org/docs/guides/reproduction/).
+        **Don't share confidential data.**
+        [More](https://zensical.org/contributing/bug-reports/#reproduction)
+      placeholder: |-
+        Drag and drop the .zip file with the minimal reproduction here.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to reproduce
+      description: >-
+        List each command or action needed to trigger the behavior, in order.
+        [More](https://zensical.org/contributing/bug-reports/#steps-to-reproduce)
+      placeholder: |-
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >-
+        Include your Zensical version, operating system, architecture,
+        and Python version, plus browser version, if relevant.
+        [More](https://zensical.org/contributing/bug-reports/#environment)
+      value: |-
+        - Zensical version:
+        - Operating system and architecture:
+        - Python version:
+        - Browser:
+    validations:
+      required: true
+
+  - type: textarea
+    id: related-links
+    attributes:
+      label: Related links
+      description: >-
+        Share relevant [documentation](https://zensical.org/docs/) and related
+        [issues](https://github.com/zensical/zensical/issues), or write _None found_.
+        [More](https://zensical.org/contributing/bug-reports/#related-links)
+      placeholder: |-
+        Paste relevant URLs here.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      description: >-
+        Confirm that you have completed each step.
+        [More](https://zensical.org/contributing/bug-reports/#checklist)
+      options:
+        - label: >-
+            I have read and followed the [bug reporting guide](https://zensical.org/contributing/bug-reports/).
+          required: true
+        - label: >-
+            I have attached a __.zip file__ with a [minimal reproduction](https://zensical.org/docs/guides/reproduction/).
+          required: true
