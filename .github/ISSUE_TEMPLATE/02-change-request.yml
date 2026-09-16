@@ -1,0 +1,104 @@
+# Copyright (c) 2025-2026 Zensical and contributors
+
+# SPDX-License-Identifier: MIT
+# All contributions are certified under the DCO
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to
+# deal in the Software without restriction, including without limitation the
+# rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+# sell copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+# IN THE SOFTWARE.
+
+name: Change request
+description: Propose an improvement or new feature
+body:
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: >-
+        Optional: explain what you are trying to achieve and include relevant
+        details about your workflow.
+        [More](https://zensical.org/contributing/change-requests/#context)
+      placeholder: |-
+        Describe what you are trying to achieve.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: >-
+        Describe the change you propose and how it should work.
+        Include any workaround you already use.
+        [More](https://zensical.org/contributing/change-requests/#description)
+      placeholder: |-
+        Describe your proposed change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-cases
+    attributes:
+      label: Use cases
+      description: >-
+        Describe a concrete use case, what is difficult today, and how the
+        change would help.
+        [More](https://zensical.org/contributing/change-requests/#use-cases)
+      placeholder: |-
+        Explain how you would use this change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: visuals
+    attributes:
+      label: Visuals
+      description: >-
+        Optional: add sketches, screenshots, or mockups to illustrate your idea.
+        **Don't share confidential data.**
+        [More](https://zensical.org/contributing/change-requests/#visuals)
+      placeholder: |-
+        Drag and drop images here or link external assets.
+
+  - type: textarea
+    id: related-links
+    attributes:
+      label: Related links
+      description: >-
+        Share relevant [documentation](https://zensical.org/docs/),
+        [issues](https://github.com/zensical/zensical/issues),
+        or similar implementations, or write _None found_.
+        [More](https://zensical.org/contributing/change-requests/#related-links)
+      placeholder: |-
+        Paste relevant URLs here.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      description: >-
+        Confirm that you have completed each step.
+        [More](https://zensical.org/contributing/change-requests/#checklist)
+      options:
+      - label: >-
+            I have read and followed the [change request guide](https://zensical.org/contributing/change-requests/).
+        required: true
+      - label: >-
+            I have checked the [public backlog](https://github.com/orgs/zensical/projects/2)
+            and related [issues](https://github.com/zensical/zensical/issues) for existing requests.
+        required: true

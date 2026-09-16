@@ -41,9 +41,9 @@
   &middot;
   <a href="https://zensical.org/docs/get-started/"><strong>Get started</strong></a>
   &middot;
-  <a href="https://zensical.org/compatibility/"><strong>Compatibility</strong></a>
+  <a href="https://zensical.org/docs/compatibility/mkdocs/"><strong>Compatibility</strong></a>
   &middot;
-  <a href="https://zensical.org/about/roadmap/"><strong>Roadmap</strong></a>
+  <a href="https://zensical.org/roadmap/"><strong>Roadmap</strong></a>
   &middot;
   <a href="https://zensical.org/about/newsletter/"><strong>Newsletter</strong></a>
   &middot;
@@ -80,7 +80,7 @@ support, keep the project sustainable, and Zensical __free for everyone__.
 Zensical Spark may be a great fit if you:
 
 - Need help migrating a complex MkDocs project to Zensical
-- Want to ensure Zensical meets all your requirements – see [how we work](https://zensical.org/docs/community/how-we-work/)
+- Want to ensure Zensical meets all your requirements – see [how we work](https://zensical.org/community/)
 - Want direct support from the core team, including 1:1 sessions
 
-For the full list of benefits, see our [subscription tiers](https://zensical.org/spark/tiers/).
+For the full list of benefits, see our [memberships](https://zensical.org/spark/memberships/).
