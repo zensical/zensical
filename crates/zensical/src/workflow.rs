@@ -68,7 +68,7 @@ use cached::cached;
 
 /// Regular expression to detect use of snippets
 static SNIPPET_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[ \t]*-+8<-+").expect("invariant"));
+    LazyLock::new(|| Regex::new(r"(?m)^[ \t]*-+8<-+").expect("invariant"));
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -445,6 +445,11 @@ fn route_markdown(
     })
 }
 
+/// Returns whether Markdown contains a snippet marker.
+pub fn has_snippets(data: &str) -> bool {
+    SNIPPET_RE.is_match(data.strip_prefix('\u{FEFF}').unwrap_or(data))
+}
+
 /// Create a stream to process routed Markdown files.
 fn process_markdown(
     config: &Config, plugins: &plugin::Settings,
@@ -468,7 +473,7 @@ fn process_markdown(
             // Don't cache page if it inserts (pymdownx) snippets.
             // This is a hack while waiting for CommonMark (AST) and components,
             // as well as topic-based authoring functionality.
-            if SNIPPET_RE.is_match(&data) {
+            if has_snippets(&data) {
                 render_markdown(id, route, data, plugins.clone(), resolved)
             } else {
                 cached(
