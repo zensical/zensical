@@ -73,7 +73,7 @@ impl StaticFiles {
         if res.status == Status::NotFound {
             let full = self.base.join("404.html");
             if let Ok(res) = Response::from_file(full) {
-                return res;
+                return res.status(Status::NotFound);
             }
         }
 

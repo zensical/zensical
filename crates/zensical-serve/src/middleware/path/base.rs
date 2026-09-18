@@ -72,12 +72,13 @@ impl Middleware for BasePath {
             return next.handle(req);
         }
 
-        // 1. Handle root redirect if enabled
-        if req.uri.path == "/" {
-            return Response::redirect(base);
+        // The configured site root is a directory, even if it contains dots
+        if req.uri.path == "/" || req.uri.path == base {
+            let path = format!("{base}/");
+            return Response::redirect(Uri::from_parts(path, req.uri.query));
         }
 
-        // 2. Strip prefix, if it exists
+        // Strip prefix, if it exists
         if let Some(path) = strip_base_path(req.uri.path.as_ref(), base) {
             req.uri = Uri::from_parts(Cow::Owned(path), req.uri.query);
         }
@@ -107,10 +108,77 @@ fn strip_base_path(path: &str, base: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::http::{Request, Response};
-    use crate::middleware::Middleware;
+    use crate::handler::{NotFound, Stack, TryIntoHandler};
+    use crate::http::{Header, Request, Response, Status, Uri};
+    use crate::middleware::{Middleware, NormalizePath};
 
     use super::BasePath;
+
+    #[test]
+    fn redirects_site_root_with_trailing_slash() {
+        for base in ["/company.pages", "/group/company.pages", "/group/project"]
+        {
+            let stack = Stack::new()
+                .with(NormalizePath::default())
+                .with(BasePath::new(base).expect("invariant"))
+                .try_into_handler()
+                .expect("invariant");
+
+            for path in ["/", base] {
+                for query in ["", "q=search"] {
+                    let req = Request::new().uri(Uri::from_parts(path, query));
+                    let res = stack.process(req, &NotFound);
+                    let location =
+                        Uri::from_parts(format!("{base}/"), query).to_string();
+
+                    assert_eq!(res.status, Status::Found);
+                    assert_eq!(
+                        res.headers.get(Header::Location),
+                        Some(location.as_str())
+                    );
+
+                    let req = Request::new().uri(location.as_str());
+                    let res = stack.process(req, &|req: Request| {
+                        Response::new().body(req.uri.to_string())
+                    });
+
+                    assert_eq!(res.status, Status::Ok);
+                    assert_eq!(
+                        res.body,
+                        Uri::from_parts("/", query).to_string().as_bytes()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn preserves_asset_paths_below_dotted_base() {
+        let middleware =
+            BasePath::new("/group/company.pages").expect("invariant");
+        let req =
+            Request::new().uri("/group/company.pages/assets/main.css?v=123");
+
+        let res = middleware.process(req, &|req: Request| {
+            Response::new().body(req.uri.to_string())
+        });
+
+        assert_eq!(res.status, Status::Ok);
+        assert_eq!(res.body, b"/assets/main.css?v=123");
+    }
+
+    #[test]
+    fn preserves_unprefixed_site_root() {
+        let middleware = BasePath::new("/").expect("invariant");
+        let req = Request::new().uri("/?q=search");
+
+        let res = middleware.process(req, &|req: Request| {
+            Response::new().body(req.uri.to_string())
+        });
+
+        assert_eq!(res.status, Status::Ok);
+        assert_eq!(res.body, b"/?q=search");
+    }
 
     #[test]
     fn strips_base_path_once() {
