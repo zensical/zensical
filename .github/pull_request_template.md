@@ -1,30 +1,41 @@
 <!--
-  Before opening a PR, please read our contributing guide:
-  https://zensical.org/docs/community/contribute/pull-requests/
+  Read the pull request guide before submitting:
+  https://zensical.org/contributing/pull-requests/
+
+  For potential security vulnerabilities, use our private reporting process:
+  https://zensical.org/contributing/security/
 -->
 
 ## Summary
 
-<!-- Briefly describe what this PR does and why -->
+<!-- Explain what changed and why. Include enough context to understand the problem. -->
 
 ## Related issue
 
-<!-- Every PR from an outside contributor must be linked to an issue -->
+<!--
+  Link the issue where the scope and approach were agreed.
+  For a small, self-contained fix, the Summary is sufficient.
+-->
 
-This pull request is linked to the following issue:
+## Validation
+
+<!--
+  List the checks you ran and their results, including relevant manual verification.
+  Note any expected checks you could not run and what still needs verification.
+-->
 
 ## Checklist
 
-<!-- All boxes must be checked -->
+<!-- Confirm completed steps. Explain any item that does not apply. -->
 
-Please ensure that your PR meets the following requirements:
+- [ ] I have followed the [pull request guide] and kept this change focused
+- [ ] This is a small, self-contained fix, or the scope and approach were agreed in the linked issue
+- [ ] I have added or updated tests and documentation where relevant
+- [ ] I have recorded the checks performed and any remaining validation above
+- [ ] I have [cryptographically signed] each commit and included a `Signed-off-by` trailer, accepting the [DCO]
+- [ ] I have reviewed and understand the changes, and can explain and revise them – see [AI-assisted contributions]
 
-- [ ] I have read the [pull request guide] and confirm it meets all outlined requirements
-- [ ] I have created an issue to discuss the change and received agreement from maintainers to proceed
-- [ ] I have [cryptographically signed] all commits and included a `Signed-off-by` trailer, accepting the [DCO]
-- [ ] I have written or reviewed every line of code myself and can fully explain it – see our policy on [use of Generative AI]
-
-[pull request guide]: https://zensical.org/docs/community/contribute/pull-requests/
-[cryptographically signed]: https://zensical.org/docs/community/contribute/pull-requests/#verified-commits
-[DCO]: https://zensical.org/docs/community/contribute/pull-requests/#developer-certificate-of-origin
-[use of Generative AI]: https://zensical.org/docs/community/contribute/pull-requests/#use-of-generative-ai
+[pull request guide]: https://zensical.org/contributing/pull-requests/
+[cryptographically signed]: https://zensical.org/contributing/pull-requests/#commits
+[DCO]: https://developercertificate.org
+[AI-assisted contributions]: https://zensical.org/contributing/pull-requests/#ai-assisted-contributions
