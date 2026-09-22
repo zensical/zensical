@@ -149,6 +149,13 @@ struct Pages(
     Arc<Vec<Page>>,
 );
 
+/// Revision-complete rendered pages paired with their stream identities.
+#[derive(Clone, Debug)]
+struct KeyedPages(
+    /// Pages and the stable keys targeted by page-local patches.
+    Arc<Vec<(Key<Id>, Page)>>,
+);
+
 /// Revision-complete generated view-page specifications.
 #[derive(Clone, Debug)]
 struct ViewPages(
@@ -173,6 +180,42 @@ struct HiddenNavigationPage {
 // ----------------------------------------------------------------------------
 // Implementations
 // ----------------------------------------------------------------------------
+
+impl Patch {
+    fn relations(
+        target: Key<Id>,
+        siblings: (Option<NavigationItem>, Option<NavigationItem>),
+    ) -> Self {
+        Self {
+            target,
+            content: None,
+            properties: BTreeMap::new(),
+            variables: BTreeMap::new(),
+            navigation_url: None,
+            siblings: Some(siblings),
+            template: None,
+            toc: None,
+        }
+    }
+
+    fn merge(&mut self, other: &Self) -> anyhow::Result<()> {
+        if self.target != other.target {
+            anyhow::bail!("cannot merge blog patches for different pages")
+        }
+        merge_map(&mut self.properties, &other.properties, "properties")?;
+        merge_map(&mut self.variables, &other.variables, "variables")?;
+        merge_option(&mut self.content, other.content.as_ref(), "content")?;
+        merge_option(
+            &mut self.navigation_url,
+            other.navigation_url.as_ref(),
+            "navigation URL",
+        )?;
+        merge_option(&mut self.siblings, other.siblings.as_ref(), "siblings")?;
+        merge_option(&mut self.template, other.template.as_ref(), "template")?;
+        merge_option(&mut self.toc, other.toc.as_ref(), "table of contents")?;
+        Ok(())
+    }
+}
 
 impl Blog {
     /// Resolves enabled instances and their stable configuration-order IDs.
@@ -400,12 +443,150 @@ impl Blog {
         resources: &Stream<Id, Resource>,
         view_pages: &Stream<Id, collection::ViewPageSpec>,
         ordered_views: &Stream<Id, collection::OrderedView>,
+        resolution: &Signal<Id, NavigationResolution>,
     ) -> Stream<Id, Patch> {
-        (
+        let patches = (
             self.view_patches(pages, resources, view_pages),
             self.post_patches(pages, posts, resources, ordered_views),
+            self.relation_patches(pages, view_pages, resolution),
         )
-            .coalesce()
+            .coalesce();
+        patches.reduce_by_key(
+            |patch: &Patch| Ok::<_, anyhow::Error>(patch.target.clone()),
+            |patches: &dyn Collection<Key<Id>, Patch>| {
+                let mut patches = patches.values();
+                let Some(first) = patches.next() else {
+                    return Ok::<_, anyhow::Error>(None);
+                };
+                let mut merged = first.clone();
+                for patch in patches {
+                    merged.merge(patch)?;
+                }
+                Ok(Some(merged))
+            },
+        )
+    }
+
+    fn relation_patches(
+        &self, pages: &Stream<Id, Page>,
+        view_pages: &Stream<Id, collection::ViewPageSpec>,
+        resolution: &Signal<Id, NavigationResolution>,
+    ) -> Stream<Id, Patch> {
+        let pages = pages.reduce(|pages: &dyn Collection<Key<Id>, Page>| {
+            Some(KeyedPages(Arc::new(
+                pages
+                    .iter()
+                    .map(|(key, page)| (key.clone(), page.clone()))
+                    .collect(),
+            )))
+        });
+        let view_pages = view_pages.reduce(
+            |pages: &dyn Collection<Key<Id>, collection::ViewPageSpec>| {
+                Some(ViewPages(Arc::new(pages.values().cloned().collect())))
+            },
+        );
+        let blog = self.clone();
+        resolution.product(&pages).product(&view_pages).flat_map(
+            move |(resolution, pages): &(NavigationResolution, KeyedPages),
+                  view_pages: &ViewPages| {
+                blog.relation_patch_values(resolution, &pages.0, &view_pages.0)
+            },
+        )
+    }
+
+    fn relation_patch_values(
+        &self, resolution: &NavigationResolution, pages: &[(Key<Id>, Page)],
+        specs: &[collection::ViewPageSpec],
+    ) -> anyhow::Result<Vec<(Key<Id>, Patch)>> {
+        let values = pages
+            .iter()
+            .map(|(_, page)| page.clone())
+            .collect::<Vec<_>>();
+        let contributions = self.contributions(&values, specs)?;
+        let by_url = pages
+            .iter()
+            .map(|(key, page)| (page.url.as_str(), (key, page)))
+            .collect::<HashMap<_, _>>();
+        let by_source = pages
+            .iter()
+            .map(|(key, page)| (page.source(), (key, page)))
+            .collect::<HashMap<_, _>>();
+        let mut siblings = HashMap::new();
+
+        for contribution in contributions {
+            let Some((_, host)) = by_url.get(contribution.index_url.as_str())
+            else {
+                continue;
+            };
+            let Some(visual_tail) = contribution
+                .items
+                .last()
+                .and_then(|section| section.children.last())
+                .and_then(|item| item.url.as_deref())
+            else {
+                continue;
+            };
+            let head = resolution.navigation.next_page_for_url(visual_tail);
+            let mut chain = Vec::from([navigation_item(host)]);
+            chain.extend(
+                contribution
+                    .items
+                    .iter()
+                    .rev()
+                    .flat_map(|section| section.children.iter().cloned()),
+            );
+            chain.extend(head.clone());
+
+            for (index, item) in chain.iter().enumerate() {
+                let Some(url) = item.url.as_deref() else {
+                    continue;
+                };
+                let previous = if index == 0 {
+                    resolution.navigation.previous_page_for_url(url)
+                } else {
+                    chain.get(index - 1).cloned()
+                };
+                let next = if let Some(next) = chain.get(index + 1) {
+                    Some(next.clone())
+                } else {
+                    resolution.navigation.next_page_for_url(url)
+                };
+                siblings.insert(url.to_owned(), (previous, next));
+            }
+        }
+
+        // Material gives paginated view pages the same external siblings as
+        // their first page, even though only that first page is visible in
+        // navigation.
+        for spec in specs.iter().filter(|spec| spec.page > 1) {
+            let source = view_page_source(self.settings(spec.view.blog), spec)?;
+            let mut first = spec.clone();
+            first.page = 1;
+            let first_source =
+                view_page_source(self.settings(spec.view.blog), &first)?;
+            let Some((_, first_page)) = by_source.get(&first_source) else {
+                continue;
+            };
+            let Some(value) = siblings.get(&first_page.url).cloned() else {
+                continue;
+            };
+            let Some((_, page)) = by_source.get(&source) else {
+                continue;
+            };
+            siblings.insert(page.url.clone(), value);
+        }
+
+        Ok(siblings
+            .into_iter()
+            .filter_map(|(url, siblings)| {
+                by_url.get(url.as_str()).map(|(target, _)| {
+                    (
+                        (*target).clone(),
+                        Patch::relations((*target).clone(), siblings),
+                    )
+                })
+            })
+            .collect())
     }
 
     fn view_patches(
@@ -1065,6 +1246,7 @@ impl Value for Patch {}
 impl Value for Classified {}
 impl Value for Entrypoint {}
 impl Value for Pages {}
+impl Value for KeyedPages {}
 impl Value for ViewPages {}
 impl Value for Documents {}
 impl Value for HiddenNavigationPage {}
@@ -1099,6 +1281,32 @@ type PostPatchInput = (
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
+
+fn merge_map(
+    target: &mut BTreeMap<String, Dynamic>, source: &BTreeMap<String, Dynamic>,
+    field: &str,
+) -> anyhow::Result<()> {
+    for (key, value) in source {
+        if target.get(key).is_some_and(|current| current != value) {
+            anyhow::bail!("conflicting blog patch {field} key '{key}'")
+        }
+        target.insert(key.clone(), value.clone());
+    }
+    Ok(())
+}
+
+fn merge_option<T: Clone + PartialEq>(
+    target: &mut Option<T>, source: Option<&T>, field: &str,
+) -> anyhow::Result<()> {
+    let Some(value) = source else {
+        return Ok(());
+    };
+    if target.as_ref().is_some_and(|current| current != value) {
+        anyhow::bail!("conflicting blog patch {field}")
+    }
+    *target = Some(value.clone());
+    Ok(())
+}
 
 fn entrypoint_source(
     settings: &BlogPluginConfig,

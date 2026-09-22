@@ -528,6 +528,58 @@ def test_archive_navigation_follows_post_order_for_nonnumeric_urls(
     assert page.index("December 2026=") < page.index("November 2026=")
 
 
+def test_generated_view_sections_follow_material_sibling_order(
+    tmp_path: Path,
+) -> None:
+    config = _project(
+        tmp_path,
+        archive=True,
+        categories=True,
+        authors=True,
+        author_profiles=True,
+    )
+    (tmp_path / "docs" / "guide.md").write_text(
+        "# Guide\n", encoding="utf-8"
+    )
+    (tmp_path / "docs" / "blog" / ".authors.yml").write_text(
+        "authors:\n"
+        "  jane:\n"
+        "    name: Jane Doe\n"
+        "    description: Technical writer\n"
+        "    avatar: assets/jane.png\n",
+        encoding="utf-8",
+    )
+    with config.open("a", encoding="utf-8") as stream:
+        stream.write(
+            "nav:\n"
+            "  - Home: index.md\n"
+            "  - Blog:\n"
+            "      - blog/index.md\n"
+            "  - Guide: guide.md\n"
+        )
+    (tmp_path / "overrides" / "main.html").write_text(
+        "{{ page.url }}|"
+        "PREV={{ page.previous_page.url if page.previous_page else '' }}|"
+        "NEXT={{ page.next_page.url if page.next_page else '' }}",
+        encoding="utf-8",
+    )
+    _post(
+        tmp_path,
+        "one.md",
+        "One",
+        "2026-09-01",
+        categories=["Rust"],
+        authors=["jane"],
+    )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    guide = (tmp_path / "site" / "guide" / "index.html").read_text(
+        "utf-8"
+    )
+    assert guide == "guide/|PREV=blog/archive/2026/|NEXT="
+
+
 def test_archive_url_keys_can_group_multiple_display_dates(
     tmp_path: Path,
 ) -> None:

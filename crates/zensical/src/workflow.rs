@@ -281,13 +281,6 @@ impl Main {
             provisional.map(|rendered: &RenderedPage| rendered.page.clone());
         let navigation_page =
             blogs.navigation_pages(&provisional_page, &view_pages);
-        let blog_patches = blogs.patches(
-            &provisional_page,
-            &posts,
-            &resources,
-            &view_pages,
-            &ordered_views,
-        );
         // Autorefs only consumes registrations gathered during Markdown
         // rendering, so keep it independent of finalized navigation titles.
         let autorefs_input =
@@ -306,6 +299,14 @@ impl Main {
             &navigation_page,
             &provisional_page,
             &view_pages,
+        );
+        let blog_patches = blogs.patches(
+            &provisional_page,
+            &posts,
+            &resources,
+            &view_pages,
+            &ordered_views,
+            &resolution,
         );
         let nav = resolution
             .map(|value: &NavigationResolution| value.navigation.clone());
