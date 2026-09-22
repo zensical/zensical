@@ -1,13 +1,13 @@
-# Material blog oracle fixtures
+# Material blog compatibility fixtures
 
 These fixtures define the user-visible compatibility target for the native
 Zensical blog implementation. They are built with the pinned Material checkout
-and reduced to semantic JSON manifests by `scripts/blog_oracle.py`.
+and reduced to semantic JSON manifests by `scripts/blog_compatibility.py`.
 
-Run the oracle from the repository root:
+Run the compatibility check from the repository root:
 
 ```console
-uv run python scripts/blog_oracle.py \
+uv run python scripts/blog_compatibility.py \
   --mkdocs ../mkdocs-material/community/venv/bin/mkdocs \
   --zensical .venv/bin/zensical
 ```

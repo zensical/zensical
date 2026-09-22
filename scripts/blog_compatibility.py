@@ -106,6 +106,20 @@ def _text(element: Tag | None) -> str | None:
     return " ".join(element.stripped_strings)
 
 
+def _attribute(element: Tag, name: str) -> str | None:
+    """Return a scalar HTML attribute."""
+    value = element.get(name)
+    return value if isinstance(value, str) else None
+
+
+def _has_class(element: Tag, name: str) -> bool:
+    """Check whether an element has a class name."""
+    value = element.get("class")
+    if isinstance(value, str):
+        return name in value.split()
+    return value is not None and name in value
+
+
 def _fragment(
     element: Tag | None, base: str, *, normalize_urls: bool
 ) -> str | None:
@@ -130,7 +144,7 @@ def _link(element: Tag, base: str) -> dict[str, Any]:
     """Describe one rendered link."""
     return {
         "title": _text(element),
-        "url": _url(base, element.get("href")),
+        "url": _url(base, _attribute(element, "href")),
     }
 
 
@@ -142,16 +156,16 @@ def _nav_items(container: Tag, base: str) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for entry in root.find_all("li", recursive=False):
         link = entry.find("a", recursive=False)
-        container = entry.find("div", recursive=False)
-        if link is None and container is not None:
-            link = container.find("a", recursive=False)
+        wrapper = entry.find("div", recursive=False)
+        if link is None and wrapper is not None:
+            link = wrapper.find("a", recursive=False)
         label = entry.find("label", recursive=False)
         title = _text(link or label)
         if not title:
             continue
         item: dict[str, Any] = {"title": title}
         if link is not None:
-            item["url"] = _url(base, link.get("href"))
+            item["url"] = _url(base, _attribute(link, "href"))
         child = entry.find("nav", recursive=False)
         if child is not None:
             children = _nav_items(child, base)
@@ -198,13 +212,15 @@ def _posts(
                 "title": _text(heading),
                 "url": _url(
                     base,
-                    heading_link.get("href") if heading_link else None,
+                    _attribute(heading_link, "href") if heading_link else None,
                 ),
                 "date": time.get("datetime") if time else None,
                 "authors": authors,
                 "categories": categories,
                 "pinned": article.select_one(".md-pin") is not None,
-                "continue": _url(base, action.get("href")) if action else None,
+                "continue": (
+                    _url(base, _attribute(action, "href")) if action else None
+                ),
                 "content": _fragment(
                     content,
                     base,
@@ -234,14 +250,16 @@ def _page(path: Path, *, engine: Engine) -> dict[str, Any]:
     """Extract the stable, user-visible facts from one generated page."""
     soup = BeautifulSoup(path.read_text(encoding="utf-8"), "lxml")
     canonical = soup.select_one('link[rel="canonical"]')
-    canonical_url = canonical.get("href") if canonical else None
+    canonical_url = _attribute(canonical, "href") if canonical else None
     base = str(canonical_url or "https://example.test/")
     primary_nav = soup.select_one("nav.md-nav--primary")
     main = soup.select_one("article.md-content__inner")
     relations = {}
     for name in ("prev", "next"):
         relation = soup.select_one(f'head link[rel="{name}"]')
-        relations[name] = _url(base, relation.get("href")) if relation else None
+        relations[name] = (
+            _url(base, _attribute(relation, "href")) if relation else None
+        )
     headings = (
         [
             {
@@ -262,14 +280,14 @@ def _page(path: Path, *, engine: Engine) -> dict[str, Any]:
         [
             _link(link, base)
             for link in main.select("a[href]")
-            if "headerlink" not in link.get("class", [])
+            if not _has_class(link, "headerlink")
         ]
         if main
         else []
     )
     return {
         "document_title": _text(soup.title),
-        "canonical": _url(base, str(canonical_url)) if canonical_url else None,
+        "canonical": _url(base, canonical_url) if canonical_url else None,
         "relations": relations,
         "active_ancestors": _active_ancestors(primary_nav),
         "navigation": _nav_items(primary_nav, base) if primary_nav else [],
@@ -540,7 +558,9 @@ def main() -> int:
     if zensical and not zensical.is_file():
         raise FileNotFoundError(zensical)
     succeeded = True
-    with tempfile.TemporaryDirectory(prefix="zensical-blog-oracle-") as raw:
+    with tempfile.TemporaryDirectory(
+        prefix="zensical-blog-compatibility-"
+    ) as raw:
         root = Path(raw)
         for name in _fixture_names(args.fixtures):
             fixture = root / f"{name}-mkdocs"
