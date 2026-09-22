@@ -3,12 +3,33 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
 //! Native Material blog compatibility.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+
 use zrx::id::Id;
 use zrx::stream::function::Collection;
 use zrx::stream::{Key, Signal, Stream, StreamSetExt, StreamTupleExt, Value};
@@ -43,6 +64,10 @@ pub use collection::{BlogId, PostId, ViewPageSpec};
 pub use date::BlogDate;
 pub use post::PostDescriptor;
 
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
+
 /// Inputs consumed by native blog classification.
 pub struct Dependencies<'a> {
     /// All resolved Markdown documents in the current revision.
@@ -66,7 +91,10 @@ pub struct Output {
 /// Page-local variables derived from revision-complete blog views.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Patch {
+    /// Stable identity of the page receiving this patch.
     target: Key<Id>,
+    /// Rendered page content after blog-owned URL rewrites.
+    pub content: Option<String>,
     /// Page fields contributed after revision-complete resolution.
     pub properties: BTreeMap<String, Dynamic>,
     /// Top-level variables consumed by Material blog templates.
@@ -81,75 +109,70 @@ pub struct Patch {
     pub toc: Option<Vec<Section>>,
 }
 
-impl Value for Patch {}
-
 /// Configured native blog instances.
 #[derive(Clone, Debug)]
 pub struct Blog {
+    /// Resolved project configuration used for routes and template values.
     config: Config,
+    /// Ordered native blog instances paired with their stable identities.
     instances: Arc<Vec<(BlogId, BlogPluginConfig)>>,
+    /// Whether draft-on-serve behavior is active.
     serve: bool,
+    /// Build timestamp used to classify future-dated posts.
     now: i64,
 }
 
+/// One document classified as an ordinary page or blog post.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Classified {
+    /// Page descriptor emitted for every admitted document.
     page: Option<PageDescriptor>,
+    /// Post descriptor emitted when the document belongs to a blog.
     post: Option<PostDescriptor>,
 }
 
-impl Value for Classified {}
-
+/// Source or synthesized entrypoint for one configured blog.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Entrypoint {
+    /// Owning blog instance.
     blog: BlogId,
+    /// Entrypoint document used to render the main view.
     document: DocumentHeader,
+    /// Physical source when the entrypoint was supplied by the user.
     provenance: Option<SourcePath>,
 }
 
-impl Value for Entrypoint {}
-
+/// Revision-complete rendered pages used by navigation composition.
 #[derive(Clone, Debug)]
-struct Pages(Arc<Vec<Page>>);
+struct Pages(
+    /// Pages in stable stream order.
+    Arc<Vec<Page>>,
+);
 
+/// Revision-complete generated view-page specifications.
 #[derive(Clone, Debug)]
-struct ViewPages(Arc<Vec<collection::ViewPageSpec>>);
+struct ViewPages(
+    /// View pages in stable stream order.
+    Arc<Vec<collection::ViewPageSpec>>,
+);
 
+/// Revision-complete document headers used by generated views.
 #[derive(Clone, Debug)]
-struct Documents(Arc<Vec<DocumentHeader>>);
+struct Documents(
+    /// Documents in stable stream order.
+    Arc<Vec<DocumentHeader>>,
+);
 
-impl Value for Pages {}
-impl Value for ViewPages {}
-impl Value for Documents {}
-
+/// Hidden generated page admitted into navigation relation resolution.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct HiddenNavigationPage {
+    /// Stable identity of the hidden page.
     target: Key<Id>,
 }
 
-impl Value for HiddenNavigationPage {}
-
-type ViewPatchInput = (
-    collection::ViewPageSpec,
-    Vec<(Key<Id>, Page)>,
-    Vec<(Key<Id>, Page)>,
-);
-
-type GeneratedPageInput = (
-    collection::ViewPageSpec,
-    Vec<(Key<Id>, Entrypoint)>,
-    Vec<(Key<Id>, DocumentHeader)>,
-    Vec<(Key<Id>, DocumentHeader)>,
-);
-
-type AuthorJoin = (PostDescriptor, Vec<(Key<Id>, author::Catalog)>);
-
-type PostPatchInput = (
-    collection::OrderedView,
-    Vec<(Key<Id>, PostDescriptor)>,
-    Vec<(Key<Id>, Page)>,
-    Vec<(Key<Id>, Resource)>,
-);
+// ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
 
 impl Blog {
     /// Resolves enabled instances and their stable configuration-order IDs.
@@ -379,14 +402,14 @@ impl Blog {
         ordered_views: &Stream<Id, collection::OrderedView>,
     ) -> Stream<Id, Patch> {
         (
-            self.view_patches(pages, view_pages),
+            self.view_patches(pages, resources, view_pages),
             self.post_patches(pages, posts, resources, ordered_views),
         )
             .coalesce()
     }
 
     fn view_patches(
-        &self, pages: &Stream<Id, Page>,
+        &self, pages: &Stream<Id, Page>, resources: &Stream<Id, Resource>,
         view_pages: &Stream<Id, collection::ViewPageSpec>,
     ) -> Stream<Id, Patch> {
         let blog = self.clone();
@@ -403,78 +426,89 @@ impl Blog {
                 .collect::<HashSet<_>>();
             move |page: &Page| sources.contains(page.source())
         });
+        let relocated_resources = resources.select(view_pages, |_| {
+            |resource: &Resource| resource.source_path != resource.path
+        });
         let blog = self.clone();
-        let patches = (view_pages.clone(), views, selected_posts)
+        let patches = (
+            view_pages.clone(),
+            views,
+            selected_posts,
+            relocated_resources,
+        )
             .join()
-            .filter_map(move |(spec, views, posts): &ViewPatchInput| {
-                let Some((target, view)) = views.first() else {
-                    return Ok(None);
-                };
-                let by_source = posts
-                    .iter()
-                    .map(|(_, page)| (page.source().clone(), page))
-                    .collect::<HashMap<_, _>>();
-                let excerpts = spec
-                    .posts
-                    .iter()
-                    .filter_map(|id| {
-                        by_source.get(&id.source).map(|page| (id, *page))
-                    })
-                    .map(|(id, page)| {
-                        let _ = id;
-                        excerpt(page, &view.url, blog.settings(spec.view.blog))
-                    })
-                    .collect::<anyhow::Result<Vec<_>>>()?;
-                let settings = blog.settings(spec.view.blog);
-                let toc = view_toc(settings, &spec.view.kind)
-                    .then(|| integrated_toc(view, spec, &by_source));
-                let pagination =
-                    pagination_value(&blog.config, settings, spec)?;
-                let navigation_url = if spec.page > 1 {
-                    let mut first = spec.clone();
-                    first.page = 1;
-                    Some(
-                        PageRoute::from_source(
-                            &blog.config,
-                            view_page_source(
-                                blog.settings(spec.view.blog),
-                                &first,
-                            )?,
-                        )?
-                        .url,
-                    )
-                } else {
-                    None
-                };
-                let mut variables = BTreeMap::from([
-                    (
-                        "_blog_date_format".into(),
-                        Dynamic::String(
-                            blog.settings(spec.view.blog)
-                                .post_date_format
-                                .clone(),
-                        ),
-                    ),
-                    ("posts".into(), Dynamic::List(excerpts)),
-                    ("pagination".into(), pagination),
-                ]);
-                if let Some(url) = &navigation_url {
-                    variables.insert(
-                        "_blog_original_url".into(),
-                        Dynamic::String(url.clone()),
-                    );
-                }
-                Ok::<_, anyhow::Error>(Some(Patch {
-                    target: target.clone(),
-                    properties: BTreeMap::new(),
-                    navigation_url,
-                    siblings: None,
-                    template: Some("blog.html".into()),
-                    toc,
-                    variables,
-                }))
+            .filter_map(move |input: &ViewPatchInput| {
+                blog.view_patch_value(input)
             });
         patches.unique_by_key(|patch: &Patch| patch.target.clone())
+    }
+
+    fn view_patch_value(
+        &self, input: &ViewPatchInput,
+    ) -> anyhow::Result<Option<Patch>> {
+        let (spec, views, posts, resources) = input;
+        let Some((target, view)) = views.first() else {
+            return Ok(None);
+        };
+        let by_source = posts
+            .iter()
+            .map(|(_, page)| (page.source().clone(), page))
+            .collect::<HashMap<_, _>>();
+        let mappings = resource_mappings(resources);
+        let excerpts = spec
+            .posts
+            .iter()
+            .filter_map(|id| by_source.get(&id.source).copied())
+            .map(|page| {
+                excerpt(
+                    page,
+                    &view.url,
+                    self.settings(spec.view.blog),
+                    &mappings,
+                )
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let settings = self.settings(spec.view.blog);
+        let toc = view_toc(settings, &spec.view.kind)
+            .then(|| integrated_toc(view, spec, &by_source));
+        let pagination = pagination_value(&self.config, settings, spec)?;
+        let navigation_url = if spec.page > 1 {
+            let mut first = spec.clone();
+            first.page = 1;
+            Some(
+                PageRoute::from_source(
+                    &self.config,
+                    view_page_source(self.settings(spec.view.blog), &first)?,
+                )?
+                .url,
+            )
+        } else {
+            None
+        };
+        let mut variables = BTreeMap::from([
+            (
+                "_blog_date_format".into(),
+                Dynamic::String(settings.post_date_format.clone()),
+            ),
+            ("posts".into(), Dynamic::List(excerpts)),
+            ("pagination".into(), pagination),
+        ]);
+        if let Some(url) = &navigation_url {
+            variables.insert(
+                "_blog_original_url".into(),
+                Dynamic::String(url.clone()),
+            );
+        }
+        Ok(Some(Patch {
+            target: target.clone(),
+            content: None,
+            properties: BTreeMap::new(),
+            navigation_url,
+            siblings: None,
+            template: Some("blog.html".into()),
+            toc,
+            variables,
+        }))
     }
 
     fn post_patches(
@@ -512,9 +546,10 @@ impl Blog {
                 .flat_map(links::targets)
                 .collect::<HashSet<_>>();
             move |resource: &Resource| {
-                sources.iter().any(|source| {
-                    source.as_str() == resource.source_path.as_str()
-                })
+                resource.source_path != resource.path
+                    || sources.iter().any(|source| {
+                        source.as_str() == resource.source_path.as_str()
+                    })
             }
         });
         let blog = self.clone();
@@ -542,6 +577,7 @@ impl Blog {
             by_source.values().map(|(_, page)| *page),
             resources.iter().map(|(_, resource)| resource),
         );
+        let mappings = resource_mappings(resources);
         let item = |index: usize| {
             view.posts.get(index).and_then(|post| {
                 by_source
@@ -558,9 +594,11 @@ impl Blog {
             .iter()
             .enumerate()
             .map(|(index, post)| {
-                let (target, _) = by_source
+                let (target, page) = by_source
                     .get(&post.source)
                     .expect("ordered posts have selected pages");
+                let content =
+                    html::rewrite_urls(&page.content, &page.url, &mappings);
                 let properties = descriptors
                     .get(&post.source)
                     .and_then(|post| post.links.as_deref())
@@ -579,6 +617,7 @@ impl Blog {
                     (*target).clone(),
                     Patch {
                         target: (*target).clone(),
+                        content,
                         properties,
                         variables: BTreeMap::new(),
                         navigation_url: Some(navigation_url.clone()),
@@ -1018,6 +1057,49 @@ impl Blog {
     }
 }
 
+// ----------------------------------------------------------------------------
+// Trait implementations
+// ----------------------------------------------------------------------------
+
+impl Value for Patch {}
+impl Value for Classified {}
+impl Value for Entrypoint {}
+impl Value for Pages {}
+impl Value for ViewPages {}
+impl Value for Documents {}
+impl Value for HiddenNavigationPage {}
+
+// ----------------------------------------------------------------------------
+// Type aliases
+// ----------------------------------------------------------------------------
+
+type ViewPatchInput = (
+    collection::ViewPageSpec,
+    Vec<(Key<Id>, Page)>,
+    Vec<(Key<Id>, Page)>,
+    Vec<(Key<Id>, Resource)>,
+);
+
+type GeneratedPageInput = (
+    collection::ViewPageSpec,
+    Vec<(Key<Id>, Entrypoint)>,
+    Vec<(Key<Id>, DocumentHeader)>,
+    Vec<(Key<Id>, DocumentHeader)>,
+);
+
+type AuthorJoin = (PostDescriptor, Vec<(Key<Id>, author::Catalog)>);
+
+type PostPatchInput = (
+    collection::OrderedView,
+    Vec<(Key<Id>, PostDescriptor)>,
+    Vec<(Key<Id>, Page)>,
+    Vec<(Key<Id>, Resource)>,
+);
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
 fn entrypoint_source(
     settings: &BlogPluginConfig,
 ) -> anyhow::Result<SourcePath> {
@@ -1403,11 +1485,26 @@ fn integrated_toc(
     toc
 }
 
+fn resource_mappings(
+    resources: &[(Key<Id>, Resource)],
+) -> HashMap<String, String> {
+    resources
+        .iter()
+        .filter(|(_, resource)| resource.source_path != resource.path)
+        .map(|(_, resource)| {
+            (resource.source_path.to_string(), resource.path.to_string())
+        })
+        .collect()
+}
+
 fn excerpt(
     page: &Page, view_url: &str, settings: &BlogPluginConfig,
+    mappings: &HashMap<String, String>,
 ) -> anyhow::Result<Dynamic> {
+    let rewritten = html::rewrite_urls(&page.content, &page.url, mappings);
+    let content = rewritten.as_deref().unwrap_or(&page.content);
     let (content, more) =
-        excerpt_parts(&page.content, &settings.post_excerpt_separator);
+        excerpt_parts(content, &settings.post_excerpt_separator);
     let href = url::relative(view_url, &page.url);
     let content = html::rebase_urls_with_fragment_base(
         content, &page.url, view_url, &href,
@@ -1463,6 +1560,10 @@ fn truncate_list(
         values.truncate(maximum);
     }
 }
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

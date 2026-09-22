@@ -374,9 +374,9 @@ fn apply_blog(
                 if let Some(template) = &patch.template {
                     rendered.page.apply_template(template.clone());
                 }
-                if patch.toc.is_some() {
+                if patch.content.is_some() || patch.toc.is_some() {
                     rendered.page.apply_derived(
-                        None,
+                        patch.content.clone(),
                         patch.toc.clone(),
                         BTreeMap::new(),
                     );

@@ -143,6 +143,38 @@ def test_posts_are_routed_from_dates_and_native_unicode_slugs(
     assert not (tmp_path / "site" / "blog" / "posts" / "hello").exists()
 
 
+def test_explicit_post_metadata_controls_route_order_and_readtime(
+    tmp_path: Path,
+) -> None:
+    config = _project(tmp_path)
+    _post(tmp_path, "newer.md", "Newer", "2026-09-03")
+    _post(
+        tmp_path,
+        "pinned.md",
+        "Pinned",
+        "2026-09-01",
+        slug="explicit-route",
+        pin=True,
+        readtime=17,
+    )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    post = (
+        tmp_path
+        / "site"
+        / "blog"
+        / "2026"
+        / "09"
+        / "01"
+        / "explicit-route"
+        / "index.html"
+    ).read_text("utf-8")
+    assert "|READ=17|" in post
+    view = (tmp_path / "site" / "blog" / "index.html").read_text("utf-8")
+    assert view.index("Pinned:") < view.index("Newer:")
+
+
 def test_paginated_blog_pages_are_generated_without_source_files(
     tmp_path: Path,
 ) -> None:
@@ -348,6 +380,18 @@ def test_empty_blog_has_no_reachable_pagination_pages(tmp_path: Path) -> None:
 
     page = (tmp_path / "site" / "blog" / "index.html").read_text("utf-8")
     assert page == "1/0|0|none|none"
+
+
+def test_empty_blog_omits_unreachable_archive_navigation(
+    tmp_path: Path,
+) -> None:
+    config = _project(tmp_path, archive=True)
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    page = (tmp_path / "site" / "blog" / "index.html").read_text("utf-8")
+    assert "Archive[" not in page
+    assert not (tmp_path / "site" / "blog" / "archive").exists()
 
 
 def test_missing_blog_entrypoint_is_generated_without_mutating_docs(
@@ -804,6 +848,40 @@ def test_unknown_post_author_is_rejected(tmp_path: Path) -> None:
         zensical.build(str(config), _BUILD_OPTIONS)
 
 
+def test_custom_author_catalog_is_consumed_without_being_published(
+    tmp_path: Path,
+) -> None:
+    config = _project(tmp_path, authors=True, author_profiles=True)
+    with config.open("a", encoding="utf-8") as stream:
+        stream.write("      authors_file: '{blog}/people.yml'\n")
+    (tmp_path / "docs" / "blog" / "people.yml").write_text(
+        """\
+authors:
+  jane:
+    name: Jane Doe
+    description: Technical writer
+    avatar: jane.png
+    slug: jane-doe
+""",
+        encoding="utf-8",
+    )
+    _post(
+        tmp_path,
+        "one.md",
+        "One",
+        "2026-09-01",
+        authors=["jane"],
+    )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    profile = (
+        tmp_path / "site" / "blog" / "author" / "jane-doe" / "index.html"
+    )
+    assert profile.is_file()
+    assert not (tmp_path / "site" / "blog" / "people.yml").exists()
+
+
 def test_post_assets_are_relocated_to_the_public_blog_tree(
     tmp_path: Path,
 ) -> None:
@@ -816,7 +894,7 @@ def test_post_assets_are_relocated_to_the_public_blog_tree(
         "one.md",
         "One",
         "2026-09-01",
-        body="![Image](../assets/image.png)",
+        body="![Image](assets/image.png)",
     )
 
     zensical.build(str(config), _BUILD_OPTIONS)
@@ -836,6 +914,90 @@ def test_post_assets_are_relocated_to_the_public_blog_tree(
         / "index.html"
     ).read_text("utf-8")
     assert 'src="../../../../assets/image.png"' in post
+    view = (tmp_path / "site" / "blog" / "index.html").read_text("utf-8")
+    assert 'src="assets/image.png"' in view
+    assert "posts/assets/image.png" not in post
+    assert "posts/assets/image.png" not in view
+
+
+def test_nested_post_asset_links_preserve_suffixes_and_url_boundaries(
+    tmp_path: Path,
+) -> None:
+    config = _project(tmp_path)
+    posts = tmp_path / "docs" / "blog" / "posts"
+    media = posts / "nested" / "media"
+    media.mkdir(parents=True)
+    media.joinpath("image.svg").write_text("<svg></svg>", encoding="utf-8")
+    media.joinpath("reference.txt").write_text("reference", encoding="utf-8")
+    _post(
+        tmp_path,
+        "nested/one.md",
+        "One",
+        "2026-09-01",
+        body=(
+            "[Markdown](media/reference.txt?download=1#part)\n\n"
+            "![Image](media/image.svg?version=2#icon)\n\n"
+            '<a href="media/reference.txt?raw=1#part">Raw</a>\n'
+            '<img src="media/image.svg?raw=1#icon" alt="Raw image">\n\n'
+            "[Root](/shared.txt) [External](https://example.org/file)"
+        ),
+    )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    output = tmp_path / "site" / "blog" / "nested" / "media"
+    assert output.joinpath("image.svg").is_file()
+    post = (
+        tmp_path
+        / "site"
+        / "blog"
+        / "2026"
+        / "09"
+        / "01"
+        / "one"
+        / "index.html"
+    ).read_text("utf-8")
+    assert "../../../../nested/media/reference.txt?download=1#part" in post
+    assert "../../../../nested/media/image.svg?version=2#icon" in post
+    assert "../../../../nested/media/reference.txt?raw=1#part" in post
+    assert "../../../../nested/media/image.svg?raw=1#icon" in post
+    assert 'href="/shared.txt"' in post
+    assert 'href="https://example.org/file"' in post
+    view = (tmp_path / "site" / "blog" / "index.html").read_text("utf-8")
+    assert "nested/media/reference.txt?download=1#part" in view
+    assert "nested/media/reference.txt?raw=1#part" in view
+
+
+@pytest.mark.parametrize(
+    ("date", "categories", "message"),
+    [
+        ("not-a-date", None, "invalid date"),
+        ("2026-09-01", ["Forbidden"], "outside categories_allowed"),
+    ],
+)
+def test_invalid_post_metadata_is_rejected(
+    tmp_path: Path,
+    date: str,
+    categories: list[str] | None,
+    message: str,
+) -> None:
+    config = _project(tmp_path, categories=categories is not None)
+    if categories is not None:
+        with config.open("a", encoding="utf-8") as stream:
+            stream.write("      categories_allowed: [Allowed]\n")
+    if categories is None:
+        _post(tmp_path, "one.md", "One", date)
+    else:
+        _post(
+            tmp_path,
+            "one.md",
+            "One",
+            date,
+            categories=categories,
+        )
+
+    with pytest.raises(RuntimeError, match=message):
+        zensical.build(str(config), _BUILD_OPTIONS)
 
 
 def test_date_display_formats_are_independent_from_archive_routes(

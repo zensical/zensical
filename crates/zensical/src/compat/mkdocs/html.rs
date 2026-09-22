@@ -27,6 +27,7 @@
 
 use html5gum::emitters::callback::{CallbackEmitter, CallbackEvent};
 use html5gum::{Span, Tokenizer};
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::ops::Range;
 
@@ -59,11 +60,26 @@ pub struct Editor<'a> {
 
 /// Rewrites page-relative link and media targets between route bases.
 struct RebaseUrls<'a> {
+    /// Route against which current relative URLs are resolved.
     from: &'a str,
+    /// Route from which rewritten relative URLs are emitted.
     to: &'a str,
+    /// Optional target used for fragment-only links.
     fragment_base: Option<&'a str>,
+    /// Whether the tokenizer is currently reading an attribute value.
     attribute: bool,
+    /// Whether the current attribute is an `href` rather than a `src`.
     href: bool,
+}
+
+/// Rewrites resource source paths to their emitted public paths.
+struct RewriteUrls<'a> {
+    /// Route against which relative resource URLs are resolved.
+    base: &'a str,
+    /// Source-to-public resource path mapping.
+    mappings: &'a HashMap<String, String>,
+    /// Whether the tokenizer is currently reading a rewritable attribute.
+    attribute: bool,
 }
 
 /// One replacement in the original HTML input.
@@ -248,6 +264,36 @@ impl Visitor for RebaseUrls<'_> {
     }
 }
 
+impl Visitor for RewriteUrls<'_> {
+    fn visit(
+        &mut self, event: &CallbackEvent<'_>, span: Span<usize>,
+        editor: &mut Editor<'_>,
+    ) {
+        match event {
+            CallbackEvent::OpenStartTag { .. } => self.attribute = false,
+            CallbackEvent::AttributeName { name } => {
+                self.attribute = matches!(*name, b"href" | b"src");
+            }
+            CallbackEvent::AttributeValue { value } if self.attribute => {
+                let value = String::from_utf8_lossy(value);
+                let Some(target) = url::resolve(self.base, &value) else {
+                    return;
+                };
+                let suffix = target.find(['?', '#']).unwrap_or(target.len());
+                let (path, suffix) = target.split_at(suffix);
+                let Some(path) = self.mappings.get(path) else {
+                    return;
+                };
+                editor.replace(
+                    span.start..span.end,
+                    url::relative(self.base, &format!("{path}{suffix}")),
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
@@ -305,6 +351,21 @@ pub fn rebase_urls_with_fragment_base(
     scan(input, &mut [&mut visitor])
 }
 
+/// Rewrites local URLs whose source resources are emitted at another path.
+pub fn rewrite_urls(
+    input: &str, base: &str, mappings: &HashMap<String, String>,
+) -> Option<String> {
+    if mappings.is_empty() {
+        return None;
+    }
+    let mut visitor = RewriteUrls {
+        base,
+        mappings,
+        attribute: false,
+    };
+    scan(input, &mut [&mut visitor])
+}
+
 /// Returns whether a byte is HTML whitespace.
 fn is_whitespace(byte: u8) -> bool {
     matches!(byte, b'\t' | b'\n' | 0x0c | b'\r' | b' ')
@@ -327,8 +388,10 @@ mod tests {
     use html5gum::Span;
 
     use super::{
-        rebase_urls, rebase_urls_with_fragment_base, scan, Editor, Visitor,
+        rebase_urls, rebase_urls_with_fragment_base, rewrite_urls, scan,
+        Editor, Visitor,
     };
+    use std::collections::HashMap;
 
     #[derive(Default)]
     struct RemoveDataAttribute;
@@ -446,6 +509,33 @@ mod tests {
             Some(concat!(
                 r##"<a href="../../2026/09/post/#detail">Detail</a>"##,
                 r#"<img src="../../2026/09/post/asset.png">"#,
+            ))
+        );
+    }
+
+    #[test]
+    fn rewrites_relocated_resource_urls_without_reserializing_html() {
+        let input = concat!(
+            r#"<a href="../../../../blog/posts/assets/file.pdf?raw#page">File</a>"#,
+            r#"<img src='../../../../blog/posts/assets/image.png'>"#,
+            r#"<a href="https://example.com">External</a>"#,
+        );
+        let mappings = HashMap::from([
+            (
+                "blog/posts/assets/file.pdf".into(),
+                "blog/assets/file.pdf".into(),
+            ),
+            (
+                "blog/posts/assets/image.png".into(),
+                "blog/assets/image.png".into(),
+            ),
+        ]);
+        assert_eq!(
+            rewrite_urls(input, "blog/2026/09/post/", &mappings).as_deref(),
+            Some(concat!(
+                r#"<a href="../../../assets/file.pdf?raw#page">File</a>"#,
+                r#"<img src='../../../assets/image.png'>"#,
+                r#"<a href="https://example.com">External</a>"#,
             ))
         );
     }
