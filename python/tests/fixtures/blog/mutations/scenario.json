@@ -1,0 +1,41 @@
+[
+  {
+    "name": "baseline"
+  },
+  {
+    "name": "insert",
+    "copy": {
+      "changes/01-insert.md": "docs/blog/posts/gamma.md"
+    }
+  },
+  {
+    "name": "edit-body",
+    "copy": {
+      "changes/02-body.md": "docs/blog/posts/gamma.md"
+    }
+  },
+  {
+    "name": "change-title-and-slug",
+    "copy": {
+      "changes/03-route.md": "docs/blog/posts/gamma.md"
+    }
+  },
+  {
+    "name": "change-date-and-pin",
+    "copy": {
+      "changes/04-reorder.md": "docs/blog/posts/gamma.md"
+    }
+  },
+  {
+    "name": "toggle-draft",
+    "copy": {
+      "changes/05-draft.md": "docs/blog/posts/gamma.md"
+    }
+  },
+  {
+    "name": "delete-post",
+    "remove": [
+      "docs/blog/posts/alpha.md"
+    ]
+  }
+]

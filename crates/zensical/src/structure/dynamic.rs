@@ -77,6 +77,14 @@ impl Dynamic {
     pub fn from_float(value: f64) -> Self {
         Self::Float(Float(value))
     }
+
+    /// Converts any JSON-compatible serializable value.
+    pub fn from_serialize<T>(value: &T) -> Result<Self, serde_json::Error>
+    where
+        T: Serialize,
+    {
+        serde_json::from_value(serde_json::to_value(value)?)
+    }
 }
 
 // ----------------------------------------------------------------------------

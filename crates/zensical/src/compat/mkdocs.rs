@@ -28,3 +28,4 @@
 pub mod html;
 pub mod plugin;
 pub mod resource;
+pub mod url;

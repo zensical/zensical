@@ -341,6 +341,23 @@ class TestPluginShimming:
         }
         assert config["plugins_hash"] == cfg_module._hash(config["plugins"])
 
+    def test_material_blog_instances_preserve_order_and_aliases(
+        self, tmp_path: Path
+    ) -> None:
+        config = self._parse_yaml(
+            tmp_path,
+            plugins=[
+                {"material/blog": {"blog_dir": "journal"}},
+                {"blog": {"blog_dir": "news"}},
+            ],
+        )
+        assert config["plugins"]["blogs"] == {
+            "config": [
+                {"name": "blog", "config": {"blog_dir": "journal"}},
+                {"name": "blog", "config": {"blog_dir": "news"}},
+            ]
+        }
+
     def test_material_offline_alias_is_normalized(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins=["material/offline"])
         assert "material/offline" not in config["plugins"]

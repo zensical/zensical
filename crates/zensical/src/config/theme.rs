@@ -123,10 +123,30 @@ pub struct Icon {
     pub previous: Option<String>,
     /// Next page icon.
     pub next: Option<String>,
+    /// Blog icons.
+    pub blog: BlogIcon,
     /// Admonition icons.
     pub admonition: BTreeMap<String, String>,
     /// Tag icons.
     pub tag: BTreeMap<String, String>,
+}
+
+// ----------------------------------------------------------------------------
+
+/// Blog icon settings.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct BlogIcon {
+    /// Back-to-index icon.
+    pub back: String,
+    /// Publication date icon.
+    pub date: String,
+    /// Updated date icon.
+    pub date_updated: String,
+    /// Categories icon.
+    pub categories: String,
+    /// Reading time icon.
+    pub readtime: String,
 }
 
 // ----------------------------------------------------------------------------

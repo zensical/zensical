@@ -120,6 +120,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
         "strip_title_tags",
     ),
     "awesome-nav": (),
+    "blog": (),
     "callouts": (
         "aliases",
         "breakless_lists",
@@ -633,6 +634,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(icon, "repo", None, str)
     set_default(icon, "annotation", None, str)
     set_default(icon, "tag", {}, dict)
+    blog = set_default(icon, "blog", {}, dict)
     if theme.get("variant") == "modern":
         set_default(icon, "logo", "lucide/book-open", str)
         set_default(icon, "edit", "lucide/file-pen", str)
@@ -645,6 +647,11 @@ def _apply_defaults(config: dict, path: str) -> dict:
         set_default(icon, "close", "lucide/x", str)
         set_default(icon, "previous", "lucide/arrow-left", str)
         set_default(icon, "next", "lucide/arrow-right", str)
+        set_default(blog, "back", "lucide/arrow-left", str)
+        set_default(blog, "date", "lucide/calendar-days", str)
+        set_default(blog, "date_updated", "lucide/calendar-clock", str)
+        set_default(blog, "categories", "lucide/library", str)
+        set_default(blog, "readtime", "lucide/clock", str)
     else:
         set_default(icon, "logo", None, str)
         set_default(icon, "edit", None, str)
@@ -657,6 +664,11 @@ def _apply_defaults(config: dict, path: str) -> dict:
         set_default(icon, "close", None, str)
         set_default(icon, "previous", None, str)
         set_default(icon, "next", None, str)
+        set_default(blog, "back", "material/arrow-left", str)
+        set_default(blog, "date", "material/calendar", str)
+        set_default(blog, "date_updated", "material/calendar-clock", str)
+        set_default(blog, "categories", "material/bookshelf", str)
+        set_default(blog, "readtime", "material/clock-outline", str)
 
     # Set defaults for theme admonition icons
     admonition = set_default(icon, "admonition", {}, dict)
@@ -1521,6 +1533,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     """Convert plugins configuration to something we can work with."""
     plugins: dict[str, Any] = {}
     tags: list[dict[str, Any]] = []
+    blogs: list[dict[str, Any]] = []
 
     def add(name: Any, data: Any) -> None:
         """Canonicalize Material aliases while preserving tag instances."""
@@ -1540,6 +1553,8 @@ def _convert_plugins(value: Any, config: dict) -> dict:
         if name == "tags":
             _reject_unknown_options("tags", data, _TAGS_SUPPORTED_OPTIONS)
             tags.append({"name": name, "config": data})
+        elif name == "blog":
+            blogs.append({"name": name, "config": data})
         else:
             plugins[name] = data
 
@@ -1567,6 +1582,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     # Rust owns tags defaults, value validation, scalar coercion and callable
     # lowering. Python validates option names and preserves ordered instances.
     plugins["tags"] = tags
+    plugins["blogs"] = blogs
 
     # Search is enabled by default, even when it isn't explicitly configured.
     search = plugins.pop("search", {})

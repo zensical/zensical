@@ -1,0 +1,72 @@
+{
+  "outputs": [
+    "404.html",
+    "blog/2024/01/02/collision/index.html",
+    "blog/index.html"
+  ],
+  "navigation": [
+    {
+      "title": "Blog",
+      "url": "/docs/blog/"
+    }
+  ],
+  "pages": {
+    "blog/2024/01/02/collision/index.html": {
+      "document_title": "Second claimant - Blog collision oracle",
+      "canonical": "/docs/blog/2024/01/02/collision/",
+      "relations": {
+        "prev": null,
+        "next": "/docs/blog/2024/01/02/collision/"
+      },
+      "active_ancestors": [
+        "Blog"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "id": "second-claimant",
+          "title": "Second claimant"
+        }
+      ],
+      "links": [],
+      "posts": [],
+      "pagination": null
+    },
+    "blog/index.html": {
+      "document_title": "Blog - Blog collision oracle",
+      "canonical": "/docs/blog/",
+      "relations": {
+        "prev": null,
+        "next": null
+      },
+      "active_ancestors": [
+        "Blog"
+      ],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "First claimant",
+          "url": "/docs/blog/2024/01/02/collision/",
+          "date": "2024-01-02 00:00:00+00:00",
+          "authors": [],
+          "categories": [],
+          "pinned": false,
+          "continue": null,
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"first-claimant\"><a class=\"toclink\" href=\"2024/01/02/collision/\">First claimant</a></h2><p>First claimant content.</p></div>"
+        },
+        {
+          "title": "Second claimant",
+          "url": "/docs/blog/2024/01/02/collision/",
+          "date": "2024-01-02 00:00:00+00:00",
+          "authors": [],
+          "categories": [],
+          "pinned": false,
+          "continue": null,
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"second-claimant\"><a class=\"toclink\" href=\"2024/01/02/collision/\">Second claimant</a></h2><p>Second claimant content.</p></div>"
+        }
+      ],
+      "pagination": null
+    }
+  }
+}

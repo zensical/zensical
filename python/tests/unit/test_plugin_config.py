@@ -181,7 +181,7 @@ def test_silently_discards_unsupported_mike_options(
     assert capsys.readouterr().err == ""
 
 
-@pytest.mark.parametrize("name", [*PYTHON_PLUGINS, "tags"])
+@pytest.mark.parametrize("name", [*PYTHON_PLUGINS, "tags", "blog"])
 def test_plugin_configuration_must_be_a_mapping(name: str) -> None:
     with pytest.raises(
         ConfigurationError,
@@ -194,7 +194,6 @@ def test_plugin_configuration_must_be_a_mapping(name: str) -> None:
     "name",
     [
         "external",  # does not exist
-        "material/blog",  # exists but isn't supported yet
         "literate_nav",  # misspelling (`_` instead of `-`)
     ],
 )
@@ -210,9 +209,33 @@ def test_ignores_unsupported_plugins(
     assert capsys.readouterr().err == ""
 
 
-@pytest.mark.parametrize("name", ["external", "material/blog", "literate_nav"])
+@pytest.mark.parametrize("name", ["external", "literate_nav"])
 def test_ignores_unsupported_plugin_names(name: str) -> None:
     assert _convert_plugins([name]) == _convert_plugins([])
+
+
+@pytest.mark.parametrize("name", ["blog", "material/blog"])
+@pytest.mark.parametrize("data", [None, {"blog_dir": "journal"}])
+@pytest.mark.parametrize("as_list", [False, True])
+def test_preserves_blog_plugins(
+    name: str, data: dict[str, Any] | None, as_list: bool
+) -> None:
+    value = {name: data}
+    plugins = _convert_plugins([value] if as_list else value)
+
+    assert plugins["blogs"]["config"] == [
+        {"name": "blog", "config": data or {}}
+    ]
+
+
+@pytest.mark.parametrize("name", ["blog", "material/blog"])
+@pytest.mark.parametrize("data", [True, 42, "config", []])
+def test_rejects_invalid_blog_configuration(name: str, data: Any) -> None:
+    with pytest.raises(
+        ConfigurationError,
+        match="blog configuration must be a mapping",
+    ):
+        _convert_plugins({name: data})
 
 
 @pytest.mark.parametrize("prefix", ["", "material/"])

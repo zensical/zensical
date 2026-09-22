@@ -83,6 +83,17 @@ pub struct NavigationResolution {
     title_overrides: Arc<HashMap<SourcePath, String>>,
 }
 
+/// Immutable items attached beside one resolved index page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NavigationContribution {
+    /// URL of the index page that owns the contributed items.
+    pub index_url: String,
+    /// Whether a root index can receive sibling items.
+    pub allow_root: bool,
+    /// Ordered items appended after the index page.
+    pub items: Vec<NavigationItem>,
+}
+
 // ----------------------------------------------------------------------------
 // Implementations
 // ----------------------------------------------------------------------------
@@ -213,6 +224,11 @@ impl Navigation {
 
     /// Return the next page for the given page in pre-order, if any.
     pub fn next_page(&self, page: &Page) -> Option<NavigationItem> {
+        self.next_page_for_url(&page.url)
+    }
+
+    /// Returns the next page after a URL in pre-order, if any.
+    pub fn next_page_for_url(&self, url: &str) -> Option<NavigationItem> {
         let mut found = false;
         for item in self {
             if found {
@@ -221,7 +237,7 @@ impl Navigation {
                 }
                 continue;
             }
-            if item.url.as_deref() == Some(&page.url) {
+            if item.url.as_deref() == Some(url) {
                 found = true;
             }
         }
@@ -230,9 +246,14 @@ impl Navigation {
 
     /// Return the previous page for the given page in pre-order, if any.
     pub fn previous_page(&self, page: &Page) -> Option<NavigationItem> {
+        self.previous_page_for_url(&page.url)
+    }
+
+    /// Returns the previous page before a URL in pre-order, if any.
+    pub fn previous_page_for_url(&self, url: &str) -> Option<NavigationItem> {
         let mut prev: Option<NavigationItem> = None;
         for item in self {
-            if item.url.as_deref() == Some(&page.url) {
+            if item.url.as_deref() == Some(url) {
                 return prev;
             }
             if item.url.is_some() {
@@ -255,6 +276,21 @@ impl NavigationResolution {
     /// Returns the explicit title assigned to the page's first occurrence.
     pub fn title(&self, source: &SourcePath) -> Option<&str> {
         self.title_overrides.get(source).map(String::as_str)
+    }
+
+    /// Applies ordered navigation contributions without mutating the base.
+    pub fn contribute(&self, contributions: &[NavigationContribution]) -> Self {
+        let mut navigation = self.navigation.clone();
+        let mut items = navigation.items.as_ref().clone();
+        for contribution in contributions {
+            let _ = attach_contribution(&mut items, contribution, 0);
+        }
+        navigation.hash = navigation_hash(&items);
+        navigation.items = Arc::new(items);
+        Self {
+            navigation,
+            title_overrides: Arc::clone(&self.title_overrides),
+        }
     }
 }
 
@@ -389,6 +425,34 @@ fn resolve_items(
     }
 }
 
+/// Attaches a contribution next to its owning index's first occurrence.
+fn attach_contribution(
+    items: &mut Vec<NavigationItem>, contribution: &NavigationContribution,
+    depth: usize,
+) -> bool {
+    for index in 0..items.len() {
+        if items[index].url.as_deref() == Some(&contribution.index_url) {
+            if items[index].is_index {
+                if depth == 0 && !contribution.allow_root {
+                    return true;
+                }
+                items.splice((index + 1)..=index, contribution.items.clone());
+            } else {
+                items[index].children.extend(contribution.items.clone());
+            }
+            return true;
+        }
+        if attach_contribution(
+            &mut items[index].children,
+            contribution,
+            depth + 1,
+        ) {
+            return true;
+        }
+    }
+    false
+}
+
 // ----------------------------------------------------------------------------
 
 /// Returns the MkDocs navigation sort key for one validated source path.
@@ -441,11 +505,15 @@ fn extract_shared_items(
 
 #[cfg(test)]
 mod tests {
+    use ahash::HashMap;
     use std::sync::Arc;
 
     use crate::path::SourcePath;
 
-    use super::{navigation_hash, source_sort_key, to_title, Navigation};
+    use super::{
+        navigation_hash, source_sort_key, to_title, Navigation,
+        NavigationContribution, NavigationItem, NavigationResolution,
+    };
 
     #[test]
     fn test_clone_shares_immutable_data() {
@@ -494,5 +562,55 @@ mod tests {
         assert_eq!(sources[0].as_str(), "guide/index.md");
         assert_eq!(sources[1].as_str(), "guide/café.md");
         assert_eq!(sources[2].as_str(), "guide/zebra.md");
+    }
+
+    #[test]
+    fn contributes_items_beside_a_nested_index_immutably() {
+        let index = NavigationItem {
+            title: Some("Journal".into()),
+            url: Some("blog/".into()),
+            canonical_url: None,
+            meta: None,
+            children: Vec::new(),
+            is_index: true,
+            active: false,
+        };
+        let base = NavigationResolution {
+            navigation: Navigation {
+                items: Arc::new(vec![NavigationItem {
+                    title: Some("Blog".into()),
+                    url: None,
+                    canonical_url: None,
+                    meta: None,
+                    children: vec![index],
+                    is_index: false,
+                    active: false,
+                }]),
+                homepage: None,
+                hash: 0,
+                generation: 0,
+            },
+            title_overrides: Arc::new(HashMap::default()),
+        };
+        let result = base.contribute(&[NavigationContribution {
+            index_url: "blog/".into(),
+            allow_root: false,
+            items: vec![NavigationItem {
+                title: Some("Archive".into()),
+                url: None,
+                canonical_url: None,
+                meta: None,
+                children: Vec::new(),
+                is_index: false,
+                active: false,
+            }],
+        }]);
+
+        assert_eq!(base.navigation.items[0].children.len(), 1);
+        assert_eq!(result.navigation.items[0].children.len(), 2);
+        assert_eq!(
+            result.navigation.items[0].children[1].title.as_deref(),
+            Some("Archive")
+        );
     }
 }

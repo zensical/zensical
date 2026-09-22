@@ -1,0 +1,912 @@
+{
+  "steps": [
+    {
+      "name": "baseline",
+      "manifest": {
+        "outputs": [
+          "404.html",
+          "blog/2024/01/01/alpha/index.html",
+          "blog/2024/02/01/beta/index.html",
+          "blog/index.html"
+        ],
+        "navigation": [
+          {
+            "title": "Blog",
+            "url": "/docs/blog/"
+          }
+        ],
+        "pages": {
+          "blog/2024/01/01/alpha/index.html": {
+            "document_title": "Alpha - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/01/01/alpha/",
+            "relations": {
+              "prev": null,
+              "next": "/docs/blog/2024/02/01/beta/"
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": "alpha",
+                "title": "Alpha"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/2024/02/01/beta/index.html": {
+            "document_title": "Beta - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/02/01/beta/",
+            "relations": {
+              "prev": "/docs/blog/2024/01/01/alpha/",
+              "next": null
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": "beta",
+                "title": "Beta"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/index.html": {
+            "document_title": "Blog - Blog mutation oracle",
+            "canonical": "/docs/blog/",
+            "relations": {
+              "prev": null,
+              "next": null
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [],
+            "links": [],
+            "posts": [
+              {
+                "title": "Beta",
+                "url": "/docs/blog/2024/02/01/beta/",
+                "date": "2024-02-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"beta\"><a class=\"toclink\" href=\"2024/02/01/beta/\">Beta</a></h2><p>Beta excerpt.</p></div>"
+              },
+              {
+                "title": "Alpha",
+                "url": "/docs/blog/2024/01/01/alpha/",
+                "date": "2024-01-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"alpha\"><a class=\"toclink\" href=\"2024/01/01/alpha/\">Alpha</a></h2><p>Alpha excerpt.</p></div>"
+              }
+            ],
+            "pagination": {
+              "current": 1,
+              "links": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "insert",
+      "manifest": {
+        "outputs": [
+          "404.html",
+          "blog/2024/01/01/alpha/index.html",
+          "blog/2024/02/01/beta/index.html",
+          "blog/2024/03/01/gamma/index.html",
+          "blog/index.html",
+          "blog/page/2/index.html"
+        ],
+        "navigation": [
+          {
+            "title": "Blog",
+            "url": "/docs/blog/"
+          }
+        ],
+        "pages": {
+          "blog/2024/01/01/alpha/index.html": {
+            "document_title": "Alpha - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/01/01/alpha/",
+            "relations": {
+              "prev": null,
+              "next": "/docs/blog/2024/02/01/beta/"
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": "alpha",
+                "title": "Alpha"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/2024/02/01/beta/index.html": {
+            "document_title": "Beta - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/02/01/beta/",
+            "relations": {
+              "prev": "/docs/blog/2024/01/01/alpha/",
+              "next": "/docs/blog/2024/03/01/gamma/"
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": "beta",
+                "title": "Beta"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/2024/03/01/gamma/index.html": {
+            "document_title": "Gamma - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/03/01/gamma/",
+            "relations": {
+              "prev": "/docs/blog/2024/02/01/beta/",
+              "next": null
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": "gamma",
+                "title": "Gamma"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/index.html": {
+            "document_title": "Blog - Blog mutation oracle",
+            "canonical": "/docs/blog/",
+            "relations": {
+              "prev": null,
+              "next": null
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [],
+            "links": [],
+            "posts": [
+              {
+                "title": "Gamma",
+                "url": "/docs/blog/2024/03/01/gamma/",
+                "date": "2024-03-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"gamma\"><a class=\"toclink\" href=\"2024/03/01/gamma/\">Gamma</a></h2><p>Initial gamma excerpt.</p></div>"
+              },
+              {
+                "title": "Beta",
+                "url": "/docs/blog/2024/02/01/beta/",
+                "date": "2024-02-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"beta\"><a class=\"toclink\" href=\"2024/02/01/beta/\">Beta</a></h2><p>Beta excerpt.</p></div>"
+              }
+            ],
+            "pagination": {
+              "current": 1,
+              "links": [
+                {
+                  "title": "2",
+                  "url": "/docs/blog/page/2/"
+                }
+              ]
+            }
+          },
+          "blog/page/2/index.html": {
+            "document_title": "Blog - Blog mutation oracle",
+            "canonical": "/docs/blog/page/2/",
+            "relations": {
+              "prev": null,
+              "next": null
+            },
+            "active_ancestors": [],
+            "headings": [],
+            "links": [],
+            "posts": [
+              {
+                "title": "Alpha",
+                "url": "/docs/blog/2024/01/01/alpha/",
+                "date": "2024-01-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"alpha\"><a class=\"toclink\" href=\"../../2024/01/01/alpha/\">Alpha</a></h2><p>Alpha excerpt.</p></div>"
+              }
+            ],
+            "pagination": {
+              "current": 2,
+              "links": [
+                {
+                  "title": "1",
+                  "url": "/docs/blog/"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "edit-body",
+      "manifest": {
+        "outputs": [
+          "404.html",
+          "blog/2024/01/01/alpha/index.html",
+          "blog/2024/02/01/beta/index.html",
+          "blog/2024/03/01/gamma/index.html",
+          "blog/index.html",
+          "blog/page/2/index.html"
+        ],
+        "navigation": [
+          {
+            "title": "Blog",
+            "url": "/docs/blog/"
+          }
+        ],
+        "pages": {
+          "blog/2024/01/01/alpha/index.html": {
+            "document_title": "Alpha - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/01/01/alpha/",
+            "relations": {
+              "prev": null,
+              "next": "/docs/blog/2024/02/01/beta/"
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": "alpha",
+                "title": "Alpha"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/2024/02/01/beta/index.html": {
+            "document_title": "Beta - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/02/01/beta/",
+            "relations": {
+              "prev": "/docs/blog/2024/01/01/alpha/",
+              "next": "/docs/blog/2024/03/01/gamma/"
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": "beta",
+                "title": "Beta"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/2024/03/01/gamma/index.html": {
+            "document_title": "Gamma - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/03/01/gamma/",
+            "relations": {
+              "prev": "/docs/blog/2024/02/01/beta/",
+              "next": null
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": "gamma",
+                "title": "Gamma"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/index.html": {
+            "document_title": "Blog - Blog mutation oracle",
+            "canonical": "/docs/blog/",
+            "relations": {
+              "prev": null,
+              "next": null
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [],
+            "links": [],
+            "posts": [
+              {
+                "title": "Gamma",
+                "url": "/docs/blog/2024/03/01/gamma/",
+                "date": "2024-03-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"gamma\"><a class=\"toclink\" href=\"2024/03/01/gamma/\">Gamma</a></h2><p>Edited gamma excerpt.</p></div>"
+              },
+              {
+                "title": "Beta",
+                "url": "/docs/blog/2024/02/01/beta/",
+                "date": "2024-02-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"beta\"><a class=\"toclink\" href=\"2024/02/01/beta/\">Beta</a></h2><p>Beta excerpt.</p></div>"
+              }
+            ],
+            "pagination": {
+              "current": 1,
+              "links": [
+                {
+                  "title": "2",
+                  "url": "/docs/blog/page/2/"
+                }
+              ]
+            }
+          },
+          "blog/page/2/index.html": {
+            "document_title": "Blog - Blog mutation oracle",
+            "canonical": "/docs/blog/page/2/",
+            "relations": {
+              "prev": null,
+              "next": null
+            },
+            "active_ancestors": [],
+            "headings": [],
+            "links": [],
+            "posts": [
+              {
+                "title": "Alpha",
+                "url": "/docs/blog/2024/01/01/alpha/",
+                "date": "2024-01-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"alpha\"><a class=\"toclink\" href=\"../../2024/01/01/alpha/\">Alpha</a></h2><p>Alpha excerpt.</p></div>"
+              }
+            ],
+            "pagination": {
+              "current": 2,
+              "links": [
+                {
+                  "title": "1",
+                  "url": "/docs/blog/"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "change-title-and-slug",
+      "manifest": {
+        "outputs": [
+          "404.html",
+          "blog/2024/01/01/alpha/index.html",
+          "blog/2024/02/01/beta/index.html",
+          "blog/2024/03/01/moved-gamma/index.html",
+          "blog/index.html",
+          "blog/page/2/index.html"
+        ],
+        "navigation": [
+          {
+            "title": "Blog",
+            "url": "/docs/blog/"
+          }
+        ],
+        "pages": {
+          "blog/2024/01/01/alpha/index.html": {
+            "document_title": "Alpha - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/01/01/alpha/",
+            "relations": {
+              "prev": null,
+              "next": "/docs/blog/2024/02/01/beta/"
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": "alpha",
+                "title": "Alpha"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/2024/02/01/beta/index.html": {
+            "document_title": "Beta - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/02/01/beta/",
+            "relations": {
+              "prev": "/docs/blog/2024/01/01/alpha/",
+              "next": "/docs/blog/2024/03/01/moved-gamma/"
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": "beta",
+                "title": "Beta"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/2024/03/01/moved-gamma/index.html": {
+            "document_title": "Renamed gamma - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/03/01/moved-gamma/",
+            "relations": {
+              "prev": "/docs/blog/2024/02/01/beta/",
+              "next": null
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": null,
+                "title": "Renamed gamma"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/index.html": {
+            "document_title": "Blog - Blog mutation oracle",
+            "canonical": "/docs/blog/",
+            "relations": {
+              "prev": null,
+              "next": null
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [],
+            "links": [],
+            "posts": [
+              {
+                "title": "Renamed gamma",
+                "url": "/docs/blog/2024/03/01/moved-gamma/",
+                "date": "2024-03-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"renamed-gamma\"><a class=\"toclink\" href=\"2024/03/01/moved-gamma/\">Renamed gamma</a></h2><p>Renamed gamma excerpt.</p></div>"
+              },
+              {
+                "title": "Beta",
+                "url": "/docs/blog/2024/02/01/beta/",
+                "date": "2024-02-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"beta\"><a class=\"toclink\" href=\"2024/02/01/beta/\">Beta</a></h2><p>Beta excerpt.</p></div>"
+              }
+            ],
+            "pagination": {
+              "current": 1,
+              "links": [
+                {
+                  "title": "2",
+                  "url": "/docs/blog/page/2/"
+                }
+              ]
+            }
+          },
+          "blog/page/2/index.html": {
+            "document_title": "Blog - Blog mutation oracle",
+            "canonical": "/docs/blog/page/2/",
+            "relations": {
+              "prev": null,
+              "next": null
+            },
+            "active_ancestors": [],
+            "headings": [],
+            "links": [],
+            "posts": [
+              {
+                "title": "Alpha",
+                "url": "/docs/blog/2024/01/01/alpha/",
+                "date": "2024-01-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"alpha\"><a class=\"toclink\" href=\"../../2024/01/01/alpha/\">Alpha</a></h2><p>Alpha excerpt.</p></div>"
+              }
+            ],
+            "pagination": {
+              "current": 2,
+              "links": [
+                {
+                  "title": "1",
+                  "url": "/docs/blog/"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "change-date-and-pin",
+      "manifest": {
+        "outputs": [
+          "404.html",
+          "blog/2023/12/01/moved-gamma/index.html",
+          "blog/2024/01/01/alpha/index.html",
+          "blog/2024/02/01/beta/index.html",
+          "blog/index.html",
+          "blog/page/2/index.html"
+        ],
+        "navigation": [
+          {
+            "title": "Blog",
+            "url": "/docs/blog/"
+          }
+        ],
+        "pages": {
+          "blog/2023/12/01/moved-gamma/index.html": {
+            "document_title": "Renamed gamma - Blog mutation oracle",
+            "canonical": "/docs/blog/2023/12/01/moved-gamma/",
+            "relations": {
+              "prev": "/docs/blog/2024/02/01/beta/",
+              "next": null
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": null,
+                "title": "Renamed gamma"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/2024/01/01/alpha/index.html": {
+            "document_title": "Alpha - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/01/01/alpha/",
+            "relations": {
+              "prev": null,
+              "next": "/docs/blog/2024/02/01/beta/"
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": "alpha",
+                "title": "Alpha"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/2024/02/01/beta/index.html": {
+            "document_title": "Beta - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/02/01/beta/",
+            "relations": {
+              "prev": "/docs/blog/2024/01/01/alpha/",
+              "next": "/docs/blog/2023/12/01/moved-gamma/"
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": "beta",
+                "title": "Beta"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/index.html": {
+            "document_title": "Blog - Blog mutation oracle",
+            "canonical": "/docs/blog/",
+            "relations": {
+              "prev": null,
+              "next": null
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [],
+            "links": [],
+            "posts": [
+              {
+                "title": "Renamed gamma",
+                "url": "/docs/blog/2023/12/01/moved-gamma/",
+                "date": "2023-12-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": true,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"renamed-gamma\"><a class=\"toclink\" href=\"2023/12/01/moved-gamma/\">Renamed gamma</a></h2><p>Renamed gamma excerpt.</p><hr/></div>"
+              },
+              {
+                "title": "Beta",
+                "url": "/docs/blog/2024/02/01/beta/",
+                "date": "2024-02-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"beta\"><a class=\"toclink\" href=\"2024/02/01/beta/\">Beta</a></h2><p>Beta excerpt.</p></div>"
+              }
+            ],
+            "pagination": {
+              "current": 1,
+              "links": [
+                {
+                  "title": "2",
+                  "url": "/docs/blog/page/2/"
+                }
+              ]
+            }
+          },
+          "blog/page/2/index.html": {
+            "document_title": "Blog - Blog mutation oracle",
+            "canonical": "/docs/blog/page/2/",
+            "relations": {
+              "prev": null,
+              "next": null
+            },
+            "active_ancestors": [],
+            "headings": [],
+            "links": [],
+            "posts": [
+              {
+                "title": "Alpha",
+                "url": "/docs/blog/2024/01/01/alpha/",
+                "date": "2024-01-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"alpha\"><a class=\"toclink\" href=\"../../2024/01/01/alpha/\">Alpha</a></h2><p>Alpha excerpt.</p></div>"
+              }
+            ],
+            "pagination": {
+              "current": 2,
+              "links": [
+                {
+                  "title": "1",
+                  "url": "/docs/blog/"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "toggle-draft",
+      "manifest": {
+        "outputs": [
+          "404.html",
+          "blog/2024/01/01/alpha/index.html",
+          "blog/2024/02/01/beta/index.html",
+          "blog/index.html"
+        ],
+        "navigation": [
+          {
+            "title": "Blog",
+            "url": "/docs/blog/"
+          }
+        ],
+        "pages": {
+          "blog/2024/01/01/alpha/index.html": {
+            "document_title": "Alpha - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/01/01/alpha/",
+            "relations": {
+              "prev": null,
+              "next": "/docs/blog/2024/02/01/beta/"
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": "alpha",
+                "title": "Alpha"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/2024/02/01/beta/index.html": {
+            "document_title": "Beta - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/02/01/beta/",
+            "relations": {
+              "prev": "/docs/blog/2024/01/01/alpha/",
+              "next": null
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": "beta",
+                "title": "Beta"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/index.html": {
+            "document_title": "Blog - Blog mutation oracle",
+            "canonical": "/docs/blog/",
+            "relations": {
+              "prev": null,
+              "next": null
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [],
+            "links": [],
+            "posts": [
+              {
+                "title": "Beta",
+                "url": "/docs/blog/2024/02/01/beta/",
+                "date": "2024-02-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"beta\"><a class=\"toclink\" href=\"2024/02/01/beta/\">Beta</a></h2><p>Beta excerpt.</p></div>"
+              },
+              {
+                "title": "Alpha",
+                "url": "/docs/blog/2024/01/01/alpha/",
+                "date": "2024-01-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"alpha\"><a class=\"toclink\" href=\"2024/01/01/alpha/\">Alpha</a></h2><p>Alpha excerpt.</p></div>"
+              }
+            ],
+            "pagination": {
+              "current": 1,
+              "links": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "delete-post",
+      "manifest": {
+        "outputs": [
+          "404.html",
+          "blog/2024/02/01/beta/index.html",
+          "blog/index.html"
+        ],
+        "navigation": [
+          {
+            "title": "Blog",
+            "url": "/docs/blog/"
+          }
+        ],
+        "pages": {
+          "blog/2024/02/01/beta/index.html": {
+            "document_title": "Beta - Blog mutation oracle",
+            "canonical": "/docs/blog/2024/02/01/beta/",
+            "relations": {
+              "prev": null,
+              "next": null
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [
+              {
+                "level": 1,
+                "id": "beta",
+                "title": "Beta"
+              }
+            ],
+            "links": [],
+            "posts": [],
+            "pagination": null
+          },
+          "blog/index.html": {
+            "document_title": "Blog - Blog mutation oracle",
+            "canonical": "/docs/blog/",
+            "relations": {
+              "prev": null,
+              "next": null
+            },
+            "active_ancestors": [
+              "Blog"
+            ],
+            "headings": [],
+            "links": [],
+            "posts": [
+              {
+                "title": "Beta",
+                "url": "/docs/blog/2024/02/01/beta/",
+                "date": "2024-02-01 00:00:00+00:00",
+                "authors": [],
+                "categories": [],
+                "pinned": false,
+                "continue": null,
+                "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"beta\"><a class=\"toclink\" href=\"2024/02/01/beta/\">Beta</a></h2><p>Beta excerpt.</p></div>"
+              }
+            ],
+            "pagination": {
+              "current": 1,
+              "links": []
+            }
+          }
+        }
+      }
+    }
+  ]
+}

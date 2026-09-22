@@ -27,6 +27,7 @@
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Deref;
@@ -43,22 +44,26 @@ use zrx::stream::{
 
 use crate::compat::mkdocs::plugin::autorefs::UnresolvedAutorefs;
 use crate::compat::mkdocs::{
+    html,
     plugin::{
-        self, autorefs, awesome_nav, literate_nav, meta, minify, mkdocstrings,
-        redirects, search, tags,
+        self, autorefs, awesome_nav, blog, literate_nav, meta, minify,
+        mkdocstrings, redirects, search, tags,
     },
     resource,
 };
 use crate::config::Config;
 use crate::path::{PathError, SitePath, SourcePath};
 use crate::python::{Anchors, Issues, References, SharedReferences};
+use crate::structure::document::DocumentHeader;
+use crate::structure::dynamic::Dynamic;
 use crate::structure::markdown::Markdown;
 use crate::structure::nav::{Navigation, NavigationResolution};
-use crate::structure::page::{Page, PageRoute};
+use crate::structure::page::{Page, PageDescriptor, PageOrigin, PageRoute};
 use crate::template::Template;
 use crate::watcher::Source;
 
 mod cached;
+mod output;
 
 use cached::cached;
 
@@ -154,6 +159,19 @@ impl Value for SitePage {}
 
 // ----------------------------------------------------------------------------
 
+/// Rendered page artifact paired with its validation facts.
+#[derive(Clone, Debug)]
+struct RenderedSitePage {
+    /// Removal-aware, source-owned output artifact.
+    artifact: output::Artifact,
+    /// Autorefs that could not be resolved in this revision.
+    unresolved: UnresolvedAutorefs,
+}
+
+impl Value for RenderedSitePage {}
+
+// ----------------------------------------------------------------------------
+
 /// Page-local work paired with revision-settled shared rendering facts.
 #[derive(Clone, Debug)]
 struct PageRender {
@@ -173,24 +191,17 @@ impl Value for PageRender {}
 
 // ----------------------------------------------------------------------------
 
-/// Markdown source paired with route facts available before rendering.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct RoutedMarkdown {
-    /// Source and revision-local facts supplied by the provider.
-    input: Input,
-    /// Route derived without parsing or rendering Markdown.
-    route: PageRoute,
-}
-
-impl Value for RoutedMarkdown {}
-
-// ----------------------------------------------------------------------------
-
 /// Cached output of rendering one Markdown source.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct RenderedMarkdown {
+    /// Stable logical owner and edit provenance.
+    origin: PageOrigin,
     /// Route computed once before Markdown rendering.
     route: PageRoute,
+    /// Module-owned fields flattened into the template-facing page object.
+    properties: BTreeMap<String, Dynamic>,
+    /// Module-owned top-level template variables.
+    variables: BTreeMap<String, Dynamic>,
     /// Rendered Markdown consumed by page construction.
     markdown: Markdown,
     /// Page title derived from metadata, Markdown, or source name.
@@ -237,12 +248,19 @@ impl Main {
             .setup(resource::Dependencies { sources: &sources });
         let assets =
             minify.setup(minify::Dependencies { resources: &resources });
-        let markdown = route_markdown(&self.config, &files);
+        let documents = read_documents(&self.config, &files);
+        let plugins = plugin::Settings::new(&self.config, self.serve);
+        let blogs = plugins.blog.clone();
+        let blog = setup_blog(&blogs, &documents, &sources);
+        let view_pages = blog.view_pages;
+        let ordered_views = blog.views;
+        let posts = blog.posts;
+        let markdown = blog.pages;
 
         // Redirects depend on routes, not rendered Markdown. Settle their
         // compact input independently so they can proceed concurrently with
         // the Python rendering branch.
-        let routes = markdown.map(|input: &RoutedMarkdown| input.route.clone());
+        let routes = markdown.map(|input: &PageDescriptor| input.route.clone());
         let redirect_settings =
             configuration.map(|configuration: &Configuration| {
                 redirects::Settings::new(
@@ -255,14 +273,14 @@ impl Main {
             routes: &routes,
         });
 
-        let plugins = plugin::Settings::new(&self.config, self.serve);
         let rendered = process_markdown(&self.config, &plugins, &markdown);
 
-        // Construct pages before resolving navigation, which needs the titles
-        // derived from Markdown for entries without an explicit title.
+        // Navigation needs the final titles derived from Markdown.
         let provisional = generate_page(&self.config, &rendered);
         let provisional_page =
             provisional.map(|rendered: &RenderedPage| rendered.page.clone());
+        let navigation_page =
+            blogs.navigation_pages(&provisional_page, &view_pages);
         // Autorefs only consumes registrations gathered during Markdown
         // rendering, so keep it independent of finalized navigation titles.
         let autorefs_input =
@@ -273,23 +291,23 @@ impl Main {
         let autorefs = plugins
             .autorefs
             .setup(autorefs::Dependencies { pages: &autorefs_input });
-        let awesome_nav =
-            awesome_nav::AwesomeNav::new(&self.config, self.strict).expect(
-                "awesome-nav configuration is validated during loading",
-            );
-        let resolution = if awesome_nav.is_enabled() {
-            awesome_nav.setup(awesome_nav::Dependencies {
-                sources: &sources,
-                pages: &provisional_page,
-            })
-        } else {
-            literate_nav::LiterateNav::new(&self.config).setup(
-                literate_nav::Dependencies {
-                    sources: &sources,
-                    pages: &provisional_page,
-                },
-            )
-        };
+        let resolution = resolve_navigation(
+            &self.config,
+            self.strict,
+            &blogs,
+            &sources,
+            &navigation_page,
+            &provisional_page,
+            &view_pages,
+        );
+        let blog_patches = blogs.patches(
+            &provisional_page,
+            &posts,
+            &resources,
+            &view_pages,
+            &ordered_views,
+            &resolution,
+        );
         let nav = resolution
             .map(|value: &NavigationResolution| value.navigation.clone());
         // MkDocs assigns configured navigation titles when constructing Page
@@ -297,6 +315,7 @@ impl Main {
         // navigation is resolved later, so apply that highest-precedence title
         // once the complete navigation is available.
         let rendered_page = apply_navigation_titles(&provisional, &resolution);
+        let rendered_page = apply_blog(&rendered_page, &blog_patches);
         let rendered_page = apply_tags(&plugins.tags, &rendered_page);
         let page =
             rendered_page.map(|rendered: &RenderedPage| rendered.page.clone());
@@ -335,6 +354,66 @@ impl Main {
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
+
+/// Applies revision-complete blog view variables to their containing pages.
+fn apply_blog(
+    pages: &Stream<Id, RenderedPage>, patches: &Stream<Id, blog::Patch>,
+) -> Stream<Id, RenderedPage> {
+    (pages.clone(), patches.clone()).left_join().map(
+        |(rendered, patch): &(RenderedPage, Option<blog::Patch>)| {
+            let mut rendered = rendered.clone();
+            if let Some(patch) = patch {
+                if let Some(url) = &patch.navigation_url {
+                    rendered.page.apply_navigation_url(url.clone());
+                }
+                if let Some((previous, next)) = &patch.siblings {
+                    rendered.page.apply_navigation_siblings(
+                        previous.clone(),
+                        next.clone(),
+                    );
+                }
+                if let Some(template) = &patch.template {
+                    rendered.page.apply_template(template.clone());
+                }
+                if patch.content.is_some() || patch.toc.is_some() {
+                    rendered.page.apply_derived(
+                        patch.content.clone(),
+                        patch.toc.clone(),
+                        BTreeMap::new(),
+                    );
+                }
+                rendered.page.merge_properties(&patch.properties);
+                rendered
+                    .page
+                    .merge_template_variables(patch.variables.clone());
+            }
+            rendered
+        },
+    )
+}
+
+fn resolve_navigation(
+    config: &Config, strict: bool, blogs: &blog::Blog,
+    sources: &Stream<Id, Source>, navigation_pages: &Stream<Id, Page>,
+    all_pages: &Stream<Id, Page>, view_pages: &Stream<Id, blog::ViewPageSpec>,
+) -> Signal<Id, NavigationResolution> {
+    let awesome_nav = awesome_nav::AwesomeNav::new(config, strict)
+        .expect("awesome-nav configuration is validated during loading");
+    let resolution = if awesome_nav.is_enabled() {
+        awesome_nav.setup(awesome_nav::Dependencies {
+            sources,
+            pages: navigation_pages,
+        })
+    } else {
+        literate_nav::LiterateNav::new(config).setup(
+            literate_nav::Dependencies {
+                sources,
+                pages: navigation_pages,
+            },
+        )
+    };
+    blogs.navigation(&resolution, all_pages, view_pages)
+}
 
 /// Applies explicit navigation titles to their pages.
 fn apply_navigation_titles(
@@ -418,10 +497,17 @@ fn page_hash(page: &Page, autorefs: &autorefs::References) -> u64 {
     hasher.finish()
 }
 
-/// Select Markdown sources and derive their routes before rendering.
-fn route_markdown(
+fn setup_blog(
+    blogs: &blog::Blog, documents: &Stream<Id, DocumentHeader>,
+    sources: &Stream<Id, Source>,
+) -> blog::Output {
+    blogs.setup(blog::Dependencies { documents, sources })
+}
+
+/// Read Markdown sources and resolve their pre-render document facts.
+fn read_documents(
     config: &Config, files: &Stream<Id, Input>,
-) -> Stream<Id, RoutedMarkdown> {
+) -> Stream<Id, DocumentHeader> {
     let matcher = Arc::new(
         Matcher::from_str(&format!(
             "zrs::::{}:**/*.md:",
@@ -429,7 +515,6 @@ fn route_markdown(
         ))
         .expect("invariant"),
     );
-    let config = config.clone();
     files.filter_map(move |id: &Id, input: &Input| {
         if !matcher.is_match(id).expect("invariant") {
             return Ok(None);
@@ -438,10 +523,14 @@ fn route_markdown(
         if source.is_hidden() {
             return Ok(None);
         }
-        Ok::<_, crate::path::PathError>(Some(RoutedMarkdown {
-            input: input.clone(),
-            route: PageRoute::from_source(&config, source)?,
-        }))
+        let data = fs::read_to_string(&*input.source)?;
+        let (body, page_meta) = meta::front_matter(&source, &data)?;
+        let resolved = input.metadata.resolve(&source, page_meta)?;
+        Ok::<_, anyhow::Error>(Some(DocumentHeader::new(
+            source,
+            body,
+            resolved.values(),
+        )))
     })
 }
 
@@ -453,7 +542,7 @@ pub fn has_snippets(data: &str) -> bool {
 /// Create a stream to process routed Markdown files.
 fn process_markdown(
     config: &Config, plugins: &plugin::Settings,
-    routed: &Stream<Id, RoutedMarkdown>,
+    routed: &Stream<Id, PageDescriptor>,
 ) -> Stream<Id, RenderedMarkdown> {
     // Create pipeline to render Markdown files
     let plugins = plugins.clone();
@@ -463,36 +552,47 @@ fn process_markdown(
         // disposal. Otherwise, just return that if the content did not change.
         // Note that we need to limit concurrency here, or we'll overwhelm the
         // Python interpreter with all tasks competing for the GIL.
-        .map(concurrent(1, move |id: &Id, routed: &RoutedMarkdown| {
-            let data = fs::read_to_string(&*routed.input.source)?;
+        .map(concurrent(1, move |routed: &PageDescriptor| {
+            let origin = routed.origin.clone();
             let route = routed.route.clone();
-
-            let (data, page_meta) = meta::front_matter(&route.source, &data)?;
-            let resolved =
-                routed.input.metadata.resolve(&route.source, page_meta)?;
+            let document = routed.document.clone();
+            let properties = routed.properties.clone();
+            let variables = routed.variables.clone();
             // Don't cache page if it inserts (pymdownx) snippets.
             // This is a hack while waiting for CommonMark (AST) and components,
             // as well as topic-based authoring functionality.
-            if has_snippets(&data) {
-                render_markdown(id, route, data, plugins.clone(), resolved)
+            if has_snippets(&document.body) {
+                render_markdown(
+                    &config,
+                    origin,
+                    route,
+                    document,
+                    properties,
+                    variables,
+                    plugins.clone(),
+                )
             } else {
                 cached(
                     &config,
-                    id.as_str(),
+                    document.source.as_str(),
                     (
-                        1_u8,
+                        3_u8,
                         config.hash,
-                        data.clone(),
+                        origin,
+                        document.clone(),
                         route.clone(),
-                        resolved.clone(),
+                        properties,
+                        variables,
                     ),
-                    |(_, _, data, route, resolved)| {
+                    |(_, _, origin, document, route, properties, variables)| {
                         render_markdown(
-                            id,
+                            &config,
+                            origin,
                             route,
-                            data,
+                            document,
+                            properties,
+                            variables,
                             plugins.clone(),
-                            resolved,
                         )
                     },
                 )
@@ -516,30 +616,57 @@ fn apply_tags(
     (pages.clone(), patches).join().map(
         |(rendered, patch): &(RenderedPage, tags::Patch)| {
             let mut rendered = rendered.clone();
+            let variables = patch
+                .variables
+                .iter()
+                .map(|(name, value)| {
+                    Ok((name.clone(), Dynamic::from_serialize(value)?))
+                })
+                .collect::<Result<BTreeMap<_, _>, serde_json::Error>>()?;
             rendered.page.apply_derived(
                 patch.content.clone(),
                 patch.toc.clone(),
-                patch.variables.clone(),
+                variables,
             );
             if let Some(search) = &patch.search {
                 rendered.html.search = search.clone();
             }
-            rendered
+            Ok::<_, serde_json::Error>(rendered)
         },
     )
 }
 
 /// Render Markdown and collect the page-local facts produced alongside it.
 fn render_markdown(
-    id: &Id, route: PageRoute, content: String, plugins: plugin::Settings,
-    meta: meta::Resolved,
+    config: &Config, origin: PageOrigin, route: PageRoute,
+    document: DocumentHeader, properties: BTreeMap<String, Dynamic>,
+    variables: BTreeMap<String, Dynamic>, plugins: plugin::Settings,
 ) -> anyhow::Result<RenderedMarkdown> {
-    let (mut markdown, title) =
-        Markdown::new(id, route.url.clone(), content, meta.values())?;
+    let mut properties = properties;
+    let (mut markdown, title) = Markdown::new(
+        &document.source,
+        route.url.clone(),
+        document.body,
+        document.meta,
+    )?;
+    let source_route = PageRoute::from_source(config, document.source.clone())?;
+    if let Some(content) =
+        html::rebase_urls(&markdown.content, &source_route.url, &route.url)
+    {
+        markdown.replace_content(content);
+    }
     let html = plugin::prepare(&mut markdown, &route.source, &plugins)?;
+    plugins.blog.apply_readtime(
+        &route.source,
+        &markdown.content,
+        &mut properties,
+    )?;
     let registrations = plugins.autorefs.take_page(&route.url);
     Ok(RenderedMarkdown {
+        origin,
         route,
+        properties,
+        variables,
         markdown,
         title,
         registrations,
@@ -552,15 +679,32 @@ fn generate_page(
     config: &Config, markdown: &Stream<Id, RenderedMarkdown>,
 ) -> Stream<Id, RenderedPage> {
     let config = config.clone();
-    markdown.map(move |markdown: &RenderedMarkdown| RenderedPage {
-        page: Page::new(
-            &config,
-            markdown.route.clone(),
-            markdown.markdown.clone(),
-            markdown.title.clone(),
-        ),
-        registrations: markdown.registrations.clone(),
-        html: markdown.html.clone(),
+    markdown.map(move |markdown: &RenderedMarkdown| {
+        let mut page = match &markdown.origin {
+            PageOrigin::Source(_) => Page::new(
+                &config,
+                markdown.route.clone(),
+                markdown.markdown.clone(),
+                markdown.title.clone(),
+            ),
+            PageOrigin::Generated { identity, provenance } => Page::generated(
+                &config,
+                identity.clone(),
+                provenance.clone(),
+                markdown.route.clone(),
+                markdown.markdown.clone(),
+                markdown.title.clone(),
+            ),
+        };
+        page.apply_template_context(
+            markdown.properties.clone(),
+            markdown.variables.clone(),
+        );
+        RenderedPage {
+            page,
+            registrations: markdown.registrations.clone(),
+            html: markdown.html.clone(),
+        }
     })
 }
 
@@ -648,8 +792,9 @@ fn render_pages(
     let template = OnceLock::new();
     let theme_dirs = config.theme_dirs.clone();
     let minify = minify.clone();
+    let output = config.output_root().clone();
     let config = config.clone();
-    pages.map(move |input: &PageRender| {
+    let rendered = pages.map(move |input: &PageRender| {
         let mut page = input.input.page.clone();
         let references = &input.input.autorefs;
         let id = page.url.clone();
@@ -681,11 +826,19 @@ fn render_pages(
             input.autorefs.replace_in(rendered, references, &page.url);
         let data = minify.html(data);
 
-        let path = config.output_root().join(page.destination());
-        fs::create_dir_all(path.parent().expect("invariant"))?;
-        fs::write(&path, &data)?;
-        Ok::<_, anyhow::Error>(unresolved)
-    })
+        Ok::<_, anyhow::Error>(RenderedSitePage {
+            artifact: output::Artifact::page(
+                page.origin().clone(),
+                page.destination().clone(),
+                data.into_bytes(),
+            ),
+            unresolved,
+        })
+    });
+    let artifacts =
+        rendered.map(|rendered: &RenderedSitePage| rendered.artifact.clone());
+    output::setup(output, &artifacts);
+    rendered.map(|rendered: &RenderedSitePage| rendered.unresolved.clone())
 }
 
 /// Creates a workflow for the given config.
