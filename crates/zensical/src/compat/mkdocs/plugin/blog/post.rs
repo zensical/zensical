@@ -3,11 +3,32 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
 //! Blog post classification, metadata, and route derivation.
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
+
 use zrx::stream::Value;
 
 use crate::config::plugins::{BlogPluginConfig, ExcerptPolicy};
@@ -20,6 +41,10 @@ use crate::structure::slug;
 
 use super::links::{self, LinkItem};
 use super::{Author, BlogDate, BlogId, PostId};
+
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
 
 /// Validated blog interpretation of one Markdown document.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,7 +73,25 @@ pub struct PostDescriptor {
     pub links: Option<Vec<LinkItem>>,
 }
 
-impl Value for PostDescriptor {}
+/// Validated metadata used to construct template-facing post properties.
+struct PostProperties<'a> {
+    /// Structured post dates keyed by semantic role.
+    dates: &'a BTreeMap<String, BlogDate>,
+    /// Unique category names in declaration order.
+    categories: &'a [String],
+    /// Whether the post sorts before ordinary posts.
+    pin: bool,
+    /// Explicit draft metadata, when present.
+    draft: Option<bool>,
+    /// Explicit read-time override, when present.
+    readtime: Option<usize>,
+    /// Original structured related-link metadata, when present.
+    links: Option<&'a Dynamic>,
+}
+
+// ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
 
 impl PostDescriptor {
     /// Classifies and validates a document below one blog's post directory.
@@ -180,14 +223,15 @@ impl PostDescriptor {
     }
 }
 
-struct PostProperties<'a> {
-    dates: &'a BTreeMap<String, BlogDate>,
-    categories: &'a [String],
-    pin: bool,
-    draft: Option<bool>,
-    readtime: Option<usize>,
-    links: Option<&'a Dynamic>,
-}
+// ----------------------------------------------------------------------------
+// Trait implementations
+// ----------------------------------------------------------------------------
+
+impl Value for PostDescriptor {}
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
 
 fn properties(
     config: &Config, settings: &BlogPluginConfig, input: PostProperties<'_>,
@@ -423,6 +467,10 @@ fn optional_usize(
         ),
     }
 }
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

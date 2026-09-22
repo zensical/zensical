@@ -3,6 +3,26 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
 //! Structured post-link parsing and revision-complete page resolution.
 
 use anyhow::bail;
@@ -16,46 +36,44 @@ use crate::structure::nav::NavigationItem;
 use crate::structure::page::Page;
 use crate::structure::toc::Section;
 
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
+
 /// One navigation-shaped post-link item.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LinkItem {
     /// Page, asset, or external URL.
     Reference {
+        /// Optional explicit display title.
         title: Option<String>,
+        /// Unresolved link target from post metadata.
         target: String,
     },
     /// Named nested group.
     Section {
+        /// Display title of the group.
         title: String,
+        /// Nested references and sections in declaration order.
         children: Vec<LinkItem>,
     },
 }
 
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
+
 /// Revision-complete targets shared by every post in one blog view.
 pub struct Resolver<'a> {
+    /// Rendered pages indexed by physical source identity.
     pages: HashMap<SourcePath, &'a Page>,
+    /// Emitted resources indexed by physical source path.
     resources: HashMap<&'a str, &'a Resource>,
 }
 
-/// Parses optional navigation-shaped `links` metadata.
-pub fn parse(value: Option<&Dynamic>) -> anyhow::Result<Option<Vec<LinkItem>>> {
-    let Some(value) = value else { return Ok(None) };
-    let Dynamic::List(items) = value else {
-        bail!("post links must be a list")
-    };
-    items
-        .iter()
-        .map(parse_item)
-        .collect::<anyhow::Result<_>>()
-        .map(Some)
-}
-
-/// Returns local page sources referenced by a structured link tree.
-pub fn targets(items: &[LinkItem]) -> HashSet<SourcePath> {
-    let mut targets = HashSet::new();
-    collect_targets(items, &mut targets);
-    targets
-}
+// ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
 
 impl<'a> Resolver<'a> {
     /// Builds one lookup index for all post link resolutions in a view.
@@ -92,6 +110,30 @@ impl<'a> Resolver<'a> {
     fn resolve_item(&self, item: &LinkItem) -> anyhow::Result<NavigationItem> {
         resolve_item(item, &self.pages, &self.resources)
     }
+}
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
+/// Parses optional navigation-shaped `links` metadata.
+pub fn parse(value: Option<&Dynamic>) -> anyhow::Result<Option<Vec<LinkItem>>> {
+    let Some(value) = value else { return Ok(None) };
+    let Dynamic::List(items) = value else {
+        bail!("post links must be a list")
+    };
+    items
+        .iter()
+        .map(parse_item)
+        .collect::<anyhow::Result<_>>()
+        .map(Some)
+}
+
+/// Returns local page sources referenced by a structured link tree.
+pub fn targets(items: &[LinkItem]) -> HashSet<SourcePath> {
+    let mut targets = HashSet::new();
+    collect_targets(items, &mut targets);
+    targets
 }
 
 fn parse_item(value: &Dynamic) -> anyhow::Result<LinkItem> {
@@ -234,6 +276,10 @@ fn is_local(target: &str) -> bool {
             .next()
             .is_some_and(|prefix| prefix.contains(':'))
 }
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

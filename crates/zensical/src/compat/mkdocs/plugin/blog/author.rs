@@ -3,19 +3,44 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
 //! Native author-catalog parsing and post author resolution.
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
 use zrx::stream::Value;
 
+use crate::compat::mkdocs::plugin::meta;
 use crate::config::plugins::BlogPluginConfig;
 use crate::path::SourcePath;
 use crate::structure::dynamic::Dynamic;
 
-use super::super::meta;
 use super::BlogId;
+
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
 
 /// One validated author definition.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,7 +68,9 @@ pub struct Catalog {
     pub authors: BTreeMap<String, Author>,
 }
 
-impl Value for Catalog {}
+// ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
 
 impl Catalog {
     /// Parses and validates Material's authors-file mapping.
@@ -88,6 +115,16 @@ impl Author {
             .replace("{name}", &self.name)
     }
 }
+
+// ----------------------------------------------------------------------------
+// Trait implementations
+// ----------------------------------------------------------------------------
+
+impl Value for Catalog {}
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
 
 /// Resolves the configured authors-file path for one blog instance.
 pub fn source(settings: &BlogPluginConfig) -> anyhow::Result<SourcePath> {
@@ -164,6 +201,10 @@ fn optional_string(
         }
     }
 }
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

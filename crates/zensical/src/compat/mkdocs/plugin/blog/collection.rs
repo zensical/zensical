@@ -3,11 +3,32 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
 //! Stable blog collection identities, ordering, and pagination.
 
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::sync::Arc;
+
 use zrx::id::Id;
 use zrx::stream::function::Collection;
 use zrx::stream::{Key, Stream, Value};
@@ -16,6 +37,38 @@ use crate::config::plugins::BlogPluginConfig;
 use crate::path::SourcePath;
 
 use super::PostDescriptor;
+
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
+
+/// Logical type and key of a view.
+#[derive(
+    Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize,
+)]
+pub enum ViewKind {
+    /// Main blog entrypoint.
+    Blog,
+    /// Formatted archive key.
+    Archive(
+        /// Date-derived grouping key.
+        String,
+    ),
+    /// Normalized category identity.
+    Category(
+        /// Original category name.
+        String,
+    ),
+    /// Author identifier.
+    Author(
+        /// Stable author identifier from the catalog.
+        String,
+    ),
+}
+
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
 
 /// Stable identity of one configured blog instance.
 #[derive(
@@ -30,7 +83,10 @@ use super::PostDescriptor;
     Serialize,
     Deserialize,
 )]
-pub struct BlogId(pub usize);
+pub struct BlogId(
+    /// Zero-based position of the plugin instance in configuration order.
+    pub usize,
+);
 
 /// Stable identity of one post, independent of its title and route.
 #[derive(
@@ -41,21 +97,6 @@ pub struct PostId {
     pub blog: BlogId,
     /// Physical source identity.
     pub source: SourcePath,
-}
-
-/// Logical type and key of a view.
-#[derive(
-    Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize,
-)]
-pub enum ViewKind {
-    /// Main blog entrypoint.
-    Blog,
-    /// Formatted archive key.
-    Archive(String),
-    /// Normalized category identity.
-    Category(String),
-    /// Author identifier.
-    Author(String),
 }
 
 /// Stable identity of one logical view.
@@ -91,9 +132,13 @@ pub struct ViewMembership {
 /// Ordering fact retained by a logical view for navigation composition.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ViewOrder {
+    /// Whether the first post is pinned.
     pin: bool,
+    /// UTC creation timestamp of the first post.
     created: i64,
+    /// Stable identity of the first post.
     post: PostId,
+    /// Declaration position for category or author memberships.
     position: usize,
 }
 
@@ -135,10 +180,6 @@ pub struct ViewPageSpec {
     pub order: Option<ViewOrder>,
 }
 
-impl Value for ViewMembership {}
-impl Value for OrderedView {}
-impl Value for ViewPageSpec {}
-
 /// Revision-complete logical views and their paginated projections.
 pub struct Output {
     /// Ordered posts for each independent view.
@@ -146,6 +187,10 @@ pub struct Output {
     /// Stable page specifications for each view.
     pub pages: Stream<Id, ViewPageSpec>,
 }
+
+// ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
 
 impl OrderedView {
     /// Materializes one logical view from its complete membership set.
@@ -199,6 +244,29 @@ impl OrderedView {
             .collect()
     }
 }
+
+// ----------------------------------------------------------------------------
+// Trait implementations
+// ----------------------------------------------------------------------------
+
+impl Value for ViewMembership {}
+impl Value for OrderedView {}
+impl Value for ViewPageSpec {}
+
+impl From<&ViewMembership> for ViewOrder {
+    fn from(value: &ViewMembership) -> Self {
+        Self {
+            pin: value.pin,
+            created: value.created,
+            post: value.post.clone(),
+            position: value.position,
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
 
 /// Installs explicit membership, per-view ordering, and pagination relations.
 pub fn setup(
@@ -409,24 +477,19 @@ pub fn compare_order(left: &ViewOrder, right: &ViewOrder) -> Ordering {
         .then_with(|| left.position.cmp(&right.position))
 }
 
-impl From<&ViewMembership> for ViewOrder {
-    fn from(value: &ViewMembership) -> Self {
-        Self {
-            pin: value.pin,
-            created: value.created,
-            post: value.post.clone(),
-            position: value.position,
-        }
-    }
-}
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
+
     use zrx::id::Id;
     use zrx::stream::{Change, Key, Run, Workflow};
 
+    use crate::compat::mkdocs::plugin::blog::{BlogDate, PostDescriptor};
     use crate::config::plugins::BlogPluginConfig;
     use crate::structure::document::DocumentHeader;
     use crate::structure::page::{PageDescriptor, PageOrigin, PageRoute};
@@ -434,7 +497,6 @@ mod tests {
     use super::{
         setup, BlogId, OrderedView, PostId, ViewId, ViewKind, ViewMembership,
     };
-    use crate::compat::mkdocs::plugin::blog::{BlogDate, PostDescriptor};
 
     fn membership(source: &str, created: i64, pin: bool) -> ViewMembership {
         ViewMembership {

@@ -3,6 +3,26 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
 //! Native Material-compatible post read-time calculation.
 
 use html5gum::emitters::callback::CallbackEvent;
@@ -12,12 +32,24 @@ use std::sync::LazyLock;
 
 use crate::compat::mkdocs::html::{self, Editor, Visitor};
 
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
+
+/// Text and image facts accumulated during one HTML scan.
 #[derive(Default)]
 struct Readtime {
+    /// Visible text included in the word count.
     text: String,
+    /// Images contributing decreasing reading-time penalties.
     images: usize,
+    /// Depth inside elements excluded from the word count.
     skipped: usize,
 }
+
+// ----------------------------------------------------------------------------
+// Trait implementations
+// ----------------------------------------------------------------------------
 
 impl Visitor for Readtime {
     fn visit(
@@ -49,6 +81,10 @@ impl Visitor for Readtime {
     }
 }
 
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
 /// Returns Material's rounded read time in minutes.
 pub fn calculate(input: &str, words_per_minute: usize) -> usize {
     static SEPARATOR: LazyLock<Regex> =
@@ -66,6 +102,10 @@ pub fn calculate(input: &str, words_per_minute: usize) -> usize {
     }
     seconds.div_ceil(60)
 }
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

@@ -3,11 +3,35 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
 //! Native ISO date parsing and route-date formatting.
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
+
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
 
 /// Normalized post date with a UTC ordering key and original civil fields.
 #[derive(
@@ -23,16 +47,29 @@ use std::fmt::Write as _;
     Deserialize,
 )]
 pub struct BlogDate {
+    /// UTC ordering key with microsecond precision.
     timestamp_micros: i64,
+    /// Original civil year.
     year: i32,
+    /// Original civil month in the range 1 through 12.
     month: u8,
+    /// Original civil day of the month.
     day: u8,
+    /// Original hour in the range 0 through 23.
     hour: u8,
+    /// Original minute in the range 0 through 59.
     minute: u8,
+    /// Original second in the range 0 through 59.
     second: u8,
+    /// Original fractional second normalized to microseconds.
     microsecond: u32,
+    /// Original UTC offset in minutes.
     offset_minutes: i16,
 }
+
+// ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
 
 impl BlogDate {
     /// Parses a YAML-compatible ISO date or datetime.
@@ -212,6 +249,10 @@ impl BlogDate {
     }
 }
 
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
 fn month_name(month: u8, short: bool) -> &'static str {
     const LONG: [&str; 12] = [
         "January",
@@ -369,6 +410,10 @@ fn days_from_civil(year: i32, month: u8, day: u8) -> i64 {
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     i64::from(era * 146_097 + doe - 719_468)
 }
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

@@ -3,25 +3,105 @@
 // SPDX-License-Identifier: MIT
 // All contributions are certified under the DCO
 
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to
+// deal in the Software without restriction, including without limitation the
+// rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+// sell copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+// IN THE SOFTWARE.
+
+// ----------------------------------------------------------------------------
+
 //! Native parsing of Material's pagination format language.
 
-/// Values substituted into scalar pagination placeholders.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PaginationMetrics {
-    pub page: usize,
-    pub pages: usize,
-    pub items_per_page: usize,
-    pub item_count: usize,
-}
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
 
 /// One directional link in a pagination format.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LinkKind {
+    /// Link to the first page.
     First,
+    /// Link to the last page.
     Last,
+    /// Link to the previous page.
     Previous,
+    /// Link to the next page.
     Next,
 }
+
+/// One ordered component of a rendered pagination control.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PaginationItem {
+    /// Numbered page link or current-page marker.
+    Page {
+        /// One-based target page number.
+        page: usize,
+        /// Whether this item denotes the current page.
+        current: bool,
+    },
+    /// Collapsed range between numbered pages.
+    Ellipsis,
+    /// Directional link to another page.
+    Link {
+        /// Direction represented by the link.
+        kind: LinkKind,
+        /// One-based target page number.
+        page: usize,
+    },
+    /// Literal text from the configured pagination format.
+    Text(
+        /// Preserved literal or scalar substitution.
+        String,
+    ),
+}
+
+/// Parsed replacement for one pagination-format placeholder.
+enum Substitution {
+    /// Optional structured pagination item.
+    Item(
+        /// Generated item, or `None` when a directional link is unreachable.
+        Option<PaginationItem>,
+    ),
+    /// Scalar value rendered as literal text.
+    Text(
+        /// Rendered scalar value.
+        String,
+    ),
+}
+
+// ----------------------------------------------------------------------------
+// Structs
+// ----------------------------------------------------------------------------
+
+/// Values substituted into scalar pagination placeholders.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PaginationMetrics {
+    /// One-based current page number.
+    pub page: usize,
+    /// Total number of reachable pages.
+    pub pages: usize,
+    /// Configured maximum number of items on a page.
+    pub items_per_page: usize,
+    /// Total number of items across all pages.
+    pub item_count: usize,
+}
+
+// ----------------------------------------------------------------------------
+// Implementations
+// ----------------------------------------------------------------------------
 
 impl LinkKind {
     /// Returns the stable template-facing item type.
@@ -35,14 +115,9 @@ impl LinkKind {
     }
 }
 
-/// One ordered component of a rendered pagination control.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PaginationItem {
-    Page { page: usize, current: bool },
-    Ellipsis,
-    Link { kind: LinkKind, page: usize },
-    Text(String),
-}
+// ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
 
 /// Parses a pagination format into bounded, presentation-independent items.
 ///
@@ -87,11 +162,6 @@ pub fn items(format: &str, metrics: PaginationMetrics) -> Vec<PaginationItem> {
     }
     push_text(&mut result, &mut text);
     result
-}
-
-enum Substitution {
-    Item(Option<PaginationItem>),
-    Text(String),
 }
 
 fn substitution(
@@ -244,6 +314,10 @@ fn push_text(result: &mut Vec<PaginationItem>, text: &mut String) {
         result.push(PaginationItem::Text(std::mem::take(text)));
     }
 }
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
