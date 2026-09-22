@@ -239,6 +239,27 @@ class TestThemeLoadingToml:
         config_path = _make_toml_project(tmp_path)
         _build(config_path)  # must not raise
 
+    def test_blog_icons_can_be_overridden(self, tmp_path: Path) -> None:
+        """Blog icon settings pass through configuration to templates."""
+        custom = _make_custom_dir(tmp_path)
+        custom.joinpath("main.html").write_text(
+            "{{ config.theme.icon.blog.back }}",
+            encoding="utf-8",
+        )
+        config_path = _make_toml_project(
+            tmp_path,
+            toml_extra=(
+                '[project.theme]\ncustom_dir = "overrides"\n'
+                '[project.theme.icon.blog]\nback = "octicons/arrow-left-16"\n'
+            ),
+        )
+
+        _build(config_path)
+
+        assert (
+            tmp_path / "site" / "index.html"
+        ).read_text() == "octicons/arrow-left-16"
+
     def test_unknown_theme_name_raises(self, tmp_path: Path) -> None:
         """theme.name set to an uninstalled theme -> config error raised."""
         config_path = _make_toml_project(

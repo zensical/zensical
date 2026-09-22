@@ -634,6 +634,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(icon, "repo", None, str)
     set_default(icon, "annotation", None, str)
     set_default(icon, "tag", {}, dict)
+    blog = set_default(icon, "blog", {}, dict)
     if theme.get("variant") == "modern":
         set_default(icon, "logo", "lucide/book-open", str)
         set_default(icon, "edit", "lucide/file-pen", str)
@@ -646,6 +647,11 @@ def _apply_defaults(config: dict, path: str) -> dict:
         set_default(icon, "close", "lucide/x", str)
         set_default(icon, "previous", "lucide/arrow-left", str)
         set_default(icon, "next", "lucide/arrow-right", str)
+        set_default(blog, "back", "lucide/arrow-left", str)
+        set_default(blog, "date", "lucide/calendar-days", str)
+        set_default(blog, "date_updated", "lucide/calendar-clock", str)
+        set_default(blog, "categories", "lucide/library", str)
+        set_default(blog, "readtime", "lucide/clock", str)
     else:
         set_default(icon, "logo", None, str)
         set_default(icon, "edit", None, str)
@@ -658,6 +664,11 @@ def _apply_defaults(config: dict, path: str) -> dict:
         set_default(icon, "close", None, str)
         set_default(icon, "previous", None, str)
         set_default(icon, "next", None, str)
+        set_default(blog, "back", "material/arrow-left", str)
+        set_default(blog, "date", "material/calendar", str)
+        set_default(blog, "date_updated", "material/calendar-clock", str)
+        set_default(blog, "categories", "material/bookshelf", str)
+        set_default(blog, "readtime", "material/clock-outline", str)
 
     # Set defaults for theme admonition icons
     admonition = set_default(icon, "admonition", {}, dict)
