@@ -9,10 +9,10 @@
 // rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
 // sell copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-//
+
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-//
+
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
@@ -61,8 +61,11 @@ use render::{Renderer, Tag};
 /// Material social compatibility pipeline.
 #[derive(Clone, Debug)]
 pub struct Social {
+    /// Enabled plugin instances in configuration order.
     instances: Arc<[Instance]>,
+    /// Maximum card-rendering concurrency across the instances.
     concurrency: usize,
+    /// Root for generated site files.
     output: OutputRoot,
 }
 
@@ -77,59 +80,94 @@ pub struct Dependencies<'a> {
 /// Social metadata derived for one page.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Metadata {
+    /// Rendered social tags to inject into the page head.
     tags: Arc<[Tag]>,
+    /// Revision of the rendered tags for page cache invalidation.
     hash: u64,
 }
 
+/// One enabled social plugin configuration and its rendering state.
 #[derive(Clone, Debug)]
 struct Instance {
+    /// Configuration-order priority for conflicting card paths.
     id: usize,
+    /// Configured plugin name for diagnostics.
     name: String,
+    /// Validated options for this instance.
     config: Arc<SocialPluginConfig>,
+    /// Shared project settings used by templates and routes.
     project: Arc<Project>,
+    /// Directory containing the project configuration.
     root: PathBuf,
+    /// Renderer and its shared font and dependency caches.
     renderer: Renderer,
+    /// Compiled page include and exclude patterns.
     filter: SourceFilter,
+    /// Whether the current workflow serves changes continuously.
     serve: bool,
+    /// Whether warnings fail the build.
     strict: bool,
 }
 
+/// Compiled source-path filters and any deferred pattern error.
 #[derive(Clone, Debug)]
 struct SourceFilter {
+    /// Patterns that take precedence when configured.
     include: GlobSet,
+    /// Patterns used when no include patterns are configured.
     exclude: GlobSet,
+    /// Whether inclusion is decided by the include set.
     has_include: bool,
+    /// Invalid pattern reported when the filter is used.
     error: Option<String>,
 }
 
+/// Generated card and its cached PNG source.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Card {
+    /// Plugin instance that produced this card.
     instance: usize,
+    /// Site-relative output path.
     path: SitePath,
+    /// Cached PNG copied into the output tree.
     source: PathBuf,
 }
 
+/// Cards and HTML metadata derived from one page.
 #[derive(Clone, Debug)]
 struct Bundle {
+    /// Generated cards keyed by plugin instance.
     cards: Vec<(Key<Id>, Card)>,
+    /// Tags selected for this page.
     metadata: Metadata,
 }
 
+/// Instance key, generated card, and page metadata tags.
 type Generated = (Key<Id>, Card, Vec<Tag>);
 
+/// Content hash of one physical card dependency.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Fingerprint {
+    /// Absolute path of the watched dependency.
     source: PathBuf,
+    /// SHA-256 digest of its current bytes.
     digest: [u8; 32],
 }
 
+/// Revisions of watched assets available to one card-rendering pass.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct AssetRevision(Arc<BTreeMap<PathBuf, [u8; 32]>>);
+struct AssetRevision(
+    /// SHA-256 digests indexed by physical asset path.
+    Arc<BTreeMap<PathBuf, [u8; 32]>>,
+);
 
 /// Card error that upstream treats as recoverable plugin input failure.
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
-struct PluginError(String);
+struct PluginError(
+    /// Error text surfaced according to the configured log level.
+    String,
+);
 
 static TEMPORARY_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -267,6 +305,7 @@ impl Metadata {
 }
 
 impl Instance {
+    /// Creates rendering state for one enabled plugin instance.
     fn new(
         id: usize, plugin: &SocialPluginInstance, config: &Config, serve: bool,
         strict: bool,
@@ -297,6 +336,7 @@ impl Instance {
         }
     }
 
+    /// Builds one page's card, cache entry, and metadata tags.
     fn render(&self, page: &Page, assets: &AssetRevision) -> Result<Generated> {
         let name = page_string(page, "cards_layout")?
             .unwrap_or_else(|| self.config.cards_layout.clone());
@@ -342,6 +382,7 @@ impl Instance {
         ))
     }
 
+    /// Validates page options even when this instance does not render a card.
     fn validate_page(&self, page: &Page) -> Result<bool> {
         if !self.includes(page)? {
             return Ok(false);
@@ -351,6 +392,7 @@ impl Instance {
         Ok(true)
     }
 
+    /// Checks page-level card settings and source-path filters.
     fn includes(&self, page: &Page) -> Result<bool> {
         self.filter.validate(&self.name)?;
         let cards = page_bool(page, "cards")?.unwrap_or(self.config.cards);
@@ -365,6 +407,7 @@ impl Instance {
         }
     }
 
+    /// Loads a custom layout or one of the bundled Material layouts.
     fn layout(&self, name: &str) -> Result<Layout> {
         validate_layout_name(name).map_err(plugin_error)?;
         let directory = resolve_from(&self.root, &self.config.cards_layout_dir);
@@ -382,6 +425,7 @@ impl Instance {
         layout::parse(name, source).map_err(plugin_error)
     }
 
+    /// Returns a cached PNG path, rendering the card when needed.
     fn card(
         &self, layout: &Layout, dependencies: &[u8; 32],
     ) -> Result<PathBuf> {
@@ -417,6 +461,7 @@ impl Instance {
         Ok(path)
     }
 
+    /// Returns active debug-overlay settings for this build mode.
     fn debug(&self) -> Option<(&str, bool, usize)> {
         (self.config.debug && (self.serve || self.config.debug_on_build))
             .then_some((
@@ -426,6 +471,7 @@ impl Instance {
             ))
     }
 
+    /// Reports a recoverable card error according to the configured level.
     fn report(&self, page: &Page, error: &anyhow::Error) -> Result<()> {
         match self.config.log_level.as_str() {
             "warn" => eprintln!(
@@ -447,6 +493,7 @@ impl Instance {
 }
 
 impl SourceFilter {
+    /// Compiles source patterns while retaining invalid-pattern diagnostics.
     fn new(include: &[String], exclude: &[String]) -> Self {
         let mut error = None;
         Self {
@@ -457,6 +504,7 @@ impl SourceFilter {
         }
     }
 
+    /// Reports a deferred invalid pattern for this plugin instance.
     fn validate(&self, name: &str) -> Result<()> {
         if let Some(error) = &self.error {
             bail!("invalid source pattern for plugin '{name}': {error}")

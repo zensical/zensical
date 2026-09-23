@@ -9,10 +9,10 @@
 // rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
 // sell copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-//
+
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-//
+
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
@@ -54,73 +54,101 @@ const ORIGINS: &[&str] = &[
 /// Social card layout.
 #[derive(Clone, Debug, Hash, Serialize)]
 pub struct Layout {
+    /// Metadata property names and their template values.
     pub tags: Vec<(String, String)>,
+    /// Final card dimensions in pixels.
     pub size: Size,
+    /// Layers composited in declaration order.
     pub layers: Vec<Layer>,
 }
 
 /// Pixel dimensions.
 #[derive(Clone, Copy, Debug, Default, Hash, Serialize)]
 pub struct Size {
+    /// Horizontal extent in pixels.
     pub width: u32,
+    /// Vertical extent in pixels.
     pub height: u32,
 }
 
 /// Signed layer offset.
 #[derive(Clone, Copy, Debug, Default, Hash, Serialize)]
 pub struct Offset {
+    /// Horizontal displacement from the layer origin.
     pub x: i32,
+    /// Vertical displacement from the layer origin.
     pub y: i32,
 }
 
 /// One composited card layer.
 #[derive(Clone, Debug, Hash, Serialize)]
 pub struct Layer {
+    /// Dimensions of this layer in pixels.
     pub size: Size,
+    /// Displacement from its selected origin.
     pub offset: Offset,
+    /// Anchor position within the card.
     pub origin: String,
+    /// Background color and image settings.
     pub background: Background,
+    /// Optional theme icon settings.
     pub icon: Icon,
+    /// Text content and font settings.
     pub typography: Typography,
 }
 
 /// Layer background.
 #[derive(Clone, Debug, Default, Hash, Serialize)]
 pub struct Background {
+    /// Background color value.
     pub color: String,
+    /// Optional path to a background image.
     pub image: String,
 }
 
 /// Layer icon.
 #[derive(Clone, Debug, Default, Hash, Serialize)]
 pub struct Icon {
+    /// Theme icon name.
     pub value: String,
+    /// Color applied to the icon SVG.
     pub color: String,
 }
 
 /// Layer typography.
 #[derive(Clone, Debug, Hash, Serialize)]
 pub struct Typography {
+    /// Text or template content to render.
     pub content: String,
+    /// Horizontal and vertical text alignment.
     pub align: String,
+    /// Strategy for text exceeding the allowed line count.
     pub overflow: String,
+    /// Text color value.
     pub color: String,
+    /// Line count and spacing settings.
     pub line: Line,
+    /// Font family and face settings.
     pub font: Font,
 }
 
 /// Typography line settings.
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct Line {
+    /// Maximum number of lines before overflow handling.
     pub amount: usize,
+    /// Relative distance between text baselines.
     pub height: f64,
 }
 
 /// Typography font settings.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize)]
 pub struct Font {
+    /// Font family name.
     pub family: String,
+    /// Weight or width variant within the family.
     pub variant: String,
+    /// Font style name, such as italic.
     pub style: String,
 }
 
