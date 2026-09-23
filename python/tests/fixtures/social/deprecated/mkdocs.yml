@@ -1,0 +1,10 @@
+site_name: Deprecated social options
+site_url: https://example.test/docs/
+site_dir: site
+theme: { name: material }
+plugins:
+  - social:
+      cache: false
+      cards_layout: flat
+      cards_color: { fill: '#102030', text: '#ffffff' }
+      cards_font: Roboto

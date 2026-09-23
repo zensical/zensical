@@ -1,0 +1,24 @@
+tags:
+  og:image: '{{ image.url }}'
+  x:title: '{{ page.title }}'
+size: { width: 600, height: 315 }
+layers:
+  - background: { color: '#14263d' }
+  - size: { width: 500, height: 110 }
+    offset: { x: 50, y: 40 }
+    typography:
+      content: '{{ page.meta.get("title", page.title) }}'
+      align: center
+      overflow: shrink
+      color: '#ffffff'
+      line: { amount: 2, height: 1.25 }
+      font: { family: Roboto, style: Bold }
+  - size: { width: 500, height: 65 }
+    offset: { x: 50, y: 220 }
+    typography:
+      content: '{{ page.meta.get("description", "") }}'
+      align: end bottom
+      overflow: truncate
+      color: '#bdd4eb'
+      line: { amount: 2, height: 1.1 }
+      font: { family: Roboto, style: Regular }

@@ -1,0 +1,23 @@
+site_name: Layout options
+site_description: Default card description.
+site_url: https://example.test/docs/
+site_dir: site
+theme:
+  name: material
+  palette:
+    primary: teal
+  font:
+    text: Roboto
+plugins:
+  - social:
+      cache: false
+      cache_dir: social-cache
+      cards_layout: default
+      cards_layout_options:
+        background_color: '#2d4059'
+        background_image: docs/background.svg
+        color: '#ffffff'
+        font_family: Roboto
+        logo: docs/logo.svg
+        title: Global title
+        description: Global description

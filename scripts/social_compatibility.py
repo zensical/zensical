@@ -28,6 +28,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -75,9 +76,11 @@ def build(executable: Path, project: Path, *, strict: bool) -> None:
         encoding="utf-8",
     )
     if result.returncode:
+        details = (result.stderr or result.stdout).strip().splitlines()
+        summary = details[-1] if details else "no diagnostics"
         raise RuntimeError(
-            f"build failed in {project} ({result.returncode}):\n"
-            f"{result.stdout}{result.stderr}"
+            f"{executable.name} build failed in {project} "
+            f"({result.returncode}): {summary}"
         )
 
 
@@ -162,6 +165,29 @@ def compare(name: str, material: Path, zensical: Path) -> bool:
     return matched
 
 
+def snapshot(project: Path) -> dict:
+    """Capture visible metadata and card contents between cached builds."""
+    site = project / "site"
+    current = manifest(site)
+    return {
+        "pages": current["pages"],
+        "cards": {
+            path: hashlib.sha256((site / path).read_bytes()).hexdigest()
+            for path in current["cards"]
+        },
+    }
+
+
+def apply_step(project: Path, step: dict) -> None:
+    """Apply one exact source replacement in a copied fixture."""
+    path = project / step["path"]
+    source = path.read_text(encoding="utf-8")
+    before = step["before"]
+    if source.count(before) != 1:
+        raise ValueError(f"expected one occurrence of {before!r} in {path}")
+    path.write_text(source.replace(before, step["after"]), encoding="utf-8")
+
+
 def run(root: Path, args: argparse.Namespace) -> bool:
     """Build selected fixtures in both engines and compare their outputs."""
     names = args.cases or sorted(
@@ -181,16 +207,57 @@ def run(root: Path, args: argparse.Namespace) -> bool:
         zensical = root / name / "zensical"
         shutil.copytree(project, material)
         shutil.copytree(project, zensical)
-        if args.font_cache and name in {"bundled", "debug", "logo-icon"}:
+        if args.font_cache and name in {
+            "bundled",
+            "custom-typography",
+            "debug",
+            "debug-no-grid",
+            "layout-options",
+            "logo-icon",
+            "theme-defaults",
+        }:
             for destination in (material, zensical):
                 shutil.copytree(
                     args.font_cache,
                     destination / "social-cache/fonts",
                 )
-        strict = name not in {"no-site-url", "debug"}
-        build(args.mkdocs, material, strict=strict)
-        build(args.zensical, zensical, strict=strict)
-        matched &= compare(name, material, zensical)
+        strict = name not in {
+            "debug",
+            "debug-no-grid",
+            "deprecated",
+            "no-site-url",
+        }
+        try:
+            build(args.mkdocs, material, strict=strict)
+            build(args.zensical, zensical, strict=strict)
+            matched &= compare(name, material, zensical)
+            steps_file = project / "steps.json"
+            if not steps_file.is_file():
+                continue
+            for index, step in enumerate(json.loads(steps_file.read_text())):
+                previous = {
+                    "material": snapshot(material),
+                    "zensical": snapshot(zensical),
+                }
+                for destination in (material, zensical):
+                    apply_step(destination, step)
+                build(args.mkdocs, material, strict=strict)
+                build(args.zensical, zensical, strict=strict)
+                label = f"{name}/step-{index + 1}"
+                matched &= compare(label, material, zensical)
+                for engine, destination in (
+                    ("material", material),
+                    ("zensical", zensical),
+                ):
+                    current = snapshot(destination)
+                    for kind in step["changes"]:
+                        if previous[engine][kind] == current[kind]:
+                            print(f"{label}: {engine} {kind} did not change")
+                            matched = False
+        except RuntimeError as error:
+            print(f"{name}: ERROR; {error}")
+            matched = False
+            continue
     return matched
 
 

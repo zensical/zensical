@@ -30,6 +30,7 @@ use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use regex::Regex;
 use resvg::usvg::fontdb::{Database, Family, Query, Stretch, Style, Weight};
 use sha2::{Digest, Sha256};
+use skrifa::{string::StringId, MetadataProvider};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -261,27 +262,46 @@ fn select_face(font: &Font, data: Vec<Vec<u8>>) -> Result<Database> {
     }
     let attributes = attributes(font);
     let families = [Family::Name(&font.family)];
-    let id = database
-        .query(&Query {
-            families: &families,
-            weight: Weight(attributes.weight),
-            stretch: match attributes.stretch {
-                "ultra-condensed" => Stretch::UltraCondensed,
-                "extra-condensed" => Stretch::ExtraCondensed,
-                "semi-condensed" => Stretch::SemiCondensed,
-                "condensed" => Stretch::Condensed,
-                "semi-expanded" => Stretch::SemiExpanded,
-                "expanded" => Stretch::Expanded,
-                "extra-expanded" => Stretch::ExtraExpanded,
-                "ultra-expanded" => Stretch::UltraExpanded,
-                _ => Stretch::Normal,
-            },
-            style: match attributes.style {
-                "italic" => Style::Italic,
-                "oblique" => Style::Oblique,
-                _ => Style::Normal,
-            },
+    let query = Query {
+        families: &families,
+        weight: Weight(attributes.weight),
+        stretch: match attributes.stretch {
+            "ultra-condensed" => Stretch::UltraCondensed,
+            "extra-condensed" => Stretch::ExtraCondensed,
+            "semi-condensed" => Stretch::SemiCondensed,
+            "condensed" => Stretch::Condensed,
+            "semi-expanded" => Stretch::SemiExpanded,
+            "expanded" => Stretch::Expanded,
+            "extra-expanded" => Stretch::ExtraExpanded,
+            "ultra-expanded" => Stretch::UltraExpanded,
+            _ => Stretch::Normal,
+        },
+        style: match attributes.style {
+            "italic" => Style::Italic,
+            "oblique" => Style::Oblique,
+            _ => Style::Normal,
+        },
+    };
+    // Material names cached faces using the font's family and subfamily, not
+    // its PostScript name. Preserve that lookup and its sorted-file fallback.
+    let faces = database
+        .faces()
+        .filter_map(|face| {
+            database
+                .with_face_data(face.id, |data, index| {
+                    material_style_name(data, index, &font.family)
+                })
+                .flatten()
+                .map(|name| (name, face.id))
         })
+        .collect::<Vec<_>>();
+    let requested = if font.variant.is_empty() {
+        font.style.clone()
+    } else {
+        format!("{} {}", font.variant, font.style)
+    };
+    let id = preferred_face(&requested, &faces)
+        .or_else(|| database.query(&query))
         .or_else(|| database.faces().next().map(|face| face.id))
         .with_context(|| {
             format!("font family '{}' has no usable faces", font.family)
@@ -292,6 +312,50 @@ fn select_face(font: &Font, data: Vec<Vec<u8>>) -> Result<Database> {
     let mut selected = Database::new();
     selected.load_font_data(data);
     Ok(selected)
+}
+
+fn material_style_name(
+    data: &[u8], index: u32, family: &str,
+) -> Option<String> {
+    let font = skrifa::FontRef::from_index(data, index).ok()?;
+    let name = |id| {
+        font.localized_strings(StringId::new(id))
+            .english_or_first()
+            .map(|value| value.to_string())
+    };
+    // FreeType (and Pillow) prefers typographic family/subfamily names when
+    // both are present, then falls back to the legacy family/style pair.
+    let (name, style) =
+        name(16).zip(name(17)).or_else(|| name(1).zip(name(2)))?;
+    Some(
+        format!("{} {style}", name.replace(family, ""))
+            .trim()
+            .into(),
+    )
+}
+
+fn preferred_face<T: Copy>(
+    requested: &str, faces: &[(String, T)],
+) -> Option<T> {
+    let mut order = (0..faces.len()).collect::<Vec<_>>();
+    order.sort_by(|left, right| {
+        format!("{}.ttf", faces[*left].0)
+            .cmp(&format!("{}.ttf", faces[*right].0))
+    });
+    if let Some(index) =
+        order.iter().find(|&&index| faces[index].0 == requested)
+    {
+        return Some(faces[*index].1);
+    }
+    let mut fallback = *order.first()?;
+    for index in order.into_iter().skip(1) {
+        if faces[index].0.contains("Regular")
+            && faces[index].0.len() < faces[fallback].0.len()
+        {
+            fallback = index;
+        }
+    }
+    Some(faces[fallback].1)
 }
 
 fn validate_font(data: &[u8]) -> Result<()> {
@@ -351,7 +415,7 @@ fn read_fonts(directory: &Path) -> Result<Vec<Vec<u8>>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{attributes, safe_family, validate_font};
+    use super::{attributes, preferred_face, safe_family, validate_font};
     use crate::compat::mkdocs::plugin::social::layout::Font;
 
     #[test]
@@ -379,5 +443,18 @@ mod tests {
         assert_eq!(attributes.weight, 200);
         assert_eq!(attributes.style, "oblique");
         assert_eq!(attributes.stretch, "semi-expanded");
+    }
+
+    #[test]
+    fn selects_exact_face_or_materials_sorted_fallback() {
+        let faces = [
+            ("Bold".into(), 0),
+            ("Black".into(), 1),
+            ("Regular".into(), 2),
+            ("Black Italic".into(), 3),
+        ];
+        assert_eq!(preferred_face("Black Italic", &faces), Some(3));
+        assert_eq!(preferred_face("Black Bold", &faces), Some(2));
+        assert_eq!(preferred_face("Missing", &faces[..2]), Some(1));
     }
 }

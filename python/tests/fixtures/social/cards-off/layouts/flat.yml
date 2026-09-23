@@ -1,0 +1,6 @@
+tags:
+  og:image: '{{ image.url }}'
+  x:mode: opt-in
+size: { width: 320, height: 168 }
+layers:
+  - background: { color: '#234567' }

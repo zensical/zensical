@@ -1,0 +1,15 @@
+definitions:
+  - &accent '#eeaa66'
+tags:
+  og:image: '{{ image.url }}'
+  x:layer: composed
+size: { width: 400, height: 200 }
+layers:
+  - background: { image: docs/background.svg }
+  - size: { width: 100, height: 40 }
+    offset: { x: 20, y: 20 }
+    background: { color: *accent }
+  - size: { width: 80, height: 80 }
+    offset: { x: 16, y: 16 }
+    origin: end bottom
+    icon: { value: material/star, color: '#ffffff' }

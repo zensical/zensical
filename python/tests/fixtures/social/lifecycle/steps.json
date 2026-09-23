@@ -1,0 +1,20 @@
+[
+  {
+    "path": "docs/background.svg",
+    "before": "fill=\"red\"",
+    "after": "fill=\"blue\"",
+    "changes": ["cards"]
+  },
+  {
+    "path": "docs/index.md",
+    "before": "Before title",
+    "after": "After title",
+    "changes": ["pages"]
+  },
+  {
+    "path": "layouts/flat.yml",
+    "before": "color: transparent",
+    "after": "color: '#73628a'",
+    "changes": ["cards"]
+  }
+]

@@ -1,0 +1,6 @@
+tags:
+  og:image: '{{ image.url }}'
+  x:title: '{{ page.meta.get("title", page.title) }}'
+size: { width: 320, height: 168 }
+layers:
+  - background: { image: docs/background.svg, color: transparent }

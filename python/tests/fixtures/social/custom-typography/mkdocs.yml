@@ -1,0 +1,9 @@
+site_name: Custom typography
+site_url: https://example.test/docs/
+site_dir: site
+theme: { name: material }
+plugins:
+  - social:
+      cache: false
+      cache_dir: social-cache
+      cards_layout: type
