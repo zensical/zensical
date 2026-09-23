@@ -122,25 +122,35 @@ def test_preserves_plugin_presence_semantics() -> None:
 
 
 def test_rss_instances_keep_defaults_and_validate_output_names() -> None:
-    plugins = _convert_plugins([
-        "rss",
-        {"rss": {
-            "match_path": "blog/.*",
-            "feeds_filenames": {"rss_created": "blog.xml"},
-            "date_from_meta": {"as_creation": "date.created"},
-        }},
-    ])
+    plugins = _convert_plugins(
+        [
+            "rss",
+            {
+                "rss": {
+                    "match_path": "blog/.*",
+                    "feeds_filenames": {"rss_created": "blog.xml"},
+                    "date_from_meta": {"as_creation": "date.created"},
+                }
+            },
+        ]
+    )
     first, second = plugins["rss"]["config"]
-    assert first["config"]["feeds_filenames"]["rss_created"] == "feed_rss_created.xml"
+    assert (
+        first["config"]["feeds_filenames"]["rss_created"]
+        == "feed_rss_created.xml"
+    )
     assert first["config"]["use_git"] is True
     assert second["config"]["feeds_filenames"]["rss_created"] == "blog.xml"
     assert second["config"]["date_from_meta"]["as_creation"] == "date.created"
     assert second["config"]["date_from_meta"]["as_update"] == "git"
     with pytest.raises(ConfigurationError, match="invalid rss feed filename"):
-        _convert_plugins({"rss": {"feeds_filenames": {"rss_created": "../bad.xml"}}})
+        _convert_plugins(
+            {"rss": {"feeds_filenames": {"rss_created": "../bad.xml"}}}
+        )
     with pytest.raises(ConfigurationError, match="unknown rss option"):
         _convert_plugins({"rss": {"unknown": True}})
-    assert _convert_plugins({"rss": {"cache_dir": ".cache/rss"}})["rss"]["config"][0]["config"]["enabled"]
+    configured = _convert_plugins({"rss": {"cache_dir": ".cache/rss"}})
+    assert configured["rss"]["config"][0]["config"]["enabled"]
 
 
 def test_preserves_zensical_plugin_options() -> None:

@@ -1597,7 +1597,8 @@ def _normalize_rss(raw: dict[str, Any]) -> dict[str, Any]:
         or rss["length"] < 0
     ):
         raise ConfigurationError(
-            "rss abstract_chars_count must be at least -1; feed_ttl and length must be non-negative"
+            "rss abstract_chars_count must be at least -1; "
+            "feed_ttl and length must be non-negative"
         )
     if not isinstance(rss["categories"], list) or not all(
         isinstance(value, str) for value in rss["categories"]
@@ -1610,9 +1611,9 @@ def _normalize_rss(raw: dict[str, Any]) -> dict[str, Any]:
         raise ConfigurationError(
             "rss url_parameters must be a mapping of scalar values"
         )
-    rss["url_parameters"] = {
-        key: str(value) for key, value in rss["url_parameters"].items()
-    }
+    rss["url_parameters"] = [
+        (key, str(value)) for key, value in rss["url_parameters"].items()
+    ]
     try:
         re.compile(rss["match_path"])
     except re.error as error:
@@ -1636,7 +1637,9 @@ def _normalize_rss(raw: dict[str, Any]) -> dict[str, Any]:
         "rss date_from_meta", rss["date_from_meta"], date_defaults
     )
     try:
-        datetime.strptime(rss["date_from_meta"]["default_time"], "%H:%M")
+        datetime.strptime(  # noqa: DTZ007 - validates only a clock time
+            rss["date_from_meta"]["default_time"], "%H:%M"
+        )
         ZoneInfo(rss["date_from_meta"]["default_timezone"])
     except (ValueError, ZoneInfoNotFoundError) as error:
         raise ConfigurationError(
@@ -1665,6 +1668,8 @@ def _normalize_rss(raw: dict[str, Any]) -> dict[str, Any]:
             or any(part in ("", ".", "..") for part in filename.split("/"))
         ):
             raise ConfigurationError(f"invalid rss feed filename: {filename}")
+    # Accept the upstream option until native social metadata is available.
+    rss.pop("use_material_social_cards")
     return rss
 
 
