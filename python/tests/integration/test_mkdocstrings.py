@@ -246,7 +246,7 @@ def test_backlinks_inside_autoref_titles(
     nested = (
         '<autoref identifier="sample.Target">Template '
         '<backlinks identifier="sample.Target" handler="python" />'
-        '</autoref>'
+        "</autoref>"
     )
     (overrides / "main.html").write_text(
         "{{ page.content }}" + (nested if in_template else ""),

@@ -788,7 +788,8 @@ class TestPluginShimming:
         [
             pytest.param("plugins", "mkdocstrings", id="plugin"),
             pytest.param(
-                "markdown_extensions", MkdocstringsExtension.name,
+                "markdown_extensions",
+                MkdocstringsExtension.name,
                 id="extension",
             ),
         ],
