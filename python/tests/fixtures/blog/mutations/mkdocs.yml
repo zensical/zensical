@@ -1,0 +1,16 @@
+site_name: Blog mutation oracle
+site_url: https://example.test/docs/
+use_directory_urls: true
+
+theme:
+  name: material
+
+plugins:
+  - material/blog:
+      archive: false
+      categories: false
+      authors: false
+      pagination_per_page: 2
+
+nav:
+  - Blog: blog/index.md

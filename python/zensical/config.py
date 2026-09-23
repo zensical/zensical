@@ -46,9 +46,10 @@ from zensical.extensions.emoji import to_svg, twemoji
 from zensical.extensions.glightbox import GlightboxExtension
 from zensical.extensions.macros import MacrosExtension
 from zensical.extensions.mkdocstrings import MkdocstringsExtension
+from zensical.extensions.table_reader import TABLE_READERS, TableReaderExtension
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
 
 
 # ----------------------------------------------------------------------------
@@ -65,7 +66,6 @@ references to functions or other Python objects, for which we don't have any
 representation in Rust. Thus, we just keep the configuration on the Python
 side, and use it directly when needed. It's a hack but will do for now.
 """
-
 
 # ----------------------------------------------------------------------------
 # Constants
@@ -107,6 +107,111 @@ DEFAULT_MARKDOWN_EXTENSIONS = {
     },
     "pymdownx.tasklist": {"custom_checkbox": True},
     "pymdownx.tilde": {},
+}
+
+# Supported MkDocs plugins and their recognized but unimplemented options.
+# Discard these before validation, hashing and forwarding to native modules or
+# Markdown extensions. Empty tuples mark plugins with no ignored options.
+_PLUGIN_UNSUPPORTED_OPTIONS = {
+    "autorefs": (
+        # TODO: Configure native URL selection and link title rendering.
+        "resolve_closest",
+        "link_titles",
+        "strip_title_tags",
+    ),
+    "awesome-nav": (),
+    "blog": (),
+    "callouts": (
+        "aliases",
+        "breakless_lists",
+        "title_from_first_bold",
+    ),
+    "glightbox": (
+        "touchNavigation",
+        "loop",
+        "effect",
+        "slide_effect",
+        "zoomable",
+        "draggable",
+        "background",
+        "shadow",
+    ),
+    "literate-nav": (),
+    "macros": (
+        # TODO: Match page paths before deciding whether to render macros.
+        "force_render_paths",
+        # TODO: Add diagnostics for module loading and macro rendering.
+        "verbose",
+    ),
+    "markdown-exec": (),
+    "meta": (),
+    "mike": (
+        "css_dir",
+        "javascript_dir",
+    ),
+    "minify": (),
+    "mkdocstrings": (
+        # TODO: Gate native objects.inv generation on this setting.
+        "enable_inventory",
+        "watch",
+    ),
+    "offline": (),
+    "redirects": (),
+    "search": (
+        "fields",
+        "indexing",
+        "jieba_dict",
+        "jieba_dict_user",
+        "lang",
+        "min_search_length",
+        "pipeline",
+        "prebuild_index",
+    ),
+    "social": (),
+    "table-reader": (),
+    "tags": (
+        "tags_compare",
+        "tags_compare_reverse",
+        "tags_pages_compare",
+        "tags_pages_compare_reverse",
+        "tags_file",
+        "tags_extra_files",
+        "export",
+        "export_file",
+        "export_only",
+    ),
+}
+
+# Tags options forwarded to the native configuration after Python removes
+# recognized but unimplemented options.
+_TAGS_SUPPORTED_OPTIONS = {
+    "enabled",
+    "filters",
+    "tags",
+    "tags_slugify",
+    "tags_slugify_separator",
+    "tags_slugify_format",
+    "tags_hierarchy",
+    "tags_hierarchy_separator",
+    "tags_sort_by",
+    "tags_sort_reverse",
+    "tags_name_property",
+    "tags_name_variable",
+    "tags_allowed",
+    "listings",
+    "listings_map",
+    "listings_sort_by",
+    "listings_sort_reverse",
+    "listings_tags_sort_by",
+    "listings_tags_sort_reverse",
+    "listings_directive",
+    "listings_layout",
+    "listings_toc",
+    "shadow",
+    "shadow_on_serve",
+    "shadow_tags",
+    "shadow_tags_prefix",
+    "shadow_tags_suffix",
 }
 
 
@@ -304,7 +409,9 @@ def get_theme_dir(name: str) -> str:
 
 def get_custom_theme_dir(path: str, config_path: str) -> str:
     """Return the custom theme directory."""
-    theme_dir = os.path.join(os.path.dirname(config_path), path)
+    theme_dir = os.path.normpath(
+        os.path.join(os.path.dirname(config_path), path)
+    )
 
     # Validate that custom theme directory exists
     if not os.path.isdir(theme_dir):
@@ -528,6 +635,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(icon, "repo", None, str)
     set_default(icon, "annotation", None, str)
     set_default(icon, "tag", {}, dict)
+    blog = set_default(icon, "blog", {}, dict)
     if theme.get("variant") == "modern":
         set_default(icon, "logo", "lucide/book-open", str)
         set_default(icon, "edit", "lucide/file-pen", str)
@@ -540,6 +648,11 @@ def _apply_defaults(config: dict, path: str) -> dict:
         set_default(icon, "close", "lucide/x", str)
         set_default(icon, "previous", "lucide/arrow-left", str)
         set_default(icon, "next", "lucide/arrow-right", str)
+        set_default(blog, "back", "lucide/arrow-left", str)
+        set_default(blog, "date", "lucide/calendar-days", str)
+        set_default(blog, "date_updated", "lucide/calendar-clock", str)
+        set_default(blog, "categories", "lucide/library", str)
+        set_default(blog, "readtime", "lucide/clock", str)
     else:
         set_default(icon, "logo", None, str)
         set_default(icon, "edit", None, str)
@@ -552,6 +665,11 @@ def _apply_defaults(config: dict, path: str) -> dict:
         set_default(icon, "close", None, str)
         set_default(icon, "previous", None, str)
         set_default(icon, "next", None, str)
+        set_default(blog, "back", "material/arrow-left", str)
+        set_default(blog, "date", "material/calendar", str)
+        set_default(blog, "date_updated", "material/calendar-clock", str)
+        set_default(blog, "categories", "material/bookshelf", str)
+        set_default(blog, "readtime", "material/clock-outline", str)
 
     # Set defaults for theme admonition icons
     admonition = set_default(icon, "admonition", {}, dict)
@@ -680,10 +798,12 @@ def _apply_defaults(config: dict, path: str) -> dict:
 
     # Map plugins configuration to Markdown extensions
     _shim_autorefs(config)
+    _shim_callouts(config)
     _shim_markdown_exec(config)
     _shim_mkdocstrings(config)
     _shim_glightbox(config)
     _shim_macros(config)
+    _shim_table_reader(config)
 
     # List files along with their hashes, so we can rebuild when they change
     watched_files = (
@@ -693,21 +813,21 @@ def _apply_defaults(config: dict, path: str) -> dict:
         | _list_watch_files(config, path)  # watch
     )
 
-    # We watch theme directories by default on the Rust side,
-    # so we need to  prevent duplicates from here, in case
-    # users add theme directories to the watch option
+    # Rust already watches the theme directories and the config file.
     theme_files = _list_templates(config)
-    watched_files -= set(theme_files)
-    config["watched_files"] = sorted(watched_files)
+    excluded_files = {Path(path).resolve() for path, _ in theme_files}
+    excluded_files.add(Path(path).resolve())
+    config["watched_files"] = sorted(
+        (file_path, mtime)
+        for file_path, mtime in watched_files
+        if Path(file_path).resolve() not in excluded_files
+    )
 
     # Hash all templates, so we rebuild if something changes
     config["template_hash"] = _hash(theme_files)
 
-    # Hash the entire plugins configuration.
-    # This is a special case for plugins because we currently only source
-    # the plugin configuration that we support in Rust,
-    # which means config on other plugins doesn't contribute to the hash,
-    # in turn not triggering full rebuilds.
+    # Include Python-only plugin settings in rebuilds. Unsupported plugins and
+    # ignored legacy options have already been discarded during normalization.
     config["plugins_hash"] = _hash(config["plugins"])
 
     return config
@@ -839,6 +959,21 @@ def _shim_autorefs(config: dict[str, Any]) -> None:
         config["markdown_extensions"].append(AutorefsExtension.name)
 
 
+def _shim_callouts(config: dict[str, Any]) -> None:
+    """Enable callout blockquotes for an enabled callouts plugin."""
+    if "callouts" not in config["plugins"]:
+        return
+
+    plugin = config["plugins"]["callouts"]["config"]
+    if not plugin.get("enabled", True):
+        return
+
+    extension = "pymdownx.quotes"
+    if extension not in config["markdown_extensions"]:
+        config["markdown_extensions"].append(extension)
+    config["mdx_configs"].setdefault(extension, {})["callouts"] = True
+
+
 def _shim_markdown_exec(config: dict[str, Any]) -> None:
     # Map markdown-exec plugin configuration to superfences configuration
     if "markdown-exec" in config["plugins"]:
@@ -922,6 +1057,31 @@ def _shim_macros(config: dict[str, Any]) -> None:
         if plugin.get("enabled", True):
             config["markdown_extensions"].append(MacrosExtension.name)
             config["mdx_configs"][MacrosExtension.name] = plugin
+
+
+def _shim_table_reader(config: dict[str, Any]) -> None:
+    """Map table-reader configuration to its compatibility extension."""
+    if "table-reader" not in config["plugins"]:
+        return
+
+    plugin = config["plugins"]["table-reader"]["config"]
+    if not plugin.get("enabled", True):
+        return
+
+    # With macros enabled, the shared readers are added directly to its Jinja
+    # environment, matching the integration behavior of the MkDocs plugins.
+    macros_config = config["mdx_configs"].get(MacrosExtension.name, {})
+    macros_enabled = MacrosExtension.name in config[
+        "markdown_extensions"
+    ] and macros_config.get("enabled", True)
+    if (
+        macros_enabled
+        or TableReaderExtension.name in config["markdown_extensions"]
+    ):
+        return
+
+    config["markdown_extensions"].append(TableReaderExtension.name)
+    config["mdx_configs"][TableReaderExtension.name] = plugin
 
 
 # ----------------------------------------------------------------------------
@@ -1089,6 +1249,10 @@ def _list_templates(config: dict) -> list[tuple[str, int]]:
 
 
 # -----------------------------------------------------------------------------
+# Note: we do a lot of validation on configuration settings in the following
+# helpers (presence, shape, type, value). This is transitional: configuration
+# parsing and validation will move to Rust at some point. Doing this in Python
+# is an easy win until we start working on configuration in Rust.
 
 
 def _is_index(path: str) -> bool:
@@ -1140,13 +1304,15 @@ def _convert_nav_item(item: str | dict | list) -> dict | list:
                     "is_index": False,
                     "active": False,
                 }
-            raise TypeError(f"Unknown nav item value type: {type(value)}")
+            raise ConfigurationError(
+                f"Unknown nav item value type: {type(value)}"
+            )
 
     # Handle a list of items
     elif isinstance(item, list):
         return [_convert_nav_item(child) for child in item]
 
-    raise TypeError(f"Unknown nav item type: {type(item)}")
+    raise ConfigurationError(f"Unknown nav item type: {type(item)}")
 
 
 def _convert_extra(data: dict | list) -> dict | list:
@@ -1186,57 +1352,92 @@ def _convert_extra_javascript(value: list) -> list:
             item.setdefault("async", False)
             item.setdefault("defer", False)
         else:
-            raise TypeError(f"Unknown extra_javascript item type: {type(item)}")
+            raise ConfigurationError(
+                f"Unknown extra_javascript item type: {type(item)}"
+            )
 
     # Return resulting value
     return value
 
 
-def _convert_markdown_extensions(value: Any) -> tuple[list[str], dict]:
+def _convert_markdown_extensions(
+    value: Any,
+) -> tuple[list[str], dict[str, dict[str, Any]]]:
     """Convert Markdown extensions to what Python Markdown expects."""
     markdown_extensions = ["toc", "tables"]
     mdx_configs: dict[str, dict[str, Any]] = {"toc": {}, "tables": {}}
+
+    if value is None:
+        return markdown_extensions, mdx_configs
+    if not isinstance(value, (dict, list)):
+        raise ConfigurationError(
+            "Markdown extensions must be a list or mapping"
+        )
 
     # In case of Python Markdown Extensions, we allow to omit the necessary
     # quotes around the extension names, so we need to hoist the extensions
     # configuration one level up. This is a pre-processing step before we
     # actually parse the configuration.
-    if "pymdownx" in value:
+    if isinstance(value, dict):
+        value = dict(value)
+
+    if isinstance(value, dict) and "pymdownx" in value:
         pymdownx = value.pop("pymdownx")
+        if not isinstance(pymdownx, dict):
+            raise ConfigurationError(
+                "pymdownx Markdown extensions must be a mapping"
+            )
         for ext, conf in pymdownx.items():
+            if not isinstance(ext, str):
+                raise ConfigurationError(
+                    "Markdown extension names must be strings"
+                )
             # Special case for blocks extension, which has another level of
             # nesting. This is the only extension that requires this.
             if ext == "blocks":
+                if not isinstance(conf, dict):
+                    raise ConfigurationError(
+                        "pymdownx.blocks Markdown extensions must be a mapping"
+                    )
                 for block, config in conf.items():
+                    if not isinstance(block, str):
+                        raise ConfigurationError(
+                            "Markdown extension names must be strings"
+                        )
                     value[f"pymdownx.{ext}.{block}"] = config
             else:
                 value[f"pymdownx.{ext}"] = conf
 
     # Same as for Python Markdown extensions, see above
-    if "zensical" in value:
+    if isinstance(value, dict) and "zensical" in value:
         zensical = value.pop("zensical")
+        if not isinstance(zensical, dict):
+            raise ConfigurationError(
+                "zensical Markdown extensions must be a mapping"
+            )
         for ext, conf in zensical.items():
+            if not isinstance(ext, str):
+                raise ConfigurationError(
+                    "Markdown extension names must be strings"
+                )
             if ext == "extensions":
+                if not isinstance(conf, dict):
+                    raise ConfigurationError(
+                        "zensical.extensions Markdown extensions must be a "
+                        "mapping"
+                    )
                 for key, config in conf.items():
+                    if not isinstance(key, str):
+                        raise ConfigurationError(
+                            "Markdown extension names must be strings"
+                        )
                     value[f"zensical.{ext}.{key}"] = config
             else:
                 value[f"zensical.{ext}"] = conf
 
-    # Extensions can be defined as a dict
-    if isinstance(value, dict):
-        for ext, config in value.items():
-            markdown_extensions.append(ext)
-            mdx_configs[ext] = config or {}
-
-    # Extensions can also be defined as a list
-    else:
-        for item in value:
-            if isinstance(item, dict):
-                ext, config = item.popitem()
-                markdown_extensions.append(ext)
-                mdx_configs[ext] = config or {}
-            elif isinstance(item, str):
-                markdown_extensions.append(item)
+    extensions, configs = _convert_plugin_markdown_extensions(value)
+    markdown_extensions.extend(extensions)
+    mdx_configs.update(configs)
 
     # Return extension list and configuration, after ensuring they're unique
     seen = set()
@@ -1258,24 +1459,8 @@ def _convert_plugin_markdown_extensions(
     """
     markdown_extensions: list[str] = []
     mdx_configs: dict[str, dict[str, Any]] = {}
-    if value is None:
-        return markdown_extensions, mdx_configs
-    items: Any = value.items() if isinstance(value, dict) else value
-    for item in items:
-        if isinstance(item, tuple):
-            extension, extension_config = item
-        elif isinstance(item, dict):
-            if len(item) != 1:
-                raise ConfigurationError(
-                    "Markdown extension mappings must contain one entry"
-                )
-            extension, extension_config = next(iter(item.items()))
-        elif isinstance(item, str):
-            extension, extension_config = item, {}
-        else:
-            raise ConfigurationError(
-                "Markdown extensions must be strings or mappings"
-            )
+
+    def add(extension: Any, extension_config: Any) -> None:
         if not isinstance(extension, str):
             raise ConfigurationError("Markdown extension names must be strings")
         if extension_config is None:
@@ -1284,124 +1469,286 @@ def _convert_plugin_markdown_extensions(
             raise ConfigurationError(
                 "Markdown extension configurations must be mappings"
             )
-        normalized_config = cast("dict[str, Any]", extension_config)
         markdown_extensions.append(extension)
-        mdx_configs[extension] = normalized_config
+        mdx_configs[extension] = cast("dict[str, Any]", extension_config)
+
+    if value is None:
+        return markdown_extensions, mdx_configs
+    if not isinstance(value, (dict, list)):
+        raise ConfigurationError(
+            "Plugin Markdown extensions must be a list or mapping"
+        )
+
+    if isinstance(value, dict):
+        for extension, extension_config in value.items():
+            add(extension, extension_config)
+    else:
+        for item in value:
+            if isinstance(item, str):
+                add(item, {})
+                continue
+            if not isinstance(item, dict):
+                raise ConfigurationError(
+                    "Markdown extensions must be strings or mappings"
+                )
+            if len(item) != 1:
+                raise ConfigurationError(
+                    "Markdown extension mappings must contain one entry"
+                )
+            extension, extension_config = next(iter(item.items()))
+            add(extension, extension_config)
     return markdown_extensions, mdx_configs
+
+
+def _reject_unknown_options(
+    label: str, plugin: dict[str, Any], supported: set[str]
+) -> None:
+    """Reject unknown options in a supported plugin configuration."""
+    for name in plugin:
+        if not isinstance(name, str):
+            raise ConfigurationError(f"{label} option names must be strings")
+    if unknown := set(plugin) - supported:
+        name = sorted(unknown)[0]
+        raise ConfigurationError(f"unknown {label} option: {name}")
+
+
+def _validate_boolean_options(
+    label: str, plugin: dict[str, Any], options: Iterable[str]
+) -> None:
+    """Validate boolean options in a supported plugin configuration."""
+    for name in options:
+        if name in plugin and not isinstance(plugin[name], bool):
+            raise ConfigurationError(f"{label} {name} must be a boolean")
+
+
+def _validate_string_options(
+    label: str, plugin: dict[str, Any], options: Iterable[str]
+) -> None:
+    """Validate string options in a supported plugin configuration."""
+    for name in options:
+        if name in plugin and not isinstance(plugin[name], str):
+            raise ConfigurationError(f"{label} {name} must be a string")
 
 
 def _convert_plugins(value: Any, config: dict) -> dict:
     """Convert plugins configuration to something we can work with."""
     plugins: dict[str, Any] = {}
     tags: list[dict[str, Any]] = []
+    blogs: list[dict[str, Any]] = []
     social: list[dict[str, Any]] = []
 
-    def add(name: str, data: Any) -> None:
-        """Canonicalize Material aliases and preserve multi-instance plugins."""
+    def add(name: Any, data: Any) -> None:
+        """Canonicalize Material aliases and preserve plugin instances."""
+        if not isinstance(name, str):
+            raise ConfigurationError("Plugin names must be strings")
         name = name.removeprefix("material/")
+        plugin = "social" if name.startswith("social/") else name
+        if plugin not in _PLUGIN_UNSUPPORTED_OPTIONS:
+            return
+        if data is None:
+            data = {}
+        elif not isinstance(data, dict):
+            raise ConfigurationError(f"{name} configuration must be a mapping")
+        else:
+            data = dict(data)
+        for option in _PLUGIN_UNSUPPORTED_OPTIONS[plugin]:
+            data.pop(option, None)
         if name == "tags":
-            tags.append({"name": name, "config": dict(data or {})})
-        elif name == "social" or name.startswith("social/"):
-            social.append({"name": name, "config": dict(data or {})})
+            _reject_unknown_options("tags", data, _TAGS_SUPPORTED_OPTIONS)
+            tags.append({"name": name, "config": data})
+        elif name == "blog":
+            blogs.append({"name": name, "config": data})
+        elif plugin == "social":
+            social.append({"name": name, "config": data})
         else:
             plugins[name] = data
 
+    if value is None:
+        pass
     # Plugins can be defined as a dict
-    if isinstance(value, dict):
+    elif isinstance(value, dict):
         for name, data in value.items():
             add(name, data)
-
     # Plugins can also be defined as a list
-    else:
+    elif isinstance(value, list):
         for item in value:
-            if isinstance(item, dict):
-                name, data = next(iter(item.items()))
-                if not isinstance(name, str):
-                    raise ConfigurationError("Plugin names must be strings")
-                add(name, data)
-            elif isinstance(item, str):
+            if isinstance(item, str):
                 add(item, {})
+            elif isinstance(item, dict) and len(item) == 1:
+                name, data = next(iter(item.items()))
+                add(name, data)
+            else:
+                raise ConfigurationError(
+                    "Plugin entries must be names or single-entry mappings"
+                )
+    else:
+        raise ConfigurationError("plugins must be a list or mapping")
 
-    # Rust owns all tags defaults, validation, scalar coercion and callable
-    # lowering. Python only preserves ordered plugin instances and their raw
-    # configuration, as it does for future native compatibility modules.
+    # Rust owns tags defaults, value validation, scalar coercion and callable
+    # lowering. Python validates option names and preserves ordered instances.
     plugins["tags"] = tags
+    plugins["blogs"] = blogs
 
     # Rust owns all social defaults, validation and rendering. Python only
     # preserves ordered plugin instances and their raw configuration.
     plugins["social"] = social
 
-    # Define defaults for search plugin
-    search = set_default(plugins, "search", {}, dict)
-    set_default(search, "enabled", True, bool)
-    set_default(
-        search, "separator", '[\\s\\-_,:!=\\[\\]()\\\\"`/]+|\\.(?!\\d)', str
-    )
+    # Search is enabled by default, even when it isn't explicitly configured.
+    search = plugins.pop("search", {})
+    _reject_unknown_options("search", search, {"enabled", "separator"})
+    set_default(search, "enabled", True)
+    set_default(search, "separator", '[\\s\\-_,:!=\\[\\]()\\\\"`/]+|\\.(?!\\d)')
+    _validate_boolean_options("search", search, ("enabled",))
+    _validate_string_options("search", search, ("separator",))
+    plugins["search"] = search
 
     # Normalize metadata into the typed Rust configuration. The Material
     # namespace is removed at admission, so both names share this code path.
-    present, meta = _pop_plugin_config(plugins, "meta")
-    set_default(meta, "enabled", present, bool)
-    set_default(meta, "meta_file", ".meta.yml", str)
+    # The configuration is always materialized and enabled by plugin presence.
+    present = "meta" in plugins
+    meta = plugins.pop("meta", {})
+    _reject_unknown_options("meta", meta, {"enabled", "meta_file"})
+    set_default(meta, "enabled", present)
+    set_default(meta, "meta_file", ".meta.yml")
+    _validate_boolean_options("meta", meta, ("enabled",))
+    _validate_string_options("meta", meta, ("meta_file",))
     plugins["meta"] = meta
 
     # Normalize redirects into typed native configuration. The enabled flag is
-    # internal; plugin presence retains MkDocs' activation semantics.
-    present, redirects = _pop_plugin_config(plugins, "redirects")
-    set_default(redirects, "enabled", present, bool)
-    set_default(redirects, "redirect_maps", {}, dict)
+    # internal; plugin presence retains MkDocs' activation semantics. The
+    # configuration is always materialized for Rust.
+    present = "redirects" in plugins
+    redirects = plugins.pop("redirects", {})
+    _reject_unknown_options(
+        "redirects", redirects, {"enabled", "redirect_maps"}
+    )
+    set_default(redirects, "enabled", present)
+    _validate_boolean_options("redirects", redirects, ("enabled",))
+    set_default(redirects, "redirect_maps", {})
+    redirect_maps = redirects["redirect_maps"]
+    if not isinstance(redirect_maps, dict) or not all(
+        isinstance(source, str) and isinstance(target, str)
+        for source, target in redirect_maps.items()
+    ):
+        raise ConfigurationError(
+            "redirects redirect_maps must be a mapping of strings to strings"
+        )
     plugins["redirects"] = redirects
 
     # Normalize the complete mkdocs-minify-plugin configuration surface. Asset
     # settings are retained for the dedicated copy/output stage; the inline
-    # switches are Zensical extensions handled by the final HTML pass.
-    present, minify = _pop_plugin_config(plugins, "minify")
-    set_default(minify, "enabled", present, bool)
-    set_default(minify, "minify_html", False, bool)
-    set_default(minify, "minify_js", False, bool)
-    set_default(minify, "minify_css", False, bool)
-    set_default(minify, "minify_inline_js", False, bool)
-    set_default(minify, "minify_inline_css", False, bool)
-    set_default(minify, "cache_safe", False, bool)
-
+    # switches are Zensical extensions handled by the final HTML pass. The
+    # configuration is always materialized and enabled by plugin presence.
+    present = "minify" in plugins
+    minify = plugins.pop("minify", {})
+    boolean_defaults = {
+        "enabled": present,
+        "minify_html": False,
+        "minify_js": False,
+        "minify_css": False,
+        "minify_inline_js": False,
+        "minify_inline_css": False,
+        "cache_safe": False,
+    }
+    _reject_unknown_options(
+        "minify",
+        minify,
+        set(boolean_defaults)
+        | {
+            "js_files",
+            "css_files",
+            "htmlmin_opts",
+        },
+    )
+    for name, default in boolean_defaults.items():
+        set_default(minify, name, default)
+    _validate_boolean_options("minify", minify, boolean_defaults)
     for name in ("js_files", "css_files"):
-        files = minify.get(name)
-        if files is None:
-            minify[name] = []
-        elif isinstance(files, str):
+        set_default(minify, name, [])
+        files = minify[name]
+        if isinstance(files, str):
             minify[name] = [files]
-        elif isinstance(files, list):
-            minify[name] = files
-        else:
-            minify[name] = []
+        elif not isinstance(files, list) or not all(
+            isinstance(file, str) for file in files
+        ):
+            raise ConfigurationError(
+                f"minify {name} must be a string or a list of strings"
+            )
 
-    htmlmin_opts = minify.get("htmlmin_opts")
-    if not isinstance(htmlmin_opts, dict):
-        htmlmin_opts = {}
-    htmlmin_opts = dict(htmlmin_opts)
-    set_default(htmlmin_opts, "remove_comments", False, bool)
-    set_default(htmlmin_opts, "remove_empty_space", False, bool)
-    set_default(htmlmin_opts, "remove_all_empty_space", False, bool)
-    set_default(htmlmin_opts, "reduce_empty_attributes", True, bool)
-    set_default(htmlmin_opts, "reduce_boolean_attributes", False, bool)
-    set_default(htmlmin_opts, "remove_optional_attribute_quotes", True, bool)
-    set_default(htmlmin_opts, "convert_charrefs", True, bool)
-    set_default(htmlmin_opts, "keep_pre", False, bool)
-    set_default(htmlmin_opts, "pre_tags", ["pre", "textarea"], list)
-    set_default(htmlmin_opts, "pre_attr", "pre", str)
+    set_default(minify, "htmlmin_opts", {})
+    if not isinstance(minify["htmlmin_opts"], dict):
+        raise ConfigurationError("minify htmlmin_opts must be a mapping")
+    htmlmin_opts = dict(minify["htmlmin_opts"])
+    boolean_defaults = {
+        "remove_comments": False,
+        "remove_empty_space": False,
+        "remove_all_empty_space": False,
+        "reduce_empty_attributes": True,
+        "reduce_boolean_attributes": False,
+        "remove_optional_attribute_quotes": True,
+        "convert_charrefs": True,
+        "keep_pre": False,
+    }
+    _reject_unknown_options(
+        "minify htmlmin_opts",
+        htmlmin_opts,
+        set(boolean_defaults) | {"pre_tags", "pre_attr"},
+    )
+    for name, default in boolean_defaults.items():
+        set_default(htmlmin_opts, name, default)
+    _validate_boolean_options(
+        "minify htmlmin_opts", htmlmin_opts, boolean_defaults
+    )
+    set_default(htmlmin_opts, "pre_tags", ["pre", "textarea"])
+    if not isinstance(htmlmin_opts["pre_tags"], list) or not all(
+        isinstance(tag, str) for tag in htmlmin_opts["pre_tags"]
+    ):
+        raise ConfigurationError(
+            "minify htmlmin_opts pre_tags must be a list of strings"
+        )
+    set_default(htmlmin_opts, "pre_attr", "pre")
+    _validate_string_options("minify htmlmin_opts", htmlmin_opts, ("pre_attr",))
     minify["htmlmin_opts"] = htmlmin_opts
     plugins["minify"] = minify
 
     # Normalize mkdocs-literate-nav without importing or executing the plugin.
     # Python retains extension objects and callables for the narrow Markdown
-    # rendering boundary; Rust owns discovery and navigation resolution.
-    present, literate_nav = _pop_plugin_config(plugins, "literate-nav")
-    set_default(literate_nav, "enabled", present, bool)
-    set_default(literate_nav, "nav_file", "SUMMARY.md", str)
-    set_default(literate_nav, "implicit_index", False, bool)
-    set_default(literate_nav, "tab_length", 4, int)
+    # rendering boundary; Rust owns discovery and navigation resolution. The
+    # configuration is always materialized and enabled by plugin presence, and
+    # its Markdown settings belong to its private parser.
+    present = "literate-nav" in plugins
+    literate_nav = plugins.pop("literate-nav", {})
+    _reject_unknown_options(
+        "literate-nav",
+        literate_nav,
+        {
+            "enabled",
+            "nav_file",
+            "implicit_index",
+            "tab_length",
+            "markdown_extensions",
+        },
+    )
+    set_default(literate_nav, "enabled", present)
+    set_default(literate_nav, "nav_file", "SUMMARY.md")
+    set_default(literate_nav, "implicit_index", False)
+    set_default(literate_nav, "tab_length", 4)
+    _validate_boolean_options(
+        "literate-nav", literate_nav, ("enabled", "implicit_index")
+    )
+    _validate_string_options("literate-nav", literate_nav, ("nav_file",))
+    if (
+        not isinstance(literate_nav["tab_length"], int)
+        or isinstance(literate_nav["tab_length"], bool)
+        or literate_nav["tab_length"] <= 0
+    ):
+        raise ConfigurationError(
+            "literate-nav tab_length must be a positive integer"
+        )
+
+    set_default(literate_nav, "markdown_extensions", [])
     extensions, extension_configs = _convert_plugin_markdown_extensions(
-        literate_nav.get("markdown_extensions", [])
+        literate_nav["markdown_extensions"]
     )
     literate_nav["markdown_extensions"] = extensions
     literate_nav["mdx_configs"] = extension_configs
@@ -1409,102 +1756,359 @@ def _convert_plugins(value: Any, config: dict) -> dict:
 
     # Normalize mkdocs-awesome-nav without importing or executing the plugin.
     # Rust owns discovery, YAML parsing, matching and navigation resolution.
-    present, awesome_nav = _pop_plugin_config(plugins, "awesome-nav")
-    set_default(awesome_nav, "enabled", present, bool)
-    unknown = set(awesome_nav) - {"enabled", "filename", "logs"}
-    if unknown:
-        option = sorted(unknown)[0]
-        raise ConfigurationError(f"unknown awesome-nav option: {option}")
+    # The configuration is always materialized and enabled by plugin presence.
+    present = "awesome-nav" in plugins
+    awesome_nav = plugins.pop("awesome-nav", {})
+    _reject_unknown_options(
+        "awesome-nav", awesome_nav, {"enabled", "filename", "logs"}
+    )
+    set_default(awesome_nav, "enabled", present)
+    _validate_boolean_options("awesome-nav", awesome_nav, ("enabled",))
     set_default(awesome_nav, "filename", ".nav.yml")
-    if not isinstance(awesome_nav["filename"], str):
-        raise ConfigurationError("awesome-nav filename must be a string")
-    if not awesome_nav["filename"]:
-        raise ConfigurationError("awesome-nav filename must not be empty")
-    logs = awesome_nav.get("logs")
-    if logs is None:
-        logs = {}
-    elif not isinstance(logs, dict):
+    if (
+        not isinstance(awesome_nav["filename"], str)
+        or not awesome_nav["filename"]
+    ):
+        raise ConfigurationError(
+            "awesome-nav filename must be a non-empty string"
+        )
+    set_default(awesome_nav, "logs", {})
+    if not isinstance(awesome_nav["logs"], dict):
         raise ConfigurationError("awesome-nav logs must be a mapping")
-    logs = dict(logs)
-    unknown = set(logs) - {
-        "nav_override",
-        "root_title",
-        "root_hide",
-        "no_matches",
-    }
-    if unknown:
-        option = sorted(unknown)[0]
-        raise ConfigurationError(f"unknown awesome-nav log option: {option}")
-    for name in ("nav_override", "root_title", "root_hide", "no_matches"):
+    logs = dict(awesome_nav["logs"])
+    log_names = ("nav_override", "root_title", "root_hide", "no_matches")
+    _reject_unknown_options("awesome-nav log", logs, set(log_names))
+    for name in log_names:
         set_default(logs, name, None)
         if logs[name] not in (None, "info", "warning", "error"):
             raise ConfigurationError(
-                f"awesome-nav log level '{name}' must be info, warning or error"
+                f"awesome-nav log {name} must be info, warning or error "
+                "(or null)"
             )
     awesome_nav["logs"] = logs
     plugins["awesome_nav"] = awesome_nav
 
-    # Define defaults for offline plugin
-    offline = set_default(plugins, "offline", {"enabled": False}, dict)
-    set_default(offline, "enabled", True, bool)
+    # Offline is always materialized for Rust and enabled by plugin presence.
+    present = "offline" in plugins
+    offline = plugins.pop("offline", {})
+    _reject_unknown_options("offline", offline, {"enabled"})
+    set_default(offline, "enabled", present)
+    _validate_boolean_options("offline", offline, ("enabled",))
+    plugins["offline"] = offline
 
-    # Ensure correct resolution of links when viewing the site from the
-    # file system by disabling directory URLs
-    if offline.get("enabled", True):
-        config["use_directory_urls"] = False
+    # Mike signals versioned builds through an environment variable. During
+    # one, we read its plugin configuration and mirror Mike's site URL
+    # adjustment; support is currently limited to our theme. Explicit plugin
+    # configurations are also normalized outside a versioned build.
+    version = os.environ.get("MIKE_DOCS_VERSION")
+    if "mike" in plugins or (version and config.get("site_url")):
+        mike = plugins.pop("mike", {})
+        string_defaults = {
+            "alias_type": "symlink",
+            "deploy_prefix": "",
+        }
+        nullable_strings = ("redirect_template", "canonical_version")
+        _reject_unknown_options(
+            "mike",
+            mike,
+            {
+                "enabled",
+                "version_selector",
+                *string_defaults,
+                *nullable_strings,
+            },
+        )
+        _validate_boolean_options("mike", mike, ("enabled", "version_selector"))
+        for name, default in string_defaults.items():
+            set_default(mike, name, default)
+        _validate_string_options("mike", mike, string_defaults)
+        for name in nullable_strings:
+            set_default(mike, name, None)
+            if mike[name] is not None and not isinstance(mike[name], str):
+                raise ConfigurationError(
+                    f"mike {name} must be a string or null"
+                )
+        plugins["mike"] = mike
 
-        # Append iframe-worker to polyfills/shims
-        if not any(
-            "iframe-worker"
-            in (url.get("path", "") if isinstance(url, dict) else url)
-            for url in config["extra"]["polyfills"]
+    # Validate settings forwarded by the plugin-to-extension shims.
+    if "autorefs" in plugins:
+        autorefs = plugins["autorefs"]
+        _reject_unknown_options("autorefs", autorefs, {"enabled"})
+        _validate_boolean_options("autorefs", autorefs, ("enabled",))
+
+    if "callouts" in plugins:
+        callouts = plugins["callouts"]
+        _reject_unknown_options("callouts", callouts, {"enabled"})
+        _validate_boolean_options("callouts", callouts, ("enabled",))
+
+    if "markdown-exec" in plugins:
+        markdown_exec = plugins["markdown-exec"]
+        _reject_unknown_options(
+            "markdown-exec", markdown_exec, {"enabled", "ansi", "languages"}
+        )
+        _validate_boolean_options("markdown-exec", markdown_exec, ("enabled",))
+        if "ansi" in markdown_exec:
+            ansi = markdown_exec["ansi"]
+            if not isinstance(ansi, bool) and ansi not in {
+                "auto",
+                "off",
+                "required",
+            }:
+                raise ConfigurationError(
+                    "markdown-exec ansi must be 'auto', 'off', 'required', "
+                    "true or false"
+                )
+        if "languages" in markdown_exec:
+            languages = markdown_exec["languages"]
+            supported = {
+                "bash",
+                "console",
+                "md",
+                "markdown",
+                "py",
+                "python",
+                "pycon",
+                "pyodide",
+                "sh",
+                "tree",
+            }
+            if languages is not None and (
+                not isinstance(languages, list)
+                or not all(
+                    isinstance(language, str) and language in supported
+                    for language in languages
+                )
+            ):
+                raise ConfigurationError(
+                    "markdown-exec languages must be a list of supported "
+                    "language names or null"
+                )
+
+    if "mkdocstrings" in plugins:
+        mkdocstrings = plugins["mkdocstrings"]
+        string_options = {"default_handler", "locale"}
+        _reject_unknown_options(
+            "mkdocstrings",
+            mkdocstrings,
+            string_options
+            | {
+                "enabled",
+                "handlers",
+                "custom_templates",
+            },
+        )
+        _validate_boolean_options("mkdocstrings", mkdocstrings, ("enabled",))
+        if (
+            "handlers" in mkdocstrings
+            and mkdocstrings["handlers"] is not None
+            and not isinstance(mkdocstrings["handlers"], dict)
         ):
-            script = "https://unpkg.com/iframe-worker/shim"
-            config["extra"]["polyfills"].append(
-                {
-                    "path": script,
-                    "type": "text/javascript",
-                    "async": False,
-                    "defer": False,
-                }
+            raise ConfigurationError(
+                "mkdocstrings handlers must be a mapping or null"
+            )
+        if (
+            "custom_templates" in mkdocstrings
+            and mkdocstrings["custom_templates"] is not None
+            and not isinstance(mkdocstrings["custom_templates"], str)
+        ):
+            raise ConfigurationError(
+                "mkdocstrings custom_templates must be a string or null"
+            )
+        _validate_string_options("mkdocstrings", mkdocstrings, string_options)
+
+    if "glightbox" in plugins:
+        glightbox = plugins["glightbox"]
+        string_options = {"width", "height"}
+        boolean_options = {
+            "enabled",
+            "auto",
+            "auto_themed",
+            "auto_caption",
+        }
+        _reject_unknown_options(
+            "glightbox",
+            glightbox,
+            string_options
+            | boolean_options
+            | {
+                "skip_classes",
+                "caption_position",
+                "manual",
+            },
+        )
+        _validate_string_options("glightbox", glightbox, string_options)
+        if "skip_classes" in glightbox and (
+            not isinstance(glightbox["skip_classes"], list)
+            or not all(
+                isinstance(name, str) for name in glightbox["skip_classes"]
+            )
+        ):
+            raise ConfigurationError(
+                "glightbox skip_classes must be a list of strings"
+            )
+        _validate_boolean_options("glightbox", glightbox, boolean_options)
+        if "caption_position" in glightbox and glightbox[
+            "caption_position"
+        ] not in {"bottom", "top", "left", "right"}:
+            raise ConfigurationError(
+                "glightbox caption_position must be 'bottom', 'top', 'left' "
+                "or 'right'"
+            )
+        if (
+            "manual" in glightbox
+            and glightbox["manual"] is not None
+            and not isinstance(glightbox["manual"], bool)
+        ):
+            raise ConfigurationError(
+                "glightbox manual must be a boolean or null"
             )
 
-    # Mike sets an environment variable for us to determine whether the build
-    # is triggered from mike. If it is, we read the plugin configuration, if
-    # any, and mirror mike's functionality in adjusting the configuration when
-    # building the site, while only allowing for our theme at the moment.
-    version = os.environ.get("MIKE_DOCS_VERSION")
-    if version and config.get("site_url"):
-        mike = set_default(plugins, "mike", {}, dict)
-        set_default(mike, "alias_type", "symlink", str)
-        set_default(mike, "redirect_template", None)
-        set_default(mike, "deploy_prefix", "", str)
-        set_default(mike, "canonical_version", None)
+    if "macros" in plugins:
+        macros = plugins["macros"]
+        string_options = {
+            "module_name",
+            "include_dir",
+            "j2_block_start_string",
+            "j2_block_end_string",
+            "j2_variable_start_string",
+            "j2_variable_end_string",
+            "j2_comment_start_string",
+            "j2_comment_end_string",
+        }
+        list_options = {"modules", "j2_extensions"}
+        boolean_options = {
+            "enabled",
+            "render_by_default",
+            "on_error_fail",
+        }
+        _reject_unknown_options(
+            "macros",
+            macros,
+            string_options
+            | list_options
+            | boolean_options
+            | {
+                "include_yaml",
+                "on_undefined",
+            },
+        )
+        _validate_string_options("macros", macros, string_options)
+        for name in list_options:
+            if name in macros and (
+                not isinstance(macros[name], list)
+                or not all(isinstance(item, str) for item in macros[name])
+            ):
+                raise ConfigurationError(
+                    f"macros {name} must be a list of strings"
+                )
+        _validate_boolean_options("macros", macros, boolean_options)
+        if "include_yaml" in macros:
+            include_yaml = macros["include_yaml"]
+            valid_list = isinstance(include_yaml, list) and all(
+                isinstance(path, str) for path in include_yaml
+            )
+            valid_mapping = isinstance(include_yaml, dict) and all(
+                isinstance(name, str) and isinstance(path, str)
+                for name, path in include_yaml.items()
+            )
+            if not valid_list and not valid_mapping:
+                raise ConfigurationError(
+                    "macros include_yaml must be a list of strings or a "
+                    "mapping of strings to strings"
+                )
+        if "on_undefined" in macros and macros["on_undefined"] not in {
+            "keep",
+            "strict",
+        }:
+            raise ConfigurationError(
+                "macros on_undefined must be 'keep' or 'strict'"
+            )
 
-        # Copied and adapted from mike's plugin implementation
-        if mike["canonical_version"] is not None:
-            version = mike["canonical_version"]
-        config["site_url"] = urljoin(config["site_url"], version)
+    if "table-reader" in plugins:
+        table_reader = plugins["table-reader"]
+        _reject_unknown_options(
+            "table-reader",
+            table_reader,
+            {
+                "enabled",
+                "data_path",
+                "allow_missing_files",
+                "select_readers",
+            },
+        )
+        _validate_boolean_options(
+            "table-reader", table_reader, ("enabled", "allow_missing_files")
+        )
+        _validate_string_options("table-reader", table_reader, ("data_path",))
 
-    # Now, add another level of indirection, by moving all plugin configuration
-    # into a `config` property, making it compatible with Material for MkDocs.
-    for name, data in plugins.items():
-        if not isinstance(data, dict) or "config" not in data:
-            plugins[name] = {"config": data}
+        if "data_path" in table_reader:
+            root = Path(config["root_dir"]).resolve()
+            data_path = Path(table_reader["data_path"])
+            if not data_path.is_absolute():
+                data_path = root / data_path
+            if not data_path.resolve().is_relative_to(root):
+                raise ConfigurationError(
+                    "table-reader data_path must be within project root"
+                )
 
-    # Return plugins
-    return plugins
+        if "select_readers" in table_reader:
+            selected = table_reader["select_readers"]
+            if not isinstance(selected, list) or not all(
+                isinstance(reader, str) for reader in selected
+            ):
+                raise ConfigurationError(
+                    "table-reader select_readers must be a list of reader names"
+                )
+            if unsupported := set(selected) - set(TABLE_READERS):
+                reader = sorted(unsupported)[0]
+                raise ConfigurationError(
+                    f"unknown table-reader reader: {reader}"
+                )
+
+    # Add one level of indirection by moving every plugin configuration into a
+    # `config` property, matching Material's template-facing representation.
+    wrapped = {name: {"config": plugin} for name, plugin in plugins.items()}
+    _apply_offline_plugin(config, wrapped)
+    _apply_mike_plugin(config, wrapped, version)
+    return wrapped
 
 
-def _pop_plugin_config(
-    plugins: dict[str, Any], name: str
-) -> tuple[bool, dict[str, Any]]:
-    """Consume one optional mapping while preserving presence semantics."""
-    if name not in plugins:
-        return False, {}
-    value = plugins.pop(name)
-    if value is None:
-        return True, {}
-    if not isinstance(value, dict):
-        raise ConfigurationError(f"{name} configuration must be a mapping")
-    return True, dict(value)
+def _apply_offline_plugin(config: dict, plugins: dict[str, Any]) -> None:
+    """Apply project-wide effects of the offline plugin."""
+    offline = plugins["offline"]["config"]
+    if not offline["enabled"]:
+        return
+
+    # Ensure correct resolution of links when viewing the site from the file
+    # system by disabling directory URLs.
+    config["use_directory_urls"] = False
+
+    # Append iframe-worker to polyfills/shims.
+    if not any(
+        "iframe-worker"
+        in (url.get("path", "") if isinstance(url, dict) else url)
+        for url in config["extra"]["polyfills"]
+    ):
+        config["extra"]["polyfills"].append(
+            {
+                "path": "https://unpkg.com/iframe-worker/shim",
+                "type": "text/javascript",
+                "async": False,
+                "defer": False,
+            }
+        )
+
+
+def _apply_mike_plugin(
+    config: dict,
+    plugins: dict[str, Any],
+    version: str | None,
+) -> None:
+    """Apply project-wide effects of a mike versioned build."""
+    if not version or not config.get("site_url"):
+        return
+    mike = plugins["mike"]["config"]
+
+    # Copied and adapted from Mike's plugin implementation.
+    version = mike["canonical_version"] or version
+    config["site_url"] = urljoin(config["site_url"], version)

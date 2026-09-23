@@ -8,19 +8,20 @@ To make it as easy as possible to contribute, we have put significant effort int
 
 ## How to contribute
 
-Whether you want to report a bug, suggest an improvement, or help others in the community, each of these processes is covered in detail in [our documentation]. Find whatever fits your situation in the list below:
+Whether you want to report a bug, suggest an improvement, or help others in the community, each of these processes is covered in detail in [our contribution guides]. Find whatever fits your situation in the list below:
 
-[our documentation]: https://zensical.org/docs/
+[our contribution guides]: https://zensical.org/contributing/
 
-- [Ask a question](https://zensical.org/docs/community/get-involved/#discord)
-- [Report a bug](https://zensical.org/docs/community/contribute/report-a-bug/)
-- [Report a docs issue](https://zensical.org/docs/community/contribute/report-a-docs-issue/)
-- [Request a change](https://zensical.org/docs/community/contribute/request-a-change/)
-- [Create a pull request](https://zensical.org/docs/community/contribute/pull-requests/)
+- [Ask a question](https://zensical.org/community/#discord)
+- [Report a bug](https://zensical.org/contributing/bug-reports/)
+- [Report a docs issue](https://zensical.org/contributing/documentation/)
+- [Request a change](https://zensical.org/contributing/change-requests/)
+- [Create a pull request](https://zensical.org/contributing/pull-requests/)
+- [Report a security vulnerability privately](https://zensical.org/contributing/security/)
 
 ## Before creating an issue
 
-Before opening an issue, please take a moment to check whether a similar report or request already exists – a quick search can save everyone time. When you do open one, please fill out all fields in the issue template completely. Every field is there for a reason, and a thorough issue helps us understand and address your concern much faster.
+Before opening an issue, please take a moment to check whether a similar report or request already exists – a quick search can save everyone time. When you do open one, please fill out all required fields in the issue template completely. Every field is there for a reason, and a thorough issue helps us understand and address your concern much faster.
 
 A few things to keep in mind:
 

@@ -35,7 +35,7 @@ use std::sync::Arc;
 
 use zrx::path::PathExt;
 
-use crate::config::plugins::{SocialPlugin, TagsPlugin};
+use crate::config::plugins::{BlogPlugin, SocialPlugin, TagsPlugin};
 use crate::path::{OutputRoot, SourceRoot};
 
 mod error;
@@ -128,6 +128,10 @@ impl Config {
                 .get_item("plugins")?
                 .get_item("social")?
                 .extract::<SocialPlugin>()?;
+            config
+                .get_item("plugins")?
+                .get_item("blogs")?
+                .extract::<BlogPlugin>()?;
             let project = config.extract::<Project>()?;
 
             // Return configuration and theme directory

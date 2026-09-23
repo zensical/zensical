@@ -37,6 +37,7 @@ use pyo3::{
     pyfunction, pymodule, wrap_pyfunction, Bound, FromPyObject, PyResult,
     Python,
 };
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::time::{Duration, Instant};
@@ -57,9 +58,10 @@ mod workflow;
 
 use compat::mkdocs::plugin::meta;
 use config::Config;
+use path::SourcePath;
 use server::{create_server, ServeOptions};
 use watcher::Watcher;
-use workflow::{create_workflow, Configuration, Input};
+use workflow::{create_workflow, has_snippets, Configuration, Input};
 
 // ----------------------------------------------------------------------------
 // Enums
@@ -272,6 +274,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         docs: config.docs_root().clone(),
         context: config.project.docs_dir.clone(),
     });
+    let mut snippets = BTreeMap::new();
 
     // Start the event loop. Each debounced watcher batch is admitted as one
     // source revision and fully settled before the next batch is accepted.
@@ -284,6 +287,33 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
                     metadata.prepare(&changes).map_err(|error| {
                         PyRuntimeError::new_err(format!("{error:#}"))
                     })?;
+                let mut dependents = BTreeMap::from_iter(dependents);
+
+                // Until snippet dependencies are tracked, rebuild every page
+                // containing a marker whenever a source changes in serve mode
+                if serve {
+                    dependents.extend(snippets.clone());
+                    for change in &changes {
+                        let key = match change {
+                            Change::Insert(key, _) | Change::Remove(key) => key,
+                        };
+
+                        // Explicit changes win over retained page entries
+                        dependents.remove(key);
+                        snippets.remove(key);
+                        if let Change::Insert(_, source) = change
+                            && key[0].context() == config.project.docs_dir
+                            && let Ok(path) =
+                                key[0].location().parse::<SourcePath>()
+                            && path.extension() == Some("md")
+                            && !path.is_hidden()
+                            && has_snippets(&fs::read_to_string(&**source)?)
+                        {
+                            snippets.insert(key.clone(), source.clone());
+                        }
+                    }
+                }
+
                 let mut revision = input
                     .begin()
                     .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;

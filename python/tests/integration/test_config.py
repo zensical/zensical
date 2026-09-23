@@ -129,6 +129,103 @@ def test_symlinked_config_anchors_relative_paths_to_its_target(
     assert not (alias_dir / "site").exists()
 
 
+@pytest.mark.parametrize(
+    ("config_name", "watch_path"),
+    [
+        ("mkdocs.yml", "mkdocs.yml"),
+        ("zensical.toml", "zensical.toml"),
+        ("mkdocs.yml", "."),
+    ],
+)
+def test_build_with_config_in_watch(
+    tmp_path: Path, config_name: str, watch_path: str
+) -> None:
+    # Include the config directly or through its directory, alongside the docs.
+    if config_name == "zensical.toml":
+        config_path = _make_toml_project(
+            tmp_path, toml_extra=f'watch = ["docs", "{watch_path}"]'
+        )
+    else:
+        config_path = _make_yml_project(
+            tmp_path, yml_extra=f'watch: ["docs", "{watch_path}"]'
+        )
+
+    zensical.build(str(config_path), {"clean": False, "strict": True})
+
+    # A successful exit must also produce the documentation page.
+    assert (tmp_path / "site" / "index.html").is_file()
+
+
+def test_navigation_title_precedes_metadata_and_heading(tmp_path: Path) -> None:
+    """Configured titles have the same highest precedence as in MkDocs."""
+    config = _make_yml_project(
+        tmp_path,
+        yml_extra=(
+            "  custom_dir: overrides\nnav:\n  - Configured title: index.md"
+        ),
+    )
+    (tmp_path / "docs" / "index.md").write_text(
+        "---\ntitle: Metadata title\n---\n\n# Heading title\n",
+        encoding="utf-8",
+    )
+    custom = _make_custom_dir(tmp_path)
+    (custom / "main.html").write_text("{{ page.title }}", encoding="utf-8")
+
+    _build(config)
+
+    assert (tmp_path / "site" / "index.html").read_text() == "Configured title"
+
+
+@pytest.mark.parametrize(
+    ("navigation", "expected"),
+    [
+        ("  - index.md\n  - Later: index.md", "Hello"),
+        ("  - First: index.md\n  - Second: index.md", "First"),
+    ],
+)
+def test_first_navigation_occurrence_owns_page_title(
+    tmp_path: Path, navigation: str, expected: str
+) -> None:
+    """Duplicate pages retain the title assigned by their first occurrence."""
+    config = _make_yml_project(
+        tmp_path,
+        yml_extra=(f"  custom_dir: overrides\nnav:\n{navigation}"),
+    )
+    custom = _make_custom_dir(tmp_path)
+    (custom / "main.html").write_text("{{ page.title }}", encoding="utf-8")
+
+    _build(config)
+
+    assert (tmp_path / "site" / "index.html").read_text() == expected
+
+
+def test_only_root_index_page_becomes_navigation_homepage(
+    tmp_path: Path,
+) -> None:
+    """Nested index paths and similarly named links are never the homepage."""
+    config = _make_yml_project(
+        tmp_path,
+        yml_extra=(
+            "  custom_dir: overrides\n"
+            "nav:\n"
+            "  - Guide: guide/index.md\n"
+            "  - Website: https://example.com/index.md"
+        ),
+    )
+    guide = tmp_path / "docs" / "guide"
+    guide.mkdir()
+    (guide / "index.md").write_text("# Guide\n", encoding="utf-8")
+    custom = _make_custom_dir(tmp_path)
+    (custom / "main.html").write_text(
+        "{{ nav.homepage.title if nav.homepage else 'none' }}",
+        encoding="utf-8",
+    )
+
+    _build(config)
+
+    assert (tmp_path / "site" / "index.html").read_text() == "Hello"
+
+
 # ---------------------------------------------------------------------------
 # Theme loading: both zensical.toml and mkdocs.yml
 # ---------------------------------------------------------------------------
@@ -141,6 +238,27 @@ class TestThemeLoadingToml:
         """No theme.name and no custom_dir -> builtin theme used, build OK."""
         config_path = _make_toml_project(tmp_path)
         _build(config_path)  # must not raise
+
+    def test_blog_icons_can_be_overridden(self, tmp_path: Path) -> None:
+        """Blog icon settings pass through configuration to templates."""
+        custom = _make_custom_dir(tmp_path)
+        custom.joinpath("main.html").write_text(
+            "{{ config.theme.icon.blog.back }}",
+            encoding="utf-8",
+        )
+        config_path = _make_toml_project(
+            tmp_path,
+            toml_extra=(
+                '[project.theme]\ncustom_dir = "overrides"\n'
+                '[project.theme.icon.blog]\nback = "octicons/arrow-left-16"\n'
+            ),
+        )
+
+        _build(config_path)
+
+        assert (
+            tmp_path / "site" / "index.html"
+        ).read_text() == "octicons/arrow-left-16"
 
     def test_unknown_theme_name_raises(self, tmp_path: Path) -> None:
         """theme.name set to an uninstalled theme -> config error raised."""

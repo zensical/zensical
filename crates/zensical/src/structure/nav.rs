@@ -25,7 +25,7 @@
 
 //! Navigation.
 
-use ahash::HashMap;
+use ahash::{HashMap, HashSet};
 use pyo3::types::{PyAny, PyAnyMethods};
 use pyo3::{Bound, FromPyObject, PyResult};
 use serde::Serialize;
@@ -73,20 +73,54 @@ pub struct Navigation {
 }
 
 // ----------------------------------------------------------------------------
+
+/// Navigation together with page facts established while resolving it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NavigationResolution {
+    /// Template-facing navigation.
+    pub navigation: Navigation,
+    /// Explicit titles from the first navigation occurrence of each page.
+    title_overrides: Arc<HashMap<SourcePath, String>>,
+}
+
+/// Immutable items attached beside one resolved index page.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NavigationContribution {
+    /// URL of the index page that owns the contributed items.
+    pub index_url: String,
+    /// Whether a root index can receive sibling items.
+    pub allow_root: bool,
+    /// Ordered items appended after the index page.
+    pub items: Vec<NavigationItem>,
+}
+
+// ----------------------------------------------------------------------------
 // Implementations
 // ----------------------------------------------------------------------------
 
 impl Navigation {
     /// Creates a navigation from the given items.
     pub fn new(items: Vec<NavigationItem>, pages: Vec<Page>) -> Self {
+        Self::resolve(items, pages).navigation
+    }
+
+    /// Resolves navigation and retains page facts needed by the workflow.
+    pub fn resolve(
+        items: Vec<NavigationItem>, pages: Vec<Page>,
+    ) -> NavigationResolution {
         if items.is_empty() {
-            return Self::from(pages);
+            return NavigationResolution {
+                navigation: Self::from(pages),
+                title_overrides: Arc::default(),
+            };
         }
         Self::from_plan(items, pages)
     }
 
     /// Creates navigation from an explicit plan, including an empty one.
-    fn from_plan(mut items: Vec<NavigationItem>, pages: Vec<Page>) -> Self {
+    fn from_plan(
+        mut items: Vec<NavigationItem>, pages: Vec<Page>,
+    ) -> NavigationResolution {
         // Create a map of pages for easy lookup, so we can resolve titles and
         // icons from the file location of the respective page.
         let pages = pages
@@ -94,76 +128,50 @@ impl Navigation {
             .map(|page| (page.source().to_string(), page))
             .collect::<HashMap<_, _>>();
 
-        // Since a navigation structure is given, we just need to add titles and
-        // icons where necessary and defined in page metadata
-        let mut stack = vec![&mut items];
-        while let Some(children) = stack.pop() {
-            for item in children.iter_mut() {
-                // Here, we differ from MkDocs, in that navigation items can or
-                // cannot have URLs, since we model sections and pages with the
-                // same data type. This is definitely not the final design that
-                // we want, and we'll switch to a much more flexible approach
-                // once we work on modular navigation. The component system
-                // will also make things much easier here.
-                if let Some(url) = &item.url {
-                    // Try to obtain a page for the given url. Users might also
-                    // refer to non-existing pages, which we just ignore for now
-                    if let Some(page) = pages.get(url) {
-                        // Set URLs from page - we currently resolve the final
-                        // URL during rendering, so we just need to set it here.
-                        // Once we start working on the component and module
-                        // system, all of this is going to change anyway
-                        item.url = Some(page.url.clone());
-                        item.canonical_url = page.canonical_url.clone();
+        // Since a navigation structure is given, attach page facts and retain
+        // the explicit title from the first occurrence of each resolved page.
+        let mut seen = HashSet::default();
+        let mut title_overrides = HashMap::default();
+        resolve_items(&mut items, &pages, &mut seen, &mut title_overrides);
 
-                        // Set item title from page if not set
-                        if item.title.is_none() {
-                            item.title = Some(page.title.clone());
-                        }
-
-                        // Extract page metadata for selected keys
-                        item.meta = Some(page.meta.clone());
-                    }
-                }
-
-                // Push children onto the stack for further processing
-                if !item.children.is_empty() {
-                    stack.push(&mut item.children);
-                }
-            }
-        }
-
-        // Determine homepage - here, we mirror MkDocs behavior, which only
-        // considers index pages at the root level as potential homepages
-        let mut homepage = items.iter().find(|item| item.is_index).cloned();
-        if homepage.is_none() {
-            // However, if we couldn't find anything, but there's still an index
-            // page, we check if it's out of navigation, and if so, use it
-            if let Some(page) = pages.get("index.md")
-                && !Iter::new(&items)
-                    .any(|item| item.url.as_deref() == Some(&page.url))
-            {
-                homepage = Some(NavigationItem {
-                    title: Some(page.title.clone()),
-                    url: Some(page.url.clone()),
-                    canonical_url: page.canonical_url.clone(),
-                    meta: Some(page.meta.clone()),
-                    children: Vec::new(),
-                    is_index: true,
-                    active: false,
-                });
-            }
+        // A homepage must be a root index source, not merely an index page at
+        // the top navigation level. This mirrors MkDocs' URL constraint and
+        // prevents nested index pages and external links from becoming home.
+        let home = pages.get("index.md").or_else(|| pages.get("README.md"));
+        let mut homepage = home.and_then(|page| {
+            items
+                .iter()
+                .find(|item| item.url.as_deref() == Some(&page.url))
+                .cloned()
+        });
+        if homepage.is_none()
+            && let Some(page) = home
+            && !Iter::new(&items)
+                .any(|item| item.url.as_deref() == Some(&page.url))
+        {
+            homepage = Some(NavigationItem {
+                title: Some(page.title.clone()),
+                url: Some(page.url.clone()),
+                canonical_url: page.canonical_url.clone(),
+                meta: Some(page.meta.clone()),
+                children: Vec::new(),
+                is_index: true,
+                active: false,
+            });
         }
 
         // Precompute hash
         let hash = navigation_hash(&items);
 
         // Return navigation
-        Self {
-            items: Arc::new(items),
-            homepage,
-            hash,
-            generation: 0,
+        NavigationResolution {
+            navigation: Self {
+                items: Arc::new(items),
+                homepage,
+                hash,
+                generation: 0,
+            },
+            title_overrides: Arc::new(title_overrides),
         }
     }
 
@@ -216,6 +224,11 @@ impl Navigation {
 
     /// Return the next page for the given page in pre-order, if any.
     pub fn next_page(&self, page: &Page) -> Option<NavigationItem> {
+        self.next_page_for_url(&page.url)
+    }
+
+    /// Returns the next page after a URL in pre-order, if any.
+    pub fn next_page_for_url(&self, url: &str) -> Option<NavigationItem> {
         let mut found = false;
         for item in self {
             if found {
@@ -224,7 +237,7 @@ impl Navigation {
                 }
                 continue;
             }
-            if item.url.as_deref() == Some(&page.url) {
+            if item.url.as_deref() == Some(url) {
                 found = true;
             }
         }
@@ -233,9 +246,14 @@ impl Navigation {
 
     /// Return the previous page for the given page in pre-order, if any.
     pub fn previous_page(&self, page: &Page) -> Option<NavigationItem> {
+        self.previous_page_for_url(&page.url)
+    }
+
+    /// Returns the previous page before a URL in pre-order, if any.
+    pub fn previous_page_for_url(&self, url: &str) -> Option<NavigationItem> {
         let mut prev: Option<NavigationItem> = None;
         for item in self {
-            if item.url.as_deref() == Some(&page.url) {
+            if item.url.as_deref() == Some(url) {
                 return prev;
             }
             if item.url.is_some() {
@@ -251,6 +269,32 @@ impl Navigation {
 // ----------------------------------------------------------------------------
 
 impl Value for Navigation {}
+
+// ----------------------------------------------------------------------------
+
+impl NavigationResolution {
+    /// Returns the explicit title assigned to the page's first occurrence.
+    pub fn title(&self, source: &SourcePath) -> Option<&str> {
+        self.title_overrides.get(source).map(String::as_str)
+    }
+
+    /// Applies ordered navigation contributions without mutating the base.
+    pub fn contribute(&self, contributions: &[NavigationContribution]) -> Self {
+        let mut navigation = self.navigation.clone();
+        let mut items = navigation.items.as_ref().clone();
+        for contribution in contributions {
+            let _ = attach_contribution(&mut items, contribution, 0);
+        }
+        navigation.hash = navigation_hash(&items);
+        navigation.items = Arc::new(items);
+        Self {
+            navigation,
+            title_overrides: Arc::clone(&self.title_overrides),
+        }
+    }
+}
+
+impl Value for NavigationResolution {}
 
 // ----------------------------------------------------------------------------
 
@@ -347,6 +391,70 @@ impl<'a> IntoIterator for &'a Navigation {
 // Functions
 // ----------------------------------------------------------------------------
 
+/// Attaches page facts while preserving first-occurrence title provenance.
+fn resolve_items(
+    items: &mut [NavigationItem], pages: &HashMap<String, Page>,
+    seen: &mut HashSet<SourcePath>,
+    title_overrides: &mut HashMap<SourcePath, String>,
+) {
+    for item in items {
+        // Here, we differ from MkDocs, in that navigation items can or cannot
+        // have URLs, since we model sections and pages with the same data type.
+        if let Some(url) = &item.url
+            && let Some(page) = pages.get(url)
+        {
+            let source = page.source().clone();
+            if seen.insert(source.clone())
+                && let Some(title) = &item.title
+            {
+                title_overrides.insert(source, title.clone());
+            }
+
+            item.url = Some(page.url.clone());
+            item.canonical_url = page.canonical_url.clone();
+            item.is_index = is_index(page.source().file_name());
+            if item.title.is_none() {
+                item.title = Some(page.title.clone());
+            }
+            item.meta = Some(page.meta.clone());
+        }
+
+        // Resolve children in pre-order, matching MkDocs' first-page
+        // occurrence semantics for duplicate references.
+        resolve_items(&mut item.children, pages, seen, title_overrides);
+    }
+}
+
+/// Attaches a contribution next to its owning index's first occurrence.
+fn attach_contribution(
+    items: &mut Vec<NavigationItem>, contribution: &NavigationContribution,
+    depth: usize,
+) -> bool {
+    for index in 0..items.len() {
+        if items[index].url.as_deref() == Some(&contribution.index_url) {
+            if items[index].is_index {
+                if depth == 0 && !contribution.allow_root {
+                    return true;
+                }
+                items.splice((index + 1)..=index, contribution.items.clone());
+            } else {
+                items[index].children.extend(contribution.items.clone());
+            }
+            return true;
+        }
+        if attach_contribution(
+            &mut items[index].children,
+            contribution,
+            depth + 1,
+        ) {
+            return true;
+        }
+    }
+    false
+}
+
+// ----------------------------------------------------------------------------
+
 /// Returns the MkDocs navigation sort key for one validated source path.
 pub fn source_sort_key(source: &SourcePath) -> (Vec<String>, bool, String) {
     let file = source.file_name().to_owned();
@@ -360,8 +468,8 @@ pub fn source_sort_key(source: &SourcePath) -> (Vec<String>, bool, String) {
 }
 
 /// Returns whether the given file name is an index file.
-fn is_index(component: &str) -> bool {
-    component == "index.md" || component == "README.md"
+fn is_index(path: &str) -> bool {
+    matches!(path.rsplit('/').next(), Some("index.md" | "README.md"))
 }
 
 /// Hash the navigation structure that can affect page templates.
@@ -397,11 +505,15 @@ fn extract_shared_items(
 
 #[cfg(test)]
 mod tests {
+    use ahash::HashMap;
     use std::sync::Arc;
 
     use crate::path::SourcePath;
 
-    use super::{navigation_hash, source_sort_key, to_title, Navigation};
+    use super::{
+        navigation_hash, source_sort_key, to_title, Navigation,
+        NavigationContribution, NavigationItem, NavigationResolution,
+    };
 
     #[test]
     fn test_clone_shares_immutable_data() {
@@ -450,5 +562,55 @@ mod tests {
         assert_eq!(sources[0].as_str(), "guide/index.md");
         assert_eq!(sources[1].as_str(), "guide/café.md");
         assert_eq!(sources[2].as_str(), "guide/zebra.md");
+    }
+
+    #[test]
+    fn contributes_items_beside_a_nested_index_immutably() {
+        let index = NavigationItem {
+            title: Some("Journal".into()),
+            url: Some("blog/".into()),
+            canonical_url: None,
+            meta: None,
+            children: Vec::new(),
+            is_index: true,
+            active: false,
+        };
+        let base = NavigationResolution {
+            navigation: Navigation {
+                items: Arc::new(vec![NavigationItem {
+                    title: Some("Blog".into()),
+                    url: None,
+                    canonical_url: None,
+                    meta: None,
+                    children: vec![index],
+                    is_index: false,
+                    active: false,
+                }]),
+                homepage: None,
+                hash: 0,
+                generation: 0,
+            },
+            title_overrides: Arc::new(HashMap::default()),
+        };
+        let result = base.contribute(&[NavigationContribution {
+            index_url: "blog/".into(),
+            allow_root: false,
+            items: vec![NavigationItem {
+                title: Some("Archive".into()),
+                url: None,
+                canonical_url: None,
+                meta: None,
+                children: Vec::new(),
+                is_index: false,
+                active: false,
+            }],
+        }]);
+
+        assert_eq!(base.navigation.items[0].children.len(), 1);
+        assert_eq!(result.navigation.items[0].children.len(), 2);
+        assert_eq!(
+            result.navigation.items[0].children[1].title.as_deref(),
+            Some("Archive")
+        );
     }
 }

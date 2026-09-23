@@ -1,0 +1,141 @@
+{
+  "outputs": [
+    "404.html",
+    "index.html",
+    "journal/2024/01/02/journal-post/index.html",
+    "journal/index.html",
+    "news/2024/02/03/news-post/index.html",
+    "news/index.html"
+  ],
+  "navigation": [
+    {
+      "title": "Home",
+      "url": "/docs/"
+    },
+    {
+      "title": "Journal",
+      "url": "/docs/journal/"
+    },
+    {
+      "title": "News",
+      "url": "/docs/news/"
+    }
+  ],
+  "pages": {
+    "index.html": {
+      "document_title": "Multiple blogs oracle",
+      "canonical": "/docs/",
+      "relations": {
+        "prev": null,
+        "next": "/docs/journal/"
+      },
+      "active_ancestors": [
+        "Home"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "id": "home",
+          "title": "Home"
+        }
+      ],
+      "links": [],
+      "posts": [],
+      "pagination": null
+    },
+    "journal/2024/01/02/journal-post/index.html": {
+      "document_title": "Journal post - Multiple blogs oracle",
+      "canonical": "/docs/journal/2024/01/02/journal-post/",
+      "relations": {
+        "prev": null,
+        "next": null
+      },
+      "active_ancestors": [
+        "Journal"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "id": "journal-post",
+          "title": "Journal post"
+        }
+      ],
+      "links": [],
+      "posts": [],
+      "pagination": null
+    },
+    "journal/index.html": {
+      "document_title": "Journal - Multiple blogs oracle",
+      "canonical": "/docs/journal/",
+      "relations": {
+        "prev": "/docs/",
+        "next": "/docs/news/"
+      },
+      "active_ancestors": [
+        "Journal"
+      ],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "Journal post",
+          "url": "/docs/journal/2024/01/02/journal-post/",
+          "date": "2024-01-02 00:00:00+00:00",
+          "authors": [],
+          "categories": [],
+          "pinned": false,
+          "continue": null,
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"journal-post\"><a class=\"toclink\" href=\"2024/01/02/journal-post/\">Journal post</a></h2><p>Journal content.</p></div>"
+        }
+      ],
+      "pagination": null
+    },
+    "news/2024/02/03/news-post/index.html": {
+      "document_title": "News post - Multiple blogs oracle",
+      "canonical": "/docs/news/2024/02/03/news-post/",
+      "relations": {
+        "prev": null,
+        "next": null
+      },
+      "active_ancestors": [
+        "News"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "id": "news-post",
+          "title": "News post"
+        }
+      ],
+      "links": [],
+      "posts": [],
+      "pagination": null
+    },
+    "news/index.html": {
+      "document_title": "News - Multiple blogs oracle",
+      "canonical": "/docs/news/",
+      "relations": {
+        "prev": "/docs/journal/",
+        "next": null
+      },
+      "active_ancestors": [
+        "News"
+      ],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "News post",
+          "url": "/docs/news/2024/02/03/news-post/",
+          "date": "2024-02-03 00:00:00+00:00",
+          "authors": [],
+          "categories": [],
+          "pinned": false,
+          "continue": null,
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"news-post\"><a class=\"toclink\" href=\"2024/02/03/news-post/\">News post</a></h2><p>News content.</p></div>"
+        }
+      ],
+      "pagination": null
+    }
+  }
+}

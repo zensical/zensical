@@ -32,6 +32,8 @@ use std::path::Path;
 use zensical_serve::http::Uri;
 use zrx::path::PathExt;
 
+use crate::compat::mkdocs::plugin::blog::BlogDate;
+
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
@@ -41,7 +43,7 @@ use zrx::path::PathExt;
 /// This filter replicates the filter of the same name in MkDocs, resolving URLs
 /// relative to the current page. If no page object is given, a static template
 /// is rendered, which means that URLs must be resolved relative to base URL.
-pub fn url_filter(state: &State, url: String) -> String {
+pub fn url_filter(state: &State, mut url: String) -> String {
     if url.starts_with('#') {
         return url;
     }
@@ -56,9 +58,6 @@ pub fn url_filter(state: &State, url: String) -> String {
         return encode_local_url(&url);
     }
 
-    // Create target URL
-    let target = Path::new(&url);
-
     // Render URLs in pages
     if let Some(source) = state
         .lookup("page")
@@ -66,6 +65,14 @@ pub fn url_filter(state: &State, url: String) -> String {
         .filter(|value| !value.is_undefined())
         .map(|value| value.to_string())
     {
+        if source == url
+            && let Some(original) = state
+                .lookup("_blog_original_url")
+                .filter(|value| !value.is_undefined())
+        {
+            url = original.to_string();
+        }
+        let target = Path::new(&url);
         // Make target URL relative to page
         let mut relative_url = target
             .relative_to(&source)
@@ -101,6 +108,7 @@ pub fn url_filter(state: &State, url: String) -> String {
 
     // Render URLs in static templates
     } else {
+        let target = Path::new(&url);
         let source = state.lookup("base_url").expect("invariant");
         let url = Path::new(&source.to_string())
             .join(target.normalize())
@@ -154,6 +162,17 @@ pub fn script_tag_filter(state: &State, value: Value) -> String {
     // Return script tag
     html.push_str("></script>");
     html
+}
+
+/// Material blog's per-instance English date filter.
+pub fn date_filter(state: &State, value: String) -> String {
+    let pattern = state
+        .lookup("_blog_date_format")
+        .filter(|value| !value.is_undefined())
+        .map_or_else(|| "long".into(), |value| value.to_string());
+    BlogDate::parse(&value)
+        .and_then(|date| date.format_display(&pattern))
+        .unwrap_or(value)
 }
 
 // ----------------------------------------------------------------------------

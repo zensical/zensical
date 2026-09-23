@@ -229,6 +229,7 @@ impl<'a> Serializer<'a> {
         self.output.push_str(&tag.output_name);
 
         let mut preserve = false;
+        let mut unquoted = false;
         for attribute in &tag.attributes {
             // A configured prefix protects an attribute from normalization;
             // the prefix itself is omitted from rendered output.
@@ -265,6 +266,7 @@ impl<'a> Serializer<'a> {
             self.output.push(' ');
             self.output.push_str(output_name);
             let Some(value) = &attribute.value else {
+                unquoted = false;
                 continue;
             };
 
@@ -274,6 +276,7 @@ impl<'a> Serializer<'a> {
                 || (self.options.reduce_boolean_attributes
                     && is_boolean_attribute(&tag.name, name))
             {
+                unquoted = false;
                 continue;
             }
 
@@ -285,7 +288,7 @@ impl<'a> Serializer<'a> {
             } else {
                 value.decoded.as_str()
             };
-            serialize_attribute_value(
+            unquoted = serialize_attribute_value(
                 &mut self.output,
                 value,
                 self.options.remove_optional_attribute_quotes,
@@ -294,6 +297,11 @@ impl<'a> Serializer<'a> {
         }
 
         if self_closing && !is_void(&tag.name) {
+            // Without whitespace, the solidus is part of an unquoted value,
+            // so the HTML parser does not acknowledge the self-closing flag.
+            if unquoted {
+                self.output.push(' ');
+            }
             self.output.push_str("/>");
         } else {
             self.output.push('>');

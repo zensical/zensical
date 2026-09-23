@@ -1,0 +1,10 @@
+authors:
+  alice:
+    name: Alice Example
+    description: Writes examples
+    avatar: https://example.test/alice.png
+  bob:
+    name: Bob Example
+    description: Reviews examples
+    avatar: https://example.test/bob.png
+    slug: reviewer

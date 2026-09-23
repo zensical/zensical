@@ -213,6 +213,28 @@ impl Node {
 
 // ----------------------------------------------------------------------------
 
+impl Document {
+    /// Projects a parsed YAML document into plain runtime values.
+    pub(crate) fn values(&self) -> BTreeMap<String, Dynamic> {
+        let Value::Map(values) = &self.root.value else {
+            unreachable!("metadata root is always a mapping")
+        };
+        values
+            .iter()
+            .map(|(key, value)| (key.clone(), value.dynamic()))
+            .collect()
+    }
+}
+
+/// Parses a standalone YAML mapping into shared dynamic values.
+pub(crate) fn parse_yaml(
+    path: SourcePath, source: &str,
+) -> Result<BTreeMap<String, Dynamic>> {
+    Ok(parser::parse(path, source, 0)?.values())
+}
+
+// ----------------------------------------------------------------------------
+
 impl Resolved {
     /// Returns plain values for the Python Markdown boundary.
     pub fn values(&self) -> BTreeMap<String, Dynamic> {

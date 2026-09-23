@@ -92,8 +92,8 @@ where
     /// use zensical_serve::handler::Teapot;
     /// use zensical_serve::server::Server;
     ///
-    /// // Create server
-    /// let server = Server::new(Teapot, "127.0.0.1:8080")?;
+    /// // Create server on an available local port
+    /// let server = Server::new(Teapot, "127.0.0.1:0")?;
     /// # Ok(())
     /// # }
     /// ```

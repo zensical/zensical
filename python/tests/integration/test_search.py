@@ -3,6 +3,24 @@
 # SPDX-License-Identifier: MIT
 # All contributions are certified under the DCO
 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to
+# deal in the Software without restriction, including without limitation the
+# rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+# sell copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+# IN THE SOFTWARE.
+
 """Integration tests for MkDocs-compatible search artifacts."""
 
 from __future__ import annotations
@@ -14,6 +32,8 @@ import zensical
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import pytest
 
 
 _BUILD_OPTIONS: dict[str, Any] = {"clean": False, "strict": False}
@@ -94,7 +114,7 @@ def test_search_artifacts_match_mkdocs_contract(tmp_path: Path) -> None:
                 "level": 1,
                 "title": "Landing",
                 "text": "<p>Intro with <small>fine print</small>.</p>",
-                "path": ["Landing"],
+                "path": ["Home"],
                 "tags": ["alpha", "beta"],
             },
             {
@@ -102,15 +122,15 @@ def test_search_artifacts_match_mkdocs_contract(tmp_path: Path) -> None:
                 "level": 2,
                 "title": "Overview",
                 "text": "<p>Overview body.</p>",
-                "path": ["Landing"],
+                "path": ["Home"],
                 "tags": ["alpha", "beta"],
             },
             {
                 "location": "guide/topic.html",
                 "level": 1,
-                "title": "Metadata title",
+                "title": "Topic",
                 "text": "<p>Preface before a heading.</p>",
-                "path": ["Guides", "Metadata title"],
+                "path": ["Guides", "Topic"],
                 "tags": ["guide"],
             },
             {
@@ -118,7 +138,7 @@ def test_search_artifacts_match_mkdocs_contract(tmp_path: Path) -> None:
                 "level": 2,
                 "title": "Details",
                 "text": "<p>Detailed body.</p>",
-                "path": ["Guides", "Metadata title"],
+                "path": ["Guides", "Topic"],
                 "tags": ["guide"],
             },
         ],
@@ -129,6 +149,27 @@ def test_search_artifacts_match_mkdocs_contract(tmp_path: Path) -> None:
     assert (tmp_path / "site" / "search.js").read_text() == (
         f"var __index = {compact};"
     )
+
+
+def test_unsupported_material_options_are_silently_ignored(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Known Material options are ignored to keep migration frictionless."""
+    config = _write_project(
+        tmp_path,
+        plugins=(
+            "  - material/search:\n"
+            "      lang:\n"
+            "        - de\n"
+            "      pipeline:\n"
+            "        - stemmer"
+        ),
+    )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    assert _read_index(tmp_path)["config"]["lang"] == ["en"]
+    assert capsys.readouterr().err == ""
 
 
 def test_search_exclusion_and_disabled_output(tmp_path: Path) -> None:
@@ -216,7 +257,7 @@ def test_search_rebuild_replaces_changed_and_removed_pages(
             "level": 1,
             "title": "Changed",
             "text": "<p>Fresh body.</p>",
-            "path": ["Changed"],
+            "path": ["Home"],
             "tags": [],
         }
     ]

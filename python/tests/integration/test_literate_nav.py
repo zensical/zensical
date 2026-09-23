@@ -3,6 +3,24 @@
 # SPDX-License-Identifier: MIT
 # All contributions are certified under the DCO
 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to
+# deal in the Software without restriction, including without limitation the
+# rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+# sell copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+# IN THE SOFTWARE.
+
 """Integration tests for native mkdocs-literate-nav compatibility."""
 
 from __future__ import annotations
@@ -120,6 +138,40 @@ plugins:
         (1, "Advanced", "guide/advanced/"),
         (0, "Project", "https://example.com/project"),
     ]
+
+
+def test_explicit_page_title_precedes_metadata_and_heading(
+    tmp_path: Path,
+) -> None:
+    """Literate navigation supplies the same page-title precedence as MkDocs."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    overrides = tmp_path / "overrides"
+    overrides.mkdir()
+    (overrides / "main.html").write_text("{{ page.title }}", encoding="utf-8")
+    (docs / "index.md").write_text(
+        "---\ntitle: Metadata title\n---\n\n# Heading title\n",
+        encoding="utf-8",
+    )
+    (docs / "SUMMARY.md").write_text(
+        "* [Configured title](index.md)\n", encoding="utf-8"
+    )
+    config = tmp_path / "mkdocs.yml"
+    config.write_text(
+        """\
+site_name: Literate navigation
+theme:
+  name: material
+  custom_dir: overrides
+plugins:
+  - literate-nav
+""",
+        encoding="utf-8",
+    )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    assert (tmp_path / "site" / "index.html").read_text() == "Configured title"
 
 
 def test_resolves_configured_directory_through_nested_literate_nav(

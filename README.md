@@ -41,13 +41,13 @@
   &middot;
   <a href="https://zensical.org/docs/get-started/"><strong>Get started</strong></a>
   &middot;
-  <a href="https://zensical.org/compatibility/"><strong>Compatibility</strong></a>
+  <a href="https://zensical.org/docs/compatibility/mkdocs/"><strong>Compatibility</strong></a>
   &middot;
-  <a href="https://zensical.org/about/roadmap/"><strong>Roadmap</strong></a>
+  <a href="https://zensical.org/roadmap/"><strong>Roadmap</strong></a>
   &middot;
   <a href="https://zensical.org/about/newsletter/"><strong>Newsletter</strong></a>
   &middot;
-  <a href="https://zensical.org/spark/"><strong>Zensical Spark</strong></a>
+  <a href="https://zensical.org/studio/"><strong>Zensical Studio</strong></a>
 </p>
 
 <p align="center">
@@ -71,16 +71,15 @@
   </em>
 </p>
 
-## Zensical Spark
+## Studio and Spark
 
-[Zensical Spark](https://zensical.org/spark/) is our offering for professionals
-and organizations using Zensical commercially. It lets us provide best-in-class
-support, keep the project sustainable, and Zensical __free for everyone__.
+[Zensical Studio](https://zensical.org/studio/) helps you author documentation
+comfortably in Zensical and MkDocs projects, with project-aware editing and
+refactoring that saves you manual cleanup.
 
-Zensical Spark may be a great fit if you:
+[Zensical Spark](https://zensical.org/spark/memberships/) offers early access
+to new features, a direct voice in our work, and professional support for
+organizations, with options for confidential collaboration and continuity
+planning. Spark Community opens to individuals on November 5.
 
-- Need help migrating a complex MkDocs project to Zensical
-- Want to ensure Zensical meets all your requirements – see [how we work](https://zensical.org/docs/community/how-we-work/)
-- Want direct support from the core team, including 1:1 sessions
-
-For the full list of benefits, see our [subscription tiers](https://zensical.org/spark/tiers/).
+Both are optional. Zensical remains MIT-licensed and free forever.

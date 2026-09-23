@@ -24,6 +24,15 @@
 // ----------------------------------------------------------------------------
 
 //! MkDocs-compatible redirects pipeline.
+//!
+//! Whole-page mappings are emitted as physical HTML files. Anchor mappings
+//! are emitted into `redirect.json` for browser-side resolution, and are also
+//! embedded into a matching physical redirect page when one exists.
+//!
+//! Configuration work is retained in [`Settings`], while every settled route
+//! revision produces one complete [`Snapshot`] for the output stage. This
+//! keeps watch-mode updates consistent and retracts redirects whose targets
+//! disappear.
 
 use anyhow::Result;
 use std::sync::Arc;

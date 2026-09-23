@@ -1,0 +1,22 @@
+site_name: Blog oracle
+site_url: https://example.test/docs/
+use_directory_urls: true
+
+theme:
+  name: material
+  features:
+    - navigation.indexes
+
+plugins:
+  - material/blog:
+      archive: false
+      categories: false
+      authors: false
+      pagination_per_page: 2
+      draft_if_future_date: true
+
+nav:
+  - Home: index.md
+  - Notes: notes.md
+  - Blog:
+      - blog/index.md

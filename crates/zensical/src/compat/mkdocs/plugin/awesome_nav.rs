@@ -37,7 +37,7 @@ use zrx::stream::{Key, Signal, Stream, Value};
 use crate::config::plugins::AwesomeNavLogs;
 use crate::config::Config;
 use crate::path::SourcePath;
-use crate::structure::nav::Navigation;
+use crate::structure::nav::NavigationResolution;
 use crate::structure::page::Page;
 use crate::watcher::Source;
 
@@ -148,7 +148,7 @@ impl AwesomeNav {
     /// Installs control-file discovery, settlement and navigation compilation.
     pub fn setup(
         &self, dependencies: Dependencies<'_>,
-    ) -> Signal<Id, Navigation> {
+    ) -> Signal<Id, NavigationResolution> {
         let settings = self.settings.clone();
         let documents = dependencies.sources.filter_map({
             let settings = settings.clone();
@@ -198,9 +198,11 @@ impl AwesomeNav {
                 Ok::<_, anyhow::Error>(navigation)
             },
         );
-        navigation.reduce(|navigation: &dyn Collection<Key<Id>, Navigation>| {
-            navigation.values().next().cloned()
-        })
+        navigation.reduce(
+            |navigation: &dyn Collection<Key<Id>, NavigationResolution>| {
+                navigation.values().next().cloned()
+            },
+        )
     }
 }
 

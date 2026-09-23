@@ -33,7 +33,6 @@ use std::collections::BTreeMap;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use zrx::id::Id;
 use zrx::stream::Value;
 
 use crate::path::SourcePath;
@@ -64,8 +63,6 @@ pub struct MarkdownData {
     pub meta: BTreeMap<String, Dynamic>,
     /// Markdown content.
     pub content: String,
-    /// Page title extracted from Markdown.
-    pub title: String,
     /// Table of contents.
     pub toc: Vec<Section>,
 }
@@ -78,8 +75,6 @@ struct RenderedMarkdown {
     meta: BTreeMap<String, Dynamic>,
     /// Markdown content.
     content: String,
-    /// Page title extracted from Markdown.
-    title: String,
     /// Table of contents.
     toc: Vec<Section>,
 }
@@ -92,33 +87,37 @@ impl Markdown {
     /// Renders Markdown using Python Markdown.
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
     pub fn new(
-        id: &Id, url: String, content: String, meta: BTreeMap<String, Dynamic>,
-    ) -> Result<Markdown> {
-        let id = id.clone();
+        source: &SourcePath, url: String, content: String,
+        meta: BTreeMap<String, Dynamic>,
+    ) -> Result<(Markdown, String)> {
         let meta = serde_json::to_string(&meta)?;
         let res = Python::attach(|py| {
             let module = py.import("zensical.markdown.render")?;
             module
-                .call_method1("render", (content, id.location(), url, meta))?
+                .call_method1("render", (content, source.as_str(), url, meta))?
                 .extract::<RenderedMarkdown>()
         })
         .map_err(python_error);
 
         res.map(|data| {
-            let mut data = MarkdownData {
+            let data = MarkdownData {
                 meta: data.meta,
                 content: data.content,
-                title: data.title,
                 toc: data.toc,
             };
-            data.title = extract_title(&id, &data);
-            Markdown { data: Arc::new(data) }
+            let title = extract_title(source, &data);
+            (Markdown { data: Arc::new(data) }, title)
         })
     }
 
     /// Replaces rendered HTML, cloning shared facts only when necessary.
     pub fn replace_content(&mut self, content: String) {
         Arc::make_mut(&mut self.data).content = content;
+    }
+
+    /// Inserts or replaces one rendered metadata value.
+    pub fn insert_meta(&mut self, name: String, value: Dynamic) {
+        Arc::make_mut(&mut self.data).meta.insert(name, value);
     }
 
     /// Applies optional derived HTML and TOC values with one copy-on-write.
@@ -202,7 +201,7 @@ impl Eq for Markdown {}
 ///
 /// We'll fix this in our modular navigation proposal that will make title
 /// handling much more flexible in the near future.
-fn extract_title(id: &Id, markdown: &MarkdownData) -> String {
+fn extract_title(source: &SourcePath, markdown: &MarkdownData) -> String {
     if let Some(value) = markdown.meta.get("title")
         && !matches!(value, Dynamic::Null)
     {
@@ -216,10 +215,6 @@ fn extract_title(id: &Id, markdown: &MarkdownData) -> String {
     }
 
     // As a last resort, use the provider-relative file name.
-    let source = id
-        .location()
-        .parse::<SourcePath>()
-        .expect("Markdown source identity is canonical");
     to_title(source.file_name())
 }
 
@@ -239,7 +234,6 @@ mod tests {
             data: Arc::new(MarkdownData {
                 meta: BTreeMap::new(),
                 content: String::from("<h1>Home</h1>"),
-                title: String::from("Home"),
                 toc: Vec::new(),
             }),
         }
@@ -258,12 +252,11 @@ mod tests {
         let value = serde_json::to_value(markdown()).unwrap();
 
         assert_eq!(value["content"], "<h1>Home</h1>");
-        assert_eq!(value["title"], "Home");
+        assert!(value.get("title").is_none());
         assert!(value.get("data").is_none());
         assert!(value.get("search").is_none());
 
         let markdown: Markdown = serde_json::from_value(value).unwrap();
         assert_eq!(markdown.content, "<h1>Home</h1>");
-        assert_eq!(markdown.title, "Home");
     }
 }

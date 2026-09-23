@@ -1,0 +1,80 @@
+{
+  "outputs": [
+    "404.html",
+    "blog/2024/01/02/unlisted-post/index.html",
+    "blog/index.html",
+    "index.html"
+  ],
+  "navigation": [
+    {
+      "title": "Home",
+      "url": "/docs/"
+    }
+  ],
+  "pages": {
+    "blog/2024/01/02/unlisted-post/index.html": {
+      "document_title": "Unlisted post - Standalone blog oracle",
+      "canonical": "/docs/blog/2024/01/02/unlisted-post/",
+      "relations": {
+        "prev": null,
+        "next": null
+      },
+      "active_ancestors": [],
+      "headings": [
+        {
+          "level": 1,
+          "id": "unlisted-post",
+          "title": "Unlisted post"
+        }
+      ],
+      "links": [],
+      "posts": [],
+      "pagination": null
+    },
+    "blog/index.html": {
+      "document_title": "Unlisted blog - Standalone blog oracle",
+      "canonical": "/docs/blog/",
+      "relations": {
+        "prev": null,
+        "next": null
+      },
+      "active_ancestors": [],
+      "headings": [],
+      "links": [],
+      "posts": [
+        {
+          "title": "Unlisted post",
+          "url": "/docs/blog/2024/01/02/unlisted-post/",
+          "date": "2024-01-02 00:00:00+00:00",
+          "authors": [],
+          "categories": [],
+          "pinned": false,
+          "continue": null,
+          "content": "<div class=\"md-post__content md-typeset\"><h2 id=\"unlisted-post\"><a class=\"toclink\" href=\"2024/01/02/unlisted-post/\">Unlisted post</a></h2><p>The post and blog are built even though the blog is absent from navigation.</p></div>"
+        }
+      ],
+      "pagination": null
+    },
+    "index.html": {
+      "document_title": "Standalone blog oracle",
+      "canonical": "/docs/",
+      "relations": {
+        "prev": null,
+        "next": null
+      },
+      "active_ancestors": [
+        "Home"
+      ],
+      "headings": [
+        {
+          "level": 1,
+          "id": "home",
+          "title": "Home"
+        }
+      ],
+      "links": [],
+      "posts": [],
+      "pagination": null
+    }
+  }
+}

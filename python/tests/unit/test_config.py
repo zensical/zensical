@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -41,6 +42,7 @@ from zensical.extensions.autorefs import AutorefsExtension
 from zensical.extensions.glightbox import GlightboxExtension
 from zensical.extensions.macros import MacrosExtension
 from zensical.extensions.mkdocstrings import MkdocstringsExtension
+from zensical.extensions.table_reader import TableReaderExtension
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -144,6 +146,108 @@ def test_site_dir_docs_dir_cant_be_equal(tmp_path: Path) -> None:
         parse_config(str(config_file))
 
 
+@pytest.mark.parametrize(
+    "watch_path",
+    [
+        "mkdocs.yml",
+        "./mkdocs.yml",
+        "{root}/mkdocs.yml",
+        ".",
+        "aliases/config.yml",
+        "aliases",
+    ],
+)
+def test_watch_excludes_config_file(tmp_path: Path, watch_path: str) -> None:
+    # Keep another file with the same name in the extra watched files.
+    extras = tmp_path / "extras"
+    extras.mkdir()
+    other_config = extras / "mkdocs.yml"
+    other_config.write_text("site_name: Other\n", encoding="utf-8")
+
+    # Cover symlinks as direct watch entries and inside watched directories.
+    if watch_path.startswith("aliases"):
+        aliases = tmp_path / "aliases"
+        aliases.mkdir()
+        try:
+            (aliases / "config.yml").symlink_to(tmp_path / "mkdocs.yml")
+        except OSError as error:
+            pytest.skip(f"symbolic links unavailable: {error}")
+
+    config_file = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(
+            watch=["extras", watch_path.format(root=tmp_path.as_posix())]
+        ),
+    )
+
+    parsed = parse_config(str(config_file))
+
+    # The config is already watched by Rust; unrelated files must stay watched.
+    assert {path for path, _ in parsed["watched_files"]} == {
+        str(other_config.resolve())
+    }
+
+
+# ---------------------------------------------------------------------------
+# Markdown extensions
+# ---------------------------------------------------------------------------
+
+
+def test_markdown_extensions_are_normalized_without_mutating_input() -> None:
+    value = {
+        "abbr": None,
+        "pymdownx": {
+            "highlight": {"linenums": True},
+            "blocks": {"tab": None},
+        },
+        "zensical": {"extensions": {"preview": {}}},
+    }
+
+    extensions, configs = cfg_module._convert_markdown_extensions(value)
+
+    assert extensions == [
+        "toc",
+        "tables",
+        "abbr",
+        "pymdownx.highlight",
+        "pymdownx.blocks.tab",
+        "zensical.extensions.preview",
+    ]
+    assert configs["abbr"] == {}
+    assert configs["pymdownx.highlight"] == {"linenums": True}
+    assert value["pymdownx"]["blocks"] == {"tab": None}
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        (42, "Markdown extensions must be a list or mapping"),
+        ([42], "Markdown extensions must be strings or mappings"),
+        (
+            [{"abbr": {}, "toc": {}}],
+            "Markdown extension mappings must contain one entry",
+        ),
+        ({42: {}}, "Markdown extension names must be strings"),
+        ({"abbr": []}, "Markdown extension configurations must be mappings"),
+        ({"pymdownx": []}, "pymdownx Markdown extensions must be a mapping"),
+        (
+            {"pymdownx": {"blocks": []}},
+            "pymdownx.blocks Markdown extensions must be a mapping",
+        ),
+        ({"zensical": []}, "zensical Markdown extensions must be a mapping"),
+        (
+            {"zensical": {"extensions": []}},
+            "zensical.extensions Markdown extensions must be a mapping",
+        ),
+    ],
+)
+def test_markdown_extensions_reject_invalid_configuration(
+    value: Any, message: str
+) -> None:
+    with pytest.raises(ConfigurationError, match=message):
+        cfg_module._convert_markdown_extensions(value)
+
+
 # ---------------------------------------------------------------------------
 # Plugins to Markdown extensions
 # ---------------------------------------------------------------------------
@@ -171,6 +275,47 @@ class TestPluginShimming:
         config = self._parse_yaml(tmp_path, plugins={"glightbox": {}})
         assert GlightboxExtension.name in config["markdown_extensions"]
 
+    def test_ignored_plugin_settings_do_not_affect_hashes_or_shims(
+        self, tmp_path: Path
+    ) -> None:
+        plugins: dict[str, dict[str, Any]] = {
+            "autorefs": {},
+            "callouts": {},
+            "glightbox": {"auto": False},
+            "macros": {"render_by_default": False},
+            "mike": {"version_selector": False},
+            "mkdocstrings": {"enabled": False},
+            "search": {"separator": r"\s+"},
+            "material/tags": {"enabled": False},
+        }
+        baseline = self._parse_yaml(tmp_path, plugins=plugins)
+        for name, options in {
+            "autorefs": {"link_titles": "external"},
+            "callouts": {"aliases": False, "breakless_lists": False},
+            "glightbox": {"slide_effect": "fade"},
+            "macros": {"force_render_paths": "guides/**"},
+            "mike": {"javascript_dir": "scripts"},
+            "mkdocstrings": {"enable_inventory": False, "watch": ["src"]},
+            "search": {"lang": ["en", "fr"]},
+            "material/tags": {"tags_file": "tags.md", "export_only": True},
+        }.items():
+            plugins[name].update(options)
+        plugins["external"] = {"enabled": ["not", "a", "boolean"]}
+        config_file = tmp_path / "mkdocs.yml"
+        config_file.write_text(_minimal_yaml(plugins=plugins))
+
+        configured = parse_config(str(config_file))
+
+        for key in (
+            "plugins",
+            "plugins_hash",
+            "markdown_extensions",
+            "mdx_configs",
+            "mdx_configs_hash",
+            "watched_files",
+        ):
+            assert configured[key] == baseline[key]
+
     @pytest.mark.parametrize(
         "entry",
         ["meta", {"meta": None}, "material/meta", {"material/meta": None}],
@@ -195,6 +340,23 @@ class TestPluginShimming:
             "meta_file": "defaults.yml",
         }
         assert config["plugins_hash"] == cfg_module._hash(config["plugins"])
+
+    def test_material_blog_instances_preserve_order_and_aliases(
+        self, tmp_path: Path
+    ) -> None:
+        config = self._parse_yaml(
+            tmp_path,
+            plugins=[
+                {"material/blog": {"blog_dir": "journal"}},
+                {"blog": {"blog_dir": "news"}},
+            ],
+        )
+        assert config["plugins"]["blogs"] == {
+            "config": [
+                {"name": "blog", "config": {"blog_dir": "journal"}},
+                {"name": "blog", "config": {"blog_dir": "news"}},
+            ]
+        }
 
     def test_material_offline_alias_is_normalized(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins=["material/offline"])
@@ -255,9 +417,7 @@ class TestPluginShimming:
             "mdx_configs": {},
         }
 
-    def test_literate_nav_is_disabled_when_absent(
-        self, tmp_path: Path
-    ) -> None:
+    def test_literate_nav_is_disabled_when_absent(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins=[])
         assert config["plugins"]["literate_nav"]["config"]["enabled"] is False
 
@@ -304,9 +464,7 @@ class TestPluginShimming:
             },
         }
 
-    def test_awesome_nav_is_disabled_when_absent(
-        self, tmp_path: Path
-    ) -> None:
+    def test_awesome_nav_is_disabled_when_absent(self, tmp_path: Path) -> None:
         plugin = self._parse_yaml(tmp_path, plugins=[])["plugins"]
         assert plugin["awesome_nav"]["config"]["enabled"] is False
 
@@ -331,8 +489,8 @@ class TestPluginShimming:
         ("plugin", "message"),
         [
             ({"unknown": True}, "unknown awesome-nav option"),
-            ({"filename": 42}, "filename must be a string"),
-            ({"filename": ""}, "filename must not be empty"),
+            ({"filename": 42}, "filename must be a non-empty string"),
+            ({"filename": ""}, "filename must be a non-empty string"),
             ({"logs": "warning"}, "logs must be a mapping"),
             ({"logs": {"unknown": "info"}}, "unknown awesome-nav log"),
             (
@@ -387,9 +545,7 @@ class TestPluginShimming:
             "cache_safe": False,
         }
 
-    def test_minify_plugin_is_disabled_by_default(
-        self, tmp_path: Path
-    ) -> None:
+    def test_minify_plugin_is_disabled_by_default(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins=[])
         plugin = config["plugins"]["minify"]["config"]
         assert plugin["enabled"] is False
@@ -417,9 +573,7 @@ class TestPluginShimming:
             "tags",
         ]
         assert instances[0]["config"]["listings_directive"] == "$tags"
-        assert instances[1]["config"]["filters"] == {
-            "include": ["private/**"]
-        }
+        assert instances[1]["config"]["filters"] == {"include": ["private/**"]}
         assert instances[1]["config"]["tags_name_property"] == "labels"
         assert "tags_slugify" not in instances[0]["config"]
 
@@ -444,18 +598,117 @@ class TestPluginShimming:
         self, tmp_path: Path
     ) -> None:
         config = self._parse_yaml(
-            tmp_path, plugins={"glightbox": {"loop": True}}
+            tmp_path,
+            plugins={"glightbox": {"width": "80%", "slide_effect": "fade"}},
         )
         assert GlightboxExtension.name in config["markdown_extensions"]
-        assert config["mdx_configs"][GlightboxExtension.name] == {"loop": True}
+        assert config["mdx_configs"][GlightboxExtension.name] == {
+            "width": "80%"
+        }
+
+    def test_callouts_enables_quotes_callouts(self, tmp_path: Path) -> None:
+        config = self._parse_yaml(
+            tmp_path,
+            markdown_extensions=[{"pymdownx.quotes": {"callouts": False}}],
+            plugins={
+                "callouts": {
+                    "aliases": False,
+                    "breakless_lists": False,
+                    "title_from_first_bold": True,
+                }
+            },
+        )
+
+        assert config["markdown_extensions"].count("pymdownx.quotes") == 1
+        assert config["mdx_configs"]["pymdownx.quotes"] == {"callouts": True}
+        assert config["plugins"]["callouts"]["config"] == {}
+
+    def test_disabled_callouts_does_not_enable_quotes(
+        self, tmp_path: Path
+    ) -> None:
+        config = self._parse_yaml(
+            tmp_path, plugins={"callouts": {"enabled": False}}
+        )
+
+        assert "pymdownx.quotes" not in config["markdown_extensions"]
 
     def test_macros_plugin_shimmed(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins={"macros": {}})
         assert MacrosExtension.name in config["markdown_extensions"]
 
+    def test_table_reader_plugin_shimmed(self, tmp_path: Path) -> None:
+        config = self._parse_yaml(tmp_path, plugins={"table-reader": {}})
+        assert TableReaderExtension.name in config["markdown_extensions"]
+        assert MacrosExtension.name not in config["markdown_extensions"]
+        assert config["mdx_configs"][TableReaderExtension.name] == {}
+
+    def test_table_reader_options_forwarded(self, tmp_path: Path) -> None:
+        plugin = {
+            "data_path": "tables",
+            "allow_missing_files": True,
+            "select_readers": ["read_csv", "read_raw"],
+        }
+        config = self._parse_yaml(tmp_path, plugins={"table-reader": plugin})
+        assert config["mdx_configs"][TableReaderExtension.name] == plugin
+
+    def test_table_reader_shimmed_from_zensical_toml(
+        self, tmp_path: Path
+    ) -> None:
+        (tmp_path / "docs").mkdir()
+        config_file = tmp_path / "zensical.toml"
+        config_file.write_text(
+            "[project]\n"
+            'site_name = "Test Site"\n'
+            "[project.plugins.table-reader]\n"
+            'data_path = "tables"\n'
+            "allow_missing_files = true\n"
+            'select_readers = ["read_csv", "read_raw"]\n',
+            encoding="utf-8",
+        )
+        config = parse_config(str(config_file))
+        assert TableReaderExtension.name in config["markdown_extensions"]
+        assert config["plugins"]["table-reader"]["config"] == {
+            "data_path": "tables",
+            "allow_missing_files": True,
+            "select_readers": ["read_csv", "read_raw"],
+        }
+
+    def test_disabled_table_reader_not_added(self, tmp_path: Path) -> None:
+        config = self._parse_yaml(
+            tmp_path, plugins={"table-reader": {"enabled": False}}
+        )
+        assert TableReaderExtension.name not in config["markdown_extensions"]
+        assert MacrosExtension.name not in config["markdown_extensions"]
+
+    def test_table_reader_reuses_macros_extension(self, tmp_path: Path) -> None:
+        config = self._parse_yaml(
+            tmp_path,
+            plugins={"macros": {}, "table-reader": {}},
+        )
+        assert MacrosExtension.name in config["markdown_extensions"]
+        assert TableReaderExtension.name not in config["markdown_extensions"]
+
+    def test_table_reader_data_path_outside_project_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        with pytest.raises(
+            ConfigurationError,
+            match="data_path must be within project root",
+        ):
+            self._parse_yaml(
+                tmp_path,
+                plugins={"table-reader": {"data_path": "../tables"}},
+            )
+
     def test_autorefs_standalone(self, tmp_path: Path) -> None:
-        config = self._parse_yaml(tmp_path, plugins={"autorefs": {}})
+        options = {
+            "resolve_closest": True,
+            "link_titles": "external",
+            "strip_title_tags": False,
+        }
+        config = self._parse_yaml(tmp_path, plugins={"autorefs": options})
         assert AutorefsExtension.name in config["markdown_extensions"]
+        assert config["plugins"]["autorefs"]["config"] == {}
 
     def test_autorefs_disabled_not_added(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -517,3 +770,20 @@ class TestGetThemeDir:
     def test_get_theme_dir_unknown_raises(self) -> None:
         with pytest.raises(ConfigurationError):
             get_theme_dir("definitely-not-a-real-theme-xyzzy")
+
+    @pytest.mark.skipif(
+        os.name != "nt",
+        reason="Windows-specific path normalization",
+    )
+    def test_custom_theme_dir_normalizes_posix_separators(
+        self, tmp_path: Path
+    ) -> None:
+        custom_dir = tmp_path / "a" / "overrides"
+        custom_dir.mkdir(parents=True)
+
+        theme_dir = cfg_module.get_custom_theme_dir(
+            "a/overrides", str(tmp_path / "mkdocs.yml")
+        )
+
+        assert theme_dir.endswith(r"a\overrides")
+        assert theme_dir == str(custom_dir)

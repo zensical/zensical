@@ -3,6 +3,24 @@
 # SPDX-License-Identifier: MIT
 # All contributions are certified under the DCO
 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to
+# deal in the Software without restriction, including without limitation the
+# rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+# sell copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+# IN THE SOFTWARE.
+
 """Integration tests for native MkDocs Material tags compatibility."""
 
 from __future__ import annotations
@@ -13,6 +31,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 import zensical
+from zensical.config import ConfigurationError, parse_config
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -125,6 +144,30 @@ def test_builds_listings_references_toc_and_search_without_export(
     )
     assert not (tmp_path / "site" / "ignored-tags.json").exists()
     assert not (tmp_path / "site" / "tags.json").exists()
+
+
+def test_navigation_titles_flow_through_listings_and_search(
+    tmp_path: Path,
+) -> None:
+    """Title-sensitive plugin outputs consume finalized page titles."""
+    config = _write_project(tmp_path)
+    with config.open("a", encoding="utf-8") as file:
+        file.write(
+            "nav:\n"
+            "  - Catalog: index.md\n"
+            "  - Configured Rust: guide/rust.md\n"
+            "  - Python: guide/python.md\n"
+        )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    listing = (tmp_path / "site" / "index.html").read_text()
+    search = json.loads((tmp_path / "site" / "search.json").read_text())
+    assert "Configured Rust" in listing
+    assert "Rust page" not in listing
+    assert any(
+        item["path"][-1] == "Configured Rust" for item in search["items"]
+    )
 
 
 def test_inherits_tags_from_meta_file(tmp_path: Path) -> None:
@@ -507,37 +550,47 @@ def test_leading_hierarchy_separator_keeps_identity_and_listing_link(
 
 
 @pytest.mark.parametrize(
-    ("option", "replacement"),
+    "option",
     [
-        ("tags_compare", "tags_sort_by"),
-        ("tags_compare_reverse", "tags_sort_reverse"),
-        ("tags_pages_compare", "listings_sort_by"),
-        ("tags_pages_compare_reverse", "listings_sort_reverse"),
-        ("tags_file", "material/tags"),
-        ("tags_extra_files", "material/tags"),
+        "tags_compare",
+        "tags_compare_reverse",
+        "tags_pages_compare",
+        "tags_pages_compare_reverse",
+        "tags_file",
+        "tags_extra_files",
+        "export",
+        "export_file",
+        "export_only",
     ],
 )
-def test_rust_rejects_deprecated_tags_options(
-    tmp_path: Path, option: str, replacement: str
-) -> None:
-    """The native configuration boundary owns deprecated-option errors."""
-    config = _write_project(tmp_path, plugin=f"      {option}: value\n")
-
-    with pytest.raises(ValueError, match=option) as error:
-        zensical.build(str(config), _BUILD_OPTIONS)
-
-    assert replacement in str(error.value)
-
-
-@pytest.mark.parametrize("option", ["export_only", "tags_hierachy"])
-def test_rust_rejects_unsupported_tags_options(
+def test_ignores_unimplemented_tags_options(
     tmp_path: Path, option: str
 ) -> None:
-    """Unsupported behavior and misspellings cannot silently disappear."""
+    """Legacy options never reach Rust and do not suppress native listings."""
     config = _write_project(tmp_path, plugin=f"      {option}: true\n")
 
-    with pytest.raises(ValueError, match=option):
-        zensical.build(str(config), _BUILD_OPTIONS)
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    listing = (tmp_path / "site" / "index.html").read_text()
+    assert '<h2 id="tag:guide">' in listing
+    assert "Rust page" in listing
+    assert not (tmp_path / "site" / "tags.json").exists()
+    assert not (tmp_path / "site" / "ignored-tags.json").exists()
+
+
+@pytest.mark.parametrize("option", ["unknown", "tags_hierachy"])
+def test_config_rejects_unknown_tags_options(
+    tmp_path: Path, option: str
+) -> None:
+    """Unknown options fail even when known legacy options are ignored."""
+    config = _write_project(
+        tmp_path, plugin=f"      export_only: true\n      {option}: true\n"
+    )
+
+    with pytest.raises(
+        ConfigurationError, match=rf"unknown tags option: {option}"
+    ):
+        parse_config(str(config))
 
 
 def test_scalar_configuration_and_metadata_match_python_names(

@@ -121,7 +121,7 @@ impl Middleware for Client {
         let uri = req.uri.path.clone();
         let mut res = next.handle(req);
 
-        // In case an HTML file is served, inject the client script
+        // Inject the client into HTML pages, including custom error pages
         if let Some(value) = res.headers.get(Header::ContentType)
             && value.contains("text/html")
         {
@@ -129,24 +129,20 @@ impl Middleware for Client {
 
             // Update content length
             res.headers.insert(Header::ContentLength, res.body.len());
-        }
-
-        // Never cache JavaScript or CSS files, so reloading works smoothly
-        if uri.ends_with(".js") || uri.ends_with(".css") {
-            res.headers.insert(Header::CacheControl, "no-cache");
-        }
-
-        // In case of a 404 on "/", we attach the WebSocket script, so it will
-        // automatically reload once the build has finished. This is temporary,
-        // since we're working on properly integrating all moving parts of
-        // the system into a coherent flow.
-        if res.status == Status::NotFound {
+        } else if res.status == Status::NotFound {
+            // If no HTML page is available yet, attach the client to the
+            // generic error response so it reloads once the build finishes
             res.body.clear();
             append_client(&mut res.body, &uri);
 
             // Update content length
             res.headers.insert(Header::ContentType, "text/html");
             res.headers.insert(Header::ContentLength, res.body.len());
+        }
+
+        // Never cache JavaScript or CSS files, so reloading works smoothly
+        if uri.ends_with(".js") || uri.ends_with(".css") {
+            res.headers.insert(Header::CacheControl, "no-cache");
         }
 
         // Return response
