@@ -9,10 +9,10 @@
 // rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
 // sell copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-//
+
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-//
+
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
@@ -56,8 +56,11 @@ static FONT_URL: LazyLock<Regex> = LazyLock::new(|| {
 /// Shared font resolver for one social plugin instance.
 #[derive(Clone, Debug)]
 pub struct Fonts {
+    /// Directory holding downloaded font faces.
     cache: PathBuf,
+    /// HTTP client for Google Fonts requests.
     agent: ureq::Agent,
+    /// Selected font faces shared across card renders.
     loaded: Arc<Mutex<HashMap<Font, Arc<Database>>>>,
 }
 
@@ -133,6 +136,7 @@ impl Fonts {
         Ok(database)
     }
 
+    /// Downloads and validates the configured font family.
     fn fetch(&self, family: &str, directory: &Path) -> Result<()> {
         let encoded = utf8_percent_encode(family, NON_ALPHANUMERIC);
         let url =

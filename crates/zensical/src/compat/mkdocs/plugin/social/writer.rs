@@ -9,10 +9,10 @@
 // rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
 // sell copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-//
+
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-//
+
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
@@ -43,8 +43,10 @@ use super::Card;
 // Structs
 // ----------------------------------------------------------------------------
 
+/// Copies generated cards into the output tree and removes stale ones.
 #[derive(Clone)]
 struct Writer {
+    /// Root for generated site files.
     output: OutputRoot,
 }
 
@@ -53,10 +55,12 @@ struct Writer {
 // ----------------------------------------------------------------------------
 
 impl Writer {
+    /// Resolves a card's site-relative output path.
     fn path(&self, card: &Card) -> PathBuf {
         self.output.join(&card.path)
     }
 
+    /// Copies a cached card into the generated site.
     fn insert(&self, card: &Card) -> anyhow::Result<()> {
         let path = self.path(card);
         fs::create_dir_all(path.parent().expect("social card has parent"))?;
@@ -66,6 +70,7 @@ impl Writer {
         Ok(())
     }
 
+    /// Removes a previously generated card by its output identity.
     fn remove(&self, key: &Key<Id>) -> anyhow::Result<()> {
         let id = key.try_as_id()?;
         let path = id.location().parse::<SitePath>()?;
@@ -86,10 +91,12 @@ impl Action<Key<Id>> for Writer {
     type Inputs = (Card,);
     type Output = ();
 
+    /// Lets the scheduler choose output-copy concurrency.
     fn concurrency(&self) -> Concurrency<Self> {
         Concurrency::adaptive()
     }
 
+    /// Applies card insertions and removals to the output tree.
     fn execute(&mut self, context: Context<'_, Key<Id>, Self>) {
         let Context { inputs: input, output, .. } = context;
         input.for_each(output, |change, emit| {
@@ -119,6 +126,7 @@ impl Action<Key<Id>> for Writer {
 // Functions
 // ----------------------------------------------------------------------------
 
+/// Subscribes the output writer to the generated card stream.
 pub fn setup(output: OutputRoot, cards: &Stream<Id, Card>) {
     let _ = cards.subscribe(Writer { output });
 }

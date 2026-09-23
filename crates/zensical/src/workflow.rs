@@ -319,8 +319,7 @@ impl Main {
         let rendered_page = apply_navigation_titles(&provisional, &resolution);
         let rendered_page = apply_blog(&rendered_page, &blog_patches);
         let rendered_page = apply_tags(&plugins.tags, &rendered_page);
-        let page =
-            rendered_page.map(|rendered: &RenderedPage| rendered.page.clone());
+        let page = rendered_page.map(|value: &RenderedPage| value.page.clone());
         let site_page = rendered_page.map(|rendered: &RenderedPage| SitePage {
             page: rendered.page.clone(),
             autorefs: rendered.html.autorefs.clone(),
