@@ -1,0 +1,4 @@
+social:
+  cards_layout_options:
+    background_color: '#445566'
+    label: inherited

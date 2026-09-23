@@ -3275,6 +3275,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "skrifa",
  "svgtypes",
  "swc_common",
  "swc_css",

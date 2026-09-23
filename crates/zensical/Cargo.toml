@@ -74,6 +74,7 @@ percent-encoding.workspace = true
 pyo3.workspace = true
 regex.workspace = true
 resvg.workspace = true
+skrifa.workspace = true
 saphyr.workspace = true
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true

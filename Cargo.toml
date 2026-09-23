@@ -79,6 +79,7 @@ resvg = { version = "0.48.1", default-features = false, features = [
   "raster-images",
   "text",
 ] }
+skrifa = "0.44.0"
 saphyr = "0.0.6"
 sha1_smol = "1.0"
 slab = "0.4.12"

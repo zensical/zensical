@@ -1,0 +1,17 @@
+site_name: Social instances
+site_url: https://example.test/docs/
+site_dir: site
+theme: { name: material }
+plugins:
+  - social:
+      cache: false
+      cards_layout: flat
+      cards_dir: assets/cards/first
+      cards_include: ['index.md']
+      cards_layout_options: { label: first, color: '#102030' }
+  - social:
+      cache: false
+      cards_layout: flat
+      cards_dir: assets/cards/second
+      cards_include: ['guide.md']
+      cards_layout_options: { label: second, color: '#405060' }

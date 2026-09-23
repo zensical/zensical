@@ -571,6 +571,13 @@ def _apply_defaults(config: dict, path: str) -> dict:
     elif "theme" not in config:
         config["theme"] = {}
 
+    font_explicit = "font" in config["theme"]
+    configured_icons = config["theme"].get("icon")
+    logo_icon_explicit = (
+        isinstance(configured_icons, dict)
+        and configured_icons.get("logo") is not None
+    )
+
     # Set defaults for custom theme directory
     set_default(config["theme"], "custom_dir", None, str)
 
@@ -600,6 +607,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     config["theme"] = {**theme_config, **config["theme"]}
 
     theme = config["theme"]
+    theme["font_explicit"] = font_explicit
 
     # Set defaults for theme name
     # (we do this after loading the theme configuration
@@ -632,6 +640,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
 
     # Set defaults for theme icons
     icon = set_default(theme, "icon", {}, dict)
+    icon["logo_explicit"] = logo_icon_explicit
     set_default(icon, "repo", None, str)
     set_default(icon, "annotation", None, str)
     set_default(icon, "tag", {}, dict)

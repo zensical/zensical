@@ -1,0 +1,12 @@
+site_name: Social metadata
+site_url: https://example.test/docs/
+site_dir: site
+theme: { name: material }
+plugins:
+  - meta
+  - social:
+      cache: false
+      cards_layout: flat
+      cards_layout_options:
+        background_color: '#112233'
+        label: global

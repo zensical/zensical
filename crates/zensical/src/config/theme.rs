@@ -67,6 +67,9 @@ pub struct Theme {
     pub features: Vec<String>,
     /// Font settings.
     pub font: Font,
+    /// Whether the project explicitly configured its font settings.
+    #[serde(skip)]
+    pub font_explicit: bool,
     /// Static templates.
     pub static_templates: Vec<String>,
     /// Favicon.
@@ -103,6 +106,9 @@ pub struct Icon {
     pub view: Option<String>,
     /// Logo icon.
     pub logo: Option<String>,
+    /// Whether the project explicitly configured the logo icon.
+    #[serde(skip)]
+    pub logo_explicit: bool,
     /// Repository icon.
     pub repo: Option<String>,
     /// Annotation icon.

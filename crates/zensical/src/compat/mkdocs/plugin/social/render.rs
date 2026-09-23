@@ -9,10 +9,10 @@
 // rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
 // sell copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
-//
+
 // The above copyright notice and this permission notice shall be included in
 // all copies or substantial portions of the Software.
-//
+
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
@@ -32,6 +32,10 @@ use resvg::tiny_skia::{Pixmap, PixmapPaint, Transform};
 use resvg::usvg;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use skrifa::{
+    instance::{LocationRef, Size},
+    MetadataProvider,
+};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::fs;
@@ -62,18 +66,27 @@ pub struct Tag {
 /// Immutable renderer shared by concurrent card jobs.
 #[derive(Clone, Debug)]
 pub struct Renderer {
+    /// Project settings used by card templates and asset resolution.
     project: std::sync::Arc<Project>,
+    /// Theme directories searched for icons.
     theme_dirs: std::sync::Arc<[PathBuf]>,
+    /// Resolver for selected font faces.
     fonts: Fonts,
+    /// Known revisions of untracked image and icon dependencies.
     dependencies: Arc<Mutex<HashMap<PathBuf, [u8; 32]>>>,
 }
 
+/// Generated image properties exposed to metadata templates.
 #[derive(Serialize)]
 struct ImageContext<'a> {
+    /// Absolute URL of the generated card.
     url: &'a str,
+    /// Media type of the generated card.
     #[serde(rename = "type")]
     kind: &'static str,
+    /// Card width in pixels.
     width: u32,
+    /// Card height in pixels.
     height: u32,
 }
 
@@ -155,12 +168,12 @@ impl Renderer {
             );
         }
         if let Some((color, grid, step)) = debug {
-            let svg = debug_svg(layout, color, grid, step)?;
             let fonts = self.fonts.load(&Font {
                 family: "Roboto".into(),
                 variant: String::new(),
                 style: "Regular".into(),
             })?;
+            let svg = debug_svg(layout, color, grid, step, Some(&fonts))?;
             let overlay = render_svg(
                 &svg,
                 layout.size.width,
@@ -211,6 +224,7 @@ impl Renderer {
             .collect()
     }
 
+    /// Rasterizes one layer with its image, icon, and typography.
     fn layer(&self, layer: &Layer) -> Result<Pixmap> {
         let fonts = (!layer.typography.content.is_empty())
             .then(|| self.fonts.load(&layer.typography.font))
@@ -234,6 +248,7 @@ impl Renderer {
         render_svg(&svg, layer.size.width, layer.size.height, fonts.as_ref())
     }
 
+    /// Encodes a background image as a data URL.
     fn background(&self, value: &str) -> Result<String> {
         let path = self.background_path(value);
         data_url(&path).with_context(|| {
@@ -241,6 +256,7 @@ impl Renderer {
         })
     }
 
+    /// Resolves a background image relative to the project root.
     fn background_path(&self, value: &str) -> PathBuf {
         let path = Path::new(value);
         if path.is_absolute() {
@@ -250,6 +266,7 @@ impl Renderer {
         }
     }
 
+    /// Encodes a theme icon as a colorized SVG data URL.
     fn icon(&self, name: &str, color: &str) -> Result<String> {
         let mut data = self.icon_source(name)?;
         if !color.is_empty() {
@@ -261,11 +278,13 @@ impl Renderer {
         ))
     }
 
+    /// Reads an icon from the selected theme directory.
     fn icon_source(&self, name: &str) -> Result<String> {
         let path = self.icon_path(name)?;
         Ok(fs::read_to_string(path)?)
     }
 
+    /// Finds a named icon in the available theme directories.
     fn icon_path(&self, name: &str) -> Result<PathBuf> {
         for base in self.theme_dirs.iter() {
             let path = base.join(".icons").join(format!("{name}.svg"));
@@ -279,6 +298,7 @@ impl Renderer {
         Err(plugin_error(anyhow!("couldn't find icon '{name}'")))
     }
 
+    /// Returns a watched or locally cached file revision.
     fn file_revision(
         &self, path: &Path, known: &BTreeMap<PathBuf, [u8; 32]>,
     ) -> Result<[u8; 32]> {
@@ -312,8 +332,15 @@ fn template_context(
         .as_object_mut()
         .context("serialized page must be a mapping")?;
     page_map.insert("is_homepage".into(), serde_json::Value::Bool(is_homepage));
+    let mut config = serde_json::to_value(project)?;
+    if !project.theme.font_explicit {
+        config["theme"]["font"] = serde_json::Value::Null;
+    }
+    if !project.theme.icon.logo_explicit {
+        config["theme"]["icon"]["logo"] = serde_json::Value::Null;
+    }
     Ok(context! {
-        config => project,
+        config => config,
         page => page_value,
         layout => options,
         image => image,
@@ -444,7 +471,7 @@ fn typography_svg(
 ) -> Result<String> {
     let mut allowed = typography.line.amount;
     let mut size =
-        font_size(layer.size.height, allowed, typography.line.height);
+        font_size(layer.size.height, allowed, typography.line.height, fonts);
     let mut lines = wrap(
         &typography.content,
         f64::from(layer.size.width),
@@ -455,8 +482,12 @@ fn typography_svg(
     if typography.overflow == "shrink" {
         while lines.len() > allowed {
             allowed += 1;
-            size =
-                font_size(layer.size.height, allowed, typography.line.height);
+            size = font_size(
+                layer.size.height,
+                allowed,
+                typography.line.height,
+                fonts,
+            );
             lines = wrap(
                 &typography.content,
                 f64::from(layer.size.width),
@@ -497,13 +528,17 @@ fn typography_svg(
         balance_two_lines(&mut lines);
     }
 
-    let line_height = size * typography.line.height;
+    let (ascender, _) = font_metrics(fonts);
+    let line_height = size * ascender / 1000.0 * typography.line.height;
     let additional = u32::try_from(lines.len().saturating_sub(1))
         .map_or(f64::from(u32::MAX), f64::from);
     let height = size + line_height * additional;
     let (anchor, x) =
         horizontal(&typography.align, f64::from(layer.size.width));
-    let y = vertical(&typography.align, f64::from(layer.size.height), height);
+    // Pillow's ascender anchor positions glyphs below the top of the line box.
+    // SVG's hanging baseline starts at the glyphs, so account for that inset.
+    let y = vertical(&typography.align, f64::from(layer.size.height), height)
+        + size * 0.2;
     let attributes = font_attributes(&typography.font);
     let mut spans = String::new();
     for (index, line) in lines.iter().enumerate() {
@@ -584,10 +619,30 @@ fn render_svg(
     Ok(pixmap)
 }
 
-fn font_size(height: u32, lines: usize, line_height: f64) -> f64 {
+fn font_size(
+    height: u32, lines: usize, line_height: f64,
+    fonts: Option<&Arc<usvg::fontdb::Database>>,
+) -> f64 {
     let lines = u32::try_from(lines).map_or(f64::from(u32::MAX), f64::from);
-    let extent = lines + 0.25 + (lines - 1.0) * (line_height - 1.0);
-    f64::from(height) / extent
+    let (ascender, descender) = font_metrics(fonts);
+    let extent = lines * ascender
+        + descender
+        + (lines - 1.0) * (line_height - 1.0) * ascender;
+    (1000.0 * f64::from(height) / extent).floor()
+}
+
+fn font_metrics(fonts: Option<&Arc<usvg::fontdb::Database>>) -> (f64, f64) {
+    fonts
+        .and_then(|database| database.faces().next().map(|face| face.id))
+        .and_then(|id| {
+            fonts?.with_face_data(id, |data, index| {
+                let font = skrifa::FontRef::from_index(data, index).ok()?;
+                let metrics =
+                    font.metrics(Size::new(1000.0), LocationRef::default());
+                Some((f64::from(metrics.ascent), -f64::from(metrics.descent)))
+            })?
+        })
+        .unwrap_or((1000.0, 250.0))
 }
 
 fn font_attributes(font: &Font) -> String {
@@ -715,6 +770,7 @@ fn colorize_icon(source: &str, color: &str) -> String {
 
 fn debug_svg(
     layout: &Layout, color: &str, grid: bool, step: usize,
+    fonts: Option<&Arc<usvg::fontdb::Database>>,
 ) -> Result<String> {
     let parsed = parse_color(color, "debug color")?;
     let label_color = if f64::from(parsed.red) * 0.299
@@ -732,7 +788,10 @@ fn debug_svg(
             for y in (0..layout.size.height).step_by(step) {
                 write!(
                     body,
-                    "<circle cx=\"{x}\" cy=\"{y}\" r=\"1\" fill=\"{}\"/>",
+                    "<rect x=\"{}\" y=\"{y}\" width=\"3\" height=\"1\" fill=\"{}\"/><rect x=\"{x}\" y=\"{}\" width=\"1\" height=\"3\" fill=\"{}\"/>",
+                    i64::from(x) - 1,
+                    xml_attribute(color),
+                    i64::from(y) - 1,
                     xml_attribute(color),
                 )
                 .expect("writing to a string cannot fail");
@@ -741,24 +800,33 @@ fn debug_svg(
     }
     for (index, layer) in layout.layers.iter().enumerate() {
         let (x, y) = offset(layer, layout.size.width, layout.size.height);
+        let right = (i64::from(x) + i64::from(layer.size.width))
+            .min(i64::from(layout.size.width) - 1);
+        let bottom = (i64::from(y) + i64::from(layer.size.height))
+            .min(i64::from(layout.size.height) - 1);
+        let width = layer.size.width.saturating_add(1);
+        let height = layer.size.height.saturating_add(1);
         write!(
             body,
-            "<rect x=\"{x}\" y=\"{y}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"{}\"/>",
-            layer.size.width,
-            layer.size.height,
+            "<rect x=\"{x}\" y=\"{y}\" width=\"{width}\" height=\"1\" fill=\"{0}\"/><rect x=\"{x}\" y=\"{bottom}\" width=\"{width}\" height=\"1\" fill=\"{0}\"/><rect x=\"{x}\" y=\"{y}\" width=\"1\" height=\"{height}\" fill=\"{0}\"/><rect x=\"{right}\" y=\"{y}\" width=\"1\" height=\"{height}\" fill=\"{0}\"/>",
             xml_attribute(color),
         )
         .expect("writing to a string cannot fail");
         let label = format!("{index} – {x}, {y}");
-        let width = 12_u32.saturating_mul(
-            u32::try_from(label.chars().count()).unwrap_or(u32::MAX),
-        );
+        let font = Font {
+            family: "Roboto".into(),
+            variant: String::new(),
+            style: "Regular".into(),
+        };
+        let width = measure(&label, 12.0, &font, fonts)?.ceil() + 9.0;
+        let (ascender, descender) = font_metrics(fonts);
+        let height = ((ascender + descender) * 12.0 / 1000.0).ceil() + 4.0;
         write!(
             body,
-            "<rect x=\"{x}\" y=\"{y}\" width=\"{width}\" height=\"20\" fill=\"{}\"/><text x=\"{}\" y=\"{}\" fill=\"{label_color}\" font-family=\"Roboto\" font-size=\"12\" dominant-baseline=\"hanging\">{}</text>",
+            "<rect x=\"{x}\" y=\"{y}\" width=\"{width}\" height=\"{height}\" fill=\"{}\"/><text x=\"{}\" y=\"{}\" fill=\"{label_color}\" font-family=\"Roboto\" font-size=\"12\" dominant-baseline=\"hanging\">{}</text>",
             xml_attribute(color),
             x.saturating_add(4),
-            y.saturating_add(3),
+            y.saturating_add(5),
             xml_text(&label),
         )
         .expect("writing to a string cannot fail");
@@ -789,14 +857,15 @@ fn xml_attribute(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use base64::Engine as _;
+    use minijinja::Value;
+
+    use crate::compat::mkdocs::plugin::social::layout::Size;
 
     use super::{
         balance_two_lines, colorize_icon, debug_svg, environment,
         font_attributes, layer_svg, offset, render_svg, render_template, Font,
         Layer, Layout,
     };
-    use minijinja::Value;
-
     #[test]
     fn balances_two_lines_by_moving_one_word() {
         let mut lines = vec!["one two three".into(), "four".into()];
@@ -860,12 +929,12 @@ mod tests {
     fn debug_labels_contrast_with_the_overlay() {
         let layout = Layout {
             tags: Vec::new(),
-            size: super::super::layout::Size { width: 10, height: 10 },
+            size: Size { width: 10, height: 10 },
             layers: vec![Layer::default()],
         };
-        assert!(debug_svg(&layout, "white", false, 1)
+        assert!(debug_svg(&layout, "white", false, 1, None)
             .unwrap()
             .contains("fill=\"black\""));
-        assert!(debug_svg(&layout, "not-a-color", false, 1).is_err());
+        assert!(debug_svg(&layout, "not-a-color", false, 1, None).is_err());
     }
 }

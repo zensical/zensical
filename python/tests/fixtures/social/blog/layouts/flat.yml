@@ -1,0 +1,6 @@
+tags:
+  og:title: '{{ page.meta.get("title", page.title) }}'
+  og:image: '{{ image.url }}'
+size: { width: 320, height: 168 }
+layers:
+  - background: { color: '#123456' }
