@@ -784,46 +784,36 @@ class TestPluginShimming:
         )
 
     @pytest.mark.parametrize(
-        "configuration",
+        ("config_key", "name"),
         [
+            pytest.param("plugins", "mkdocstrings", id="plugin"),
             pytest.param(
-                {
-                    "plugins": {
-                        "mkdocstrings": {
-                            "handlers": {
-                                "python": {"options": {"backlinks": "flat"}}
-                            }
-                        }
-                    }
-                },
-                id="plugin",
-            ),
-            pytest.param(
-                {
-                    "markdown_extensions": [
-                        {
-                            MkdocstringsExtension.name: {
-                                "handlers": {
-                                    "python": {"options": {"backlinks": "tree"}}
-                                }
-                            }
-                        }
-                    ]
-                },
+                "markdown_extensions", MkdocstringsExtension.name,
                 id="extension",
             ),
         ],
     )
-    def test_mkdocstrings_backlinks_enable_collection(
+    @pytest.mark.parametrize("backlinks", ["flat", "tree", False])
+    def test_mkdocstrings_backlinks_control_collection(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
-        configuration: dict[str, object],
+        config_key: str,
+        name: str,
+        backlinks: str | bool,
     ) -> None:
         monkeypatch.setattr("zensical.config.find_spec", lambda _name: True)
+        options = {"backlinks": backlinks}
+        settings = {"handlers": {"python": {"options": options}}}
+        configuration = {config_key: {name: settings}}
+
         config = self._parse_yaml(tmp_path, **configuration)
+
+        # Preserve the rendering mode and collect backlinks only when enabled.
+        assert config["mdx_configs"][MkdocstringsExtension.name] == settings
         assert AutorefsExtension.name in config["markdown_extensions"]
-        assert config["mdx_configs"][AutorefsExtension.name]["record_backlinks"]
+        autorefs = config["mdx_configs"][AutorefsExtension.name]
+        assert autorefs["record_backlinks"] is (backlinks is not False)
 
     def test_mkdocstrings_not_installed_raises(
         self,
