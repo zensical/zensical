@@ -39,7 +39,8 @@ use zrx::id::Id;
 use zrx::stream::function::Collection;
 use zrx::stream::workflow::Builder;
 use zrx::stream::{
-    concurrent, Key, Signal, Stream, StreamTupleExt, Value, Workflow,
+    concurrent, Key, Signal, Stream, StreamSetExt, StreamTupleExt, Value,
+    Workflow,
 };
 
 use crate::compat::mkdocs::plugin::autorefs::UnresolvedAutorefs;
@@ -47,7 +48,7 @@ use crate::compat::mkdocs::{
     html,
     plugin::{
         self, autorefs, awesome_nav, blog, literate_nav, meta, minify,
-        mkdocstrings, redirects, search, tags,
+        mkdocstrings, redirects, rss, search, tags,
     },
     resource,
 };
@@ -63,7 +64,7 @@ use crate::template::Template;
 use crate::watcher::Source;
 
 mod cached;
-mod output;
+pub(crate) mod output;
 
 use cached::cached;
 
@@ -338,6 +339,9 @@ impl Main {
         });
         mkdocstrings::Mkdocstrings::new(&self.config)
             .setup(mkdocstrings::Dependencies { navigation: &nav });
+        // Feed inputs are final pages and their original Markdown bodies.
+        let rss_artifacts =
+            rss::Rss::new(&self.config).setup(&page, &markdown, &configuration);
         let _ = render_templates(&self.config, &files, &nav, &assets, &minify);
         let unresolved = render_pages(
             &self.config,
@@ -346,6 +350,7 @@ impl Main {
             &autorefs,
             &assets,
             &minify,
+            &rss_artifacts,
         );
         validate(&self.config, self.strict, &files, &page, &unresolved);
     }
@@ -774,6 +779,7 @@ fn render_pages(
     config: &Config, pages: &Stream<Id, SitePage>,
     nav: &Signal<Id, Navigation>, autorefs: &Signal<Id, autorefs::Registry>,
     assets: &Signal<Id, minify::Manifest>, minify: &minify::Minify,
+    extra: &Stream<Id, output::Artifact>,
 ) -> Stream<Id, UnresolvedAutorefs> {
     let pages = pages.product(nav).product(autorefs).product(assets).map(
         |input: &((SitePage, Navigation), autorefs::Registry),
@@ -837,7 +843,7 @@ fn render_pages(
     });
     let artifacts =
         rendered.map(|rendered: &RenderedSitePage| rendered.artifact.clone());
-    output::setup(output, &artifacts);
+    output::setup(output, &(artifacts, extra.clone()).coalesce());
     rendered.map(|rendered: &RenderedSitePage| rendered.unresolved.clone())
 }
 
