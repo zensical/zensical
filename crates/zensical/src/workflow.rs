@@ -858,11 +858,14 @@ fn render_pages(
                 )?)
             })?;
 
-        // Replace autorefs and retain unresolved identifiers
-        let (data, unresolved) =
-            input.autorefs.replace_in(rendered, references, &page.url);
-        let data =
-            mkdocstrings.replace_backlinks(data, &input.autorefs, &page.url)?;
+        // Resolve template references and backlinks in the shared final pass.
+        let (data, unresolved) = plugin::finalize(
+            rendered.into(),
+            references,
+            &input.autorefs,
+            &mkdocstrings,
+            &page.url,
+        )?;
         let data = minify.html(data);
 
         Ok::<_, anyhow::Error>(RenderedSitePage {

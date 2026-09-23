@@ -29,6 +29,7 @@ use ahash::{HashMap, HashSet};
 use html5gum::emitters::callback::CallbackEvent;
 use html5gum::Span;
 use serde::{Deserialize, Serialize};
+use std::ops::Range;
 use std::{mem, rc::Rc, sync::Arc};
 
 use crate::compat::mkdocs::html::{Editor, Visitor};
@@ -151,6 +152,8 @@ pub struct Parser {
     pending: Option<PendingReference>,
     /// Completed page-local references.
     references: Vec<Reference>,
+    /// Source ranges of template reference titles that can contain other edits.
+    title_ranges: Vec<Range<usize>>,
     /// Heading and Markdown-anchor registrations.
     facts: Facts,
     /// Anchor scanner contexts; the first entry represents the document root.
@@ -318,6 +321,17 @@ impl Parser {
             self.flush_scope(0, None, false);
         }
         (References { references: self.references }, self.facts)
+    }
+
+    /// Retains nested replacements inside template reference titles.
+    pub fn apply_title_edits(&mut self, editor: &mut Editor<'_>) {
+        for (reference, range) in
+            self.references.iter_mut().zip(&self.title_ranges)
+        {
+            if let Some(title) = editor.render_range(range.clone()) {
+                reference.title = title.into_boxed_str();
+            }
+        }
     }
 
     /// Classifies a tag, interning an unknown name only on first occurrence.
@@ -593,6 +607,9 @@ impl Parser {
             attributes: pending.attributes,
             title: editor.text(pending.content..span.start).into(),
         });
+        if !self.collect_registrations {
+            self.title_ranges.push(pending.content..span.start);
+        }
         editor.replace(pending.start..span.end, slot(index));
     }
 
@@ -908,11 +925,12 @@ fn intern_name(names: &mut HashSet<Arc<str>>, value: &[u8]) -> Arc<str> {
 
 /// Decodes a UTF-8 string represented by lowercase hexadecimal bytes.
 fn decode_hex(value: &[u8]) -> Option<String> {
-    if !value.len().is_multiple_of(2) {
+    let (pairs, remainder) = value.as_chunks::<2>();
+    if !remainder.is_empty() {
         return None;
     }
-    let bytes = value
-        .chunks_exact(2)
+    let bytes = pairs
+        .iter()
         .map(|pair| {
             let high = hex_digit(pair[0])?;
             let low = hex_digit(pair[1])?;

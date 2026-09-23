@@ -39,7 +39,6 @@ use zrx::id::Id;
 use zrx::stream::function::Collection;
 use zrx::stream::{Key, Signal, Stream, Value};
 
-use crate::compat::mkdocs::html;
 use crate::compat::mkdocs::url::relative;
 use crate::config::Config;
 use crate::path::SourcePath;
@@ -969,39 +968,6 @@ impl Resolver {
         output.push_str(&content[cursor..]);
         output
     }
-
-    /// Replaces cached slots and raw markers introduced by templates.
-    fn replace_in<S>(
-        &self, content: S, references: &References, from_url: &str,
-    ) -> (String, UnresolvedAutorefs)
-    where
-        S: Into<String>,
-    {
-        let mut unresolved = UnresolvedAutorefs::default();
-        let mut content = self.replace_slots(
-            content.into(),
-            references,
-            from_url,
-            &mut unresolved,
-        );
-
-        // Templates may introduce autorefs after the cached Markdown pass.
-        // Autorefs therefore participates in the deliberate final HTML pass
-        // whenever it is enabled, using the same visitor and slot expansion
-        // path as page-produced markers.
-        let mut parser = Parser::default();
-        if let Some(prepared) = html::scan(&content, &mut [&mut parser]) {
-            let (references, _) = parser.finish();
-            content = self.replace_slots(
-                prepared,
-                &references,
-                from_url,
-                &mut unresolved,
-            );
-        }
-
-        (content, unresolved)
-    }
 }
 
 // ----------------------------------------------------------------------------
@@ -1031,17 +997,20 @@ impl Registry {
             .map(|index| index.revision)
     }
 
-    /// Replace autoref placeholders using this immutable registry.
-    pub fn replace_in<S>(
-        &self, content: S, references: &References, from_url: &str,
-    ) -> (String, UnresolvedAutorefs)
-    where
-        S: Into<String>,
-    {
+    /// Creates a visitor for template references when autorefs is enabled.
+    pub fn parser(&self) -> Option<Parser> {
+        self.0.as_ref().map(|_| Parser::default())
+    }
+
+    /// Expands collected reference slots and records unresolved identifiers.
+    pub fn replace_slots(
+        &self, content: String, references: &References, from_url: &str,
+        unresolved: &mut UnresolvedAutorefs,
+    ) -> String {
         if let Some(autorefs) = &self.0 {
-            autorefs.replace_in(content, references, from_url)
+            autorefs.replace_slots(content, references, from_url, unresolved)
         } else {
-            (content.into(), UnresolvedAutorefs::default())
+            content
         }
     }
 
@@ -1184,6 +1153,7 @@ mod tests {
     use super::{
         navigation_crumb, BacklinkCrumb, BacklinkData, BacklinkIndex,
         BreadcrumbNode, Facts, Parser, References, Resolver,
+        UnresolvedAutorefs,
     };
 
     fn breadcrumb_path(
@@ -1268,15 +1238,20 @@ mod tests {
             .primary
             .insert("known".to_string(), vec!["reference/#known".to_string()]);
 
-        let (output, unresolved) = autorefs.replace_in(
-            concat!(
-                "<autoref identifier=\"known\">Known</autoref>",
-                "<autoref identifier=\"missing\">Missing</autoref>",
-                "<autoref identifier=\"missing\">Missing</autoref>",
-                "<autoref identifier=\"skipped\" optional>Skipped</autoref>",
-            ),
-            &References::default(),
+        let (content, references) = prepare(concat!(
+            "<autoref identifier=\"known\">Known</autoref>",
+            "<autoref identifier=\"missing\">Missing</autoref>",
+            "<autoref identifier=\"missing\">Missing</autoref>",
+            "<autoref identifier=\"skipped\" optional>Skipped</autoref>",
+        ));
+        let mut unresolved = UnresolvedAutorefs::default();
+
+        // Resolve collected slots while retaining each missing identifier once.
+        let output = autorefs.replace_slots(
+            content,
+            &references,
             "guide/",
+            &mut unresolved,
         );
 
         let unresolved = unresolved.iter().collect::<Vec<_>>();
@@ -1302,8 +1277,14 @@ mod tests {
             "<code>Known</code></autoref>",
         ));
 
-        let (output, unresolved) =
-            autorefs.replace_in(content, &references, "guide/");
+        let mut unresolved = UnresolvedAutorefs::default();
+
+        let output = autorefs.replace_slots(
+            content,
+            &references,
+            "guide/",
+            &mut unresolved,
+        );
 
         assert_eq!(
             output,
@@ -1329,8 +1310,14 @@ mod tests {
             "<autoref identifier=\"Foo bar\" slug=\"foo-bar\">Foo bar</autoref>",
         );
 
-        let (output, unresolved) =
-            autorefs.replace_in(content, &references, "guide/");
+        let mut unresolved = UnresolvedAutorefs::default();
+
+        let output = autorefs.replace_slots(
+            content,
+            &references,
+            "guide/",
+            &mut unresolved,
+        );
 
         assert_eq!(
             output,

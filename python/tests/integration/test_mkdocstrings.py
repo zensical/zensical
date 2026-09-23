@@ -119,7 +119,13 @@ def test_backlinks_across_cold_cached_and_changed_builds(
     docs.mkdir()
     overrides = tmp_path / "overrides"
     overrides.mkdir()
-    (overrides / "main.html").write_text("{{ page.content }}", encoding="utf-8")
+    # The final HTML pass must resolve template references alongside the
+    # backlink placeholders produced by the handler in the page content.
+    (overrides / "main.html").write_text(
+        "{{ page.content }}"
+        "<autoref identifier='sample.Target'>Template reference</autoref>",
+        encoding="utf-8",
+    )
     (tmp_path / "sample.py").write_text(
         'class Target:\n    """A documented target."""\n', encoding="utf-8"
     )
@@ -193,6 +199,8 @@ def test_backlinks_across_cold_cached_and_changed_builds(
     api = tmp_path / "site" / "api" / "index.html"
     first = api.read_text(encoding="utf-8")
     assert "<backlinks" not in first
+    assert "<autoref" not in first
+    assert 'href="./#sample.Target">Template reference</a>' in first
     assert "zensical:autoref" not in first
     if backlinks:
         assert 'class="doc doc-backlinks"' in first
@@ -222,3 +230,84 @@ def test_backlinks_across_cold_cached_and_changed_builds(
     else:
         assert updated == first
         assert not (tmp_path / ".cache" / "mkdocstrings").exists()
+
+
+@pytest.mark.parametrize("in_template", [False, True])
+def test_backlinks_inside_autoref_titles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, in_template: bool
+) -> None:
+    """Nested backlinks survive Markdown caching and template parsing."""
+    pytest.importorskip("mkdocstrings_handlers.python")
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    overrides = tmp_path / "overrides"
+    overrides.mkdir()
+
+    nested = (
+        '<autoref identifier="sample.Target">Template '
+        '<backlinks identifier="sample.Target" handler="python" />'
+        '</autoref>'
+    )
+    (overrides / "main.html").write_text(
+        "{{ page.content }}" + (nested if in_template else ""),
+        encoding="utf-8",
+    )
+    (tmp_path / "sample.py").write_text(
+        'class Target:\n    """A documented target."""\n', encoding="utf-8"
+    )
+    (docs / "api.md").write_text(
+        "# API\n\n::: sample.Target\n\n" + ("" if in_template else nested),
+        encoding="utf-8",
+    )
+    (docs / "guide.md").write_text(
+        "# Guide\n\n[Target][sample.Target]\n", encoding="utf-8"
+    )
+    config = tmp_path / "mkdocs.yml"
+    config.write_text(
+        safe_dump(
+            {
+                "site_name": "Nested replacements",
+                "theme": {"custom_dir": "overrides"},
+                "plugins": {
+                    "mkdocstrings": {
+                        "handlers": {
+                            "python": {
+                                "paths": ["."],
+                                "options": {
+                                    "backlinks": "flat",
+                                    "show_root_heading": True,
+                                },
+                            },
+                        },
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    # Use an inline fragment so the nested result is valid content for a link.
+    fragment = '<span class="backlink-test">Linked from Guide</span>'
+    monkeypatch.setattr(mkdocstrings, "render_backlinks", lambda *_: fragment)
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    api = tmp_path / "site" / "api" / "index.html"
+    output = api.read_text(encoding="utf-8")
+    assert f">Template {fragment}</a>" in output
+    assert "<backlinks" not in output
+    assert "<autoref" not in output
+    assert "zensical:autoref" not in output
+
+    def unexpected_backlink_work(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("The warm build must use cached backlinks")
+
+    # Cached fragments must also be retained inside a reference title.
+    monkeypatch.setattr(mkdocstrings, "_get_handlers", unexpected_backlink_work)
+    monkeypatch.setattr(
+        mkdocstrings, "render_backlinks", unexpected_backlink_work
+    )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    assert api.read_text(encoding="utf-8") == output

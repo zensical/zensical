@@ -27,21 +27,24 @@
 
 use pyo3::types::PyAnyMethods;
 use pyo3::Python;
-use regex::Regex;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
-use std::sync::LazyLock;
 
 use zrx::id::Id;
 use zrx::stream::Signal;
 
+use crate::compat::mkdocs::html::Editor;
 use crate::compat::mkdocs::plugin::autorefs::Registry;
 use crate::config::Config;
 use crate::path::{OutputRoot, SitePath};
 use crate::structure::nav::Navigation;
+
+mod backlinks;
+
+pub use backlinks::Parser;
 
 // ----------------------------------------------------------------------------
 // Constants
@@ -52,12 +55,6 @@ const EXTENSION_NAME: &str = "zensical.extensions.mkdocstrings";
 
 /// Version of cached backlink page data.
 const BACKLINK_CACHE_VERSION: u8 = 3;
-
-/// Mkdocstrings backlink placeholders emitted by handler templates.
-static BACKLINKS_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"<backlinks\s+identifier="([^"]+)"\s+handler="([^"]+)"\s*/?>"#)
-        .expect("invariant")
-});
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -208,73 +205,55 @@ impl Mkdocstrings {
         });
     }
 
-    /// Replaces handler backlink placeholders in one fully rendered page.
-    pub fn replace_backlinks(
-        &self, content: String, autorefs: &Registry, from_url: &str,
-    ) -> anyhow::Result<String> {
+    /// Creates a visitor when handler backlink rendering is enabled.
+    pub fn parser(&self) -> Option<Parser> {
+        self.backlink_cache.as_ref().map(|_| Parser::default())
+    }
+
+    /// Adds rendered backlinks to the shared HTML edits after collection.
+    pub fn apply_backlinks(
+        &self, parser: Parser, editor: &mut Editor<'_>, autorefs: &Registry,
+        from_url: &str,
+    ) -> anyhow::Result<()> {
         let Some(cache) = &self.backlink_cache else {
-            return Ok(content);
+            return Ok(());
         };
-        if !content.contains("<backlinks") {
-            return Ok(content);
-        }
-
-        let captures = BACKLINKS_RE.captures_iter(&content).collect::<Vec<_>>();
-        let descriptors = captures
-            .iter()
-            .map(|captures| {
-                (
-                    captures.get(2).expect("handler").as_str(),
-                    captures.get(1).expect("identifier").as_str(),
+        parser.render(editor, |descriptors| {
+            let compute = || {
+                let aliases = cache.get_or_compute(
+                    "aliases",
+                    from_url,
+                    descriptors,
+                    || {
+                        descriptors
+                            .iter()
+                            .map(|(handler, identifier)| {
+                                Self::get_backlink_aliases(handler, identifier)
+                            })
+                            .collect::<anyhow::Result<Vec<_>>>()
+                    },
+                )?;
+                descriptors
+                    .iter()
+                    .zip(aliases)
+                    .map(|((handler, identifier), aliases)| {
+                        Self::render_backlink_placeholder(
+                            autorefs, from_url, handler, identifier, aliases,
+                        )
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()
+            };
+            if let Some(revision) = autorefs.backlink_revision() {
+                cache.get_or_compute(
+                    "resolved",
+                    from_url,
+                    &(revision, descriptors),
+                    compute,
                 )
-            })
-            .collect::<Vec<_>>();
-        let revision = autorefs.backlink_revision();
-        let compute = || {
-            let aliases = cache.get_or_compute(
-                "aliases",
-                from_url,
-                &descriptors,
-                || {
-                    descriptors
-                        .iter()
-                        .map(|(handler, identifier)| {
-                            Self::get_backlink_aliases(handler, identifier)
-                        })
-                        .collect::<anyhow::Result<Vec<_>>>()
-                },
-            )?;
-            descriptors
-                .iter()
-                .zip(aliases)
-                .map(|((handler, identifier), aliases)| {
-                    Self::render_backlink_placeholder(
-                        autorefs, from_url, handler, identifier, aliases,
-                    )
-                })
-                .collect::<anyhow::Result<Vec<_>>>()
-        };
-        let rendered = if let Some(revision) = revision {
-            cache.get_or_compute(
-                "resolved",
-                from_url,
-                &(revision, &descriptors),
-                compute,
-            )?
-        } else {
-            compute()?
-        };
-
-        let mut output = String::with_capacity(content.len());
-        let mut cursor = 0;
-        for (captures, rendered) in captures.iter().zip(rendered) {
-            let matched = captures.get(0).expect("complete regex match");
-            output.push_str(&content[cursor..matched.start()]);
-            output.push_str(&rendered);
-            cursor = matched.end();
-        }
-        output.push_str(&content[cursor..]);
-        Ok(output)
+            } else {
+                compute()
+            }
+        })
     }
 
     /// Computes one backlink placeholder from the settled autorefs index.

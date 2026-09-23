@@ -98,6 +98,63 @@ impl Settings {
 // Functions
 // ----------------------------------------------------------------------------
 
+/// Resolves template references and backlink placeholders in one HTML pass.
+pub fn finalize(
+    content: String, references: &autorefs::References,
+    registry: &autorefs::Registry, mkdocstrings: &mkdocstrings::Mkdocstrings,
+    from_url: &str,
+) -> anyhow::Result<(String, autorefs::UnresolvedAutorefs)> {
+    let mut unresolved = autorefs::UnresolvedAutorefs::default();
+
+    // Cached Markdown slots must be expanded before collecting new template
+    // slots, since the two reference collections have separate slot indices.
+    let mut content =
+        registry.replace_slots(content, references, from_url, &mut unresolved);
+    let mut autorefs = registry.parser();
+    let mut backlinks = mkdocstrings.parser();
+    let mut visitors = Vec::<&mut dyn Visitor>::new();
+    if let Some(parser) = &mut autorefs {
+        visitors.push(parser);
+    }
+    if let Some(parser) = &mut backlinks {
+        visitors.push(parser);
+    }
+    if visitors.is_empty() {
+        return Ok((content, unresolved));
+    }
+
+    // Both visitors observe the same source spans. Backlinks need the complete
+    // descriptor list for caching, so add their edits after tokenization and
+    // apply all edits together before resolving the collected template slots.
+    let mut editor = html::Editor::scan(&content, &mut visitors);
+    if let Some(parser) = backlinks {
+        mkdocstrings.apply_backlinks(
+            parser,
+            &mut editor,
+            registry,
+            from_url,
+        )?;
+    }
+    if let Some(parser) = &mut autorefs {
+        // The outer autoref becomes a slot, so retain nested backlink edits in
+        // its title before the shared editor discards those contained edits.
+        parser.apply_title_edits(&mut editor);
+    }
+    if let Some(prepared) = editor.finish() {
+        content = prepared;
+    }
+    if let Some(parser) = autorefs {
+        let (references, _) = parser.finish();
+        content = registry.replace_slots(
+            content,
+            &references,
+            from_url,
+            &mut unresolved,
+        );
+    }
+    Ok((content, unresolved))
+}
+
 /// Runs enabled MkDocs-compatible visitors in one page-local HTML pass.
 pub fn prepare(
     markdown: &mut Markdown, source: &SourcePath, url: &str,
