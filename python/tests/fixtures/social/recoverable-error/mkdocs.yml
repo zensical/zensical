@@ -1,0 +1,10 @@
+site_name: Recoverable social error
+site_url: https://example.test/docs/
+site_dir: site
+theme: { name: material }
+plugins:
+  - social:
+      cache: false
+      cards_layout: missing-image
+      log: true
+      log_level: ignore

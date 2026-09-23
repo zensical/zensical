@@ -535,10 +535,12 @@ fn typography_svg(
     let height = size + line_height * additional;
     let (anchor, x) =
         horizontal(&typography.align, f64::from(layer.size.width));
-    // Pillow's ascender anchor positions glyphs below the top of the line box.
-    // SVG's hanging baseline starts at the glyphs, so account for that inset.
-    let y = vertical(&typography.align, f64::from(layer.size.height), height)
-        + size * 0.2;
+    let y = vertical(
+        &typography.align,
+        f64::from(layer.size.height),
+        height,
+        size,
+    );
     let attributes = font_attributes(&typography.font);
     let mut spans = String::new();
     for (index, line) in lines.iter().enumerate() {
@@ -682,16 +684,19 @@ fn horizontal(align: &str, width: f64) -> (&'static str, f64) {
     }
 }
 
-fn vertical(align: &str, height: f64, text_height: f64) -> f64 {
+fn vertical(align: &str, height: f64, text_height: f64, size: f64) -> f64 {
     let words = align.split_whitespace().collect::<Vec<_>>();
+    // Pillow's ascender, middle, and descender anchors have different glyph
+    // insets from SVG's hanging baseline. Resolve the vertical axis once so
+    // horizontal "center" never overrides an explicit "top" or "bottom".
     if words.contains(&"top") {
-        0.0
+        size * 0.2
     } else if words.contains(&"bottom") {
-        height - text_height
+        height - text_height - size * 0.05
     } else if words.contains(&"center") {
-        (height - text_height) / 2.0
+        (height - text_height) / 2.0 + size * 0.1
     } else {
-        0.0
+        size * 0.2
     }
 }
 
@@ -863,14 +868,22 @@ mod tests {
 
     use super::{
         balance_two_lines, colorize_icon, debug_svg, environment,
-        font_attributes, layer_svg, offset, render_svg, render_template, Font,
-        Layer, Layout,
+        font_attributes, layer_svg, offset, render_svg, render_template,
+        vertical, Font, Layer, Layout,
     };
     #[test]
     fn balances_two_lines_by_moving_one_word() {
         let mut lines = vec!["one two three".into(), "four".into()];
         balance_two_lines(&mut lines);
         assert_eq!(lines, ["one two", "three four"]);
+    }
+
+    #[test]
+    fn vertical_anchor_preserves_material_axis_precedence() {
+        assert_eq!(vertical("center top", 100.0, 30.0, 20.0), 4.0);
+        assert_eq!(vertical("center bottom", 100.0, 30.0, 20.0), 69.0);
+        assert_eq!(vertical("end center", 100.0, 30.0, 20.0), 37.0);
+        assert_eq!(vertical("start", 100.0, 30.0, 20.0), 4.0);
     }
 
     #[test]

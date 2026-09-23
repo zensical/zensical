@@ -1,0 +1,7 @@
+site_name: Disabled social plugin
+site_url: https://example.test/docs/
+site_dir: site
+theme: { name: material }
+plugins:
+  - social:
+      enabled: false
