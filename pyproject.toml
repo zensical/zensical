@@ -76,6 +76,7 @@ dev = [
     "maturin>=1.10.2",
     "mkdocstrings[python]>=1.0.6",
     "pandas>=2.3.3",
+    "pillow>=11.3.0",
     "pytest>=9.0.3",
     "ruff>=0.12.8",
     "tabulate>=0.10.0",

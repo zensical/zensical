@@ -1,0 +1,10 @@
+site_name: Social image only
+site_url: https://example.test/docs/
+site_dir: site
+theme: { name: material }
+plugins:
+  - social:
+      cache: false
+      cards_layout: default/only/image
+      cards_layout_options:
+        background_image: docs/background.svg

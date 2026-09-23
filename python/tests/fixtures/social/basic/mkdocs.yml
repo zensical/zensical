@@ -1,0 +1,10 @@
+site_name: Social parity
+site_description: A small parity site.
+site_url: https://example.test/docs/
+site_dir: site
+theme:
+  name: material
+plugins:
+  - social:
+      cache: false
+      cards_layout: flat

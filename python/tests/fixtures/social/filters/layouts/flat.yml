@@ -1,0 +1,5 @@
+tags:
+  og:image: '{{ image.url }}'
+size: { width: 320, height: 168 }
+layers:
+  - background: { color: '#abcdef' }

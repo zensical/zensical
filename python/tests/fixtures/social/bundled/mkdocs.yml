@@ -1,0 +1,19 @@
+site_name: Bundled cards
+site_description: A site description for cards.
+site_url: https://example.test/docs/
+site_dir: site
+theme:
+  name: material
+  palette:
+    primary: deep purple
+  font:
+    text: Roboto
+plugins:
+  - social:
+      cache: false
+      cache_dir: social-cache
+      cards_layout: default
+      cards_layout_options:
+        background_color: '#4c1d95'
+        color: '#ffffff'
+        font_family: Roboto

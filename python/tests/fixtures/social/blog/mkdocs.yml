@@ -1,0 +1,9 @@
+site_name: Social blog
+site_url: https://example.test/docs/
+site_dir: site
+theme: { name: material }
+plugins:
+  - blog
+  - social:
+      cache: false
+      cards_layout: flat
