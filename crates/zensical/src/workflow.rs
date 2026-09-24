@@ -25,9 +25,10 @@
 
 //! Workflow definitions.
 
+use percent_encoding::percent_decode_str;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Deref;
@@ -229,6 +230,19 @@ struct RenderedPage {
 
 impl Value for RenderedPage {}
 
+/// A source page's ordinary route and its configured published route.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RoutedLink {
+    /// Route produced by ordinary Markdown source link resolution.
+    source: String,
+    /// Decoded spelling used by unescaped Markdown source links.
+    decoded: String,
+    /// Route where the page is actually published.
+    published: String,
+}
+
+impl Value for RoutedLink {}
+
 // ----------------------------------------------------------------------------
 
 // ----------------------------------------------------------------------------
@@ -237,6 +251,7 @@ impl Value for RenderedPage {}
 
 impl Main {
     /// Initializes the module.
+    #[allow(clippy::too_many_lines)]
     fn setup(&self, ctx: &mut Builder<Id>) {
         let files = ctx.input::<Input>();
         let configuration = ctx.input::<Configuration>();
@@ -316,6 +331,11 @@ impl Main {
         // once the complete navigation is available.
         let rendered_page = apply_navigation_titles(&provisional, &resolution);
         let rendered_page = apply_blog(&rendered_page, &blog_patches);
+        let rendered_page = if blogs.is_empty() {
+            rendered_page
+        } else {
+            apply_routed_links(&self.config, &rendered_page, &markdown)
+        };
         let rendered_page = apply_tags(&plugins.tags, &rendered_page);
         let page =
             rendered_page.map(|rendered: &RenderedPage| rendered.page.clone());
@@ -386,6 +406,65 @@ fn apply_blog(
                 rendered
                     .page
                     .merge_template_variables(patch.variables.clone());
+            }
+            rendered
+        },
+    )
+}
+
+/// Resolve source-file links after all pages have their published routes.
+fn apply_routed_links(
+    config: &Config, pages: &Stream<Id, RenderedPage>,
+    routed: &Stream<Id, PageDescriptor>,
+) -> Stream<Id, RenderedPage> {
+    let config = config.clone();
+    let relocations = routed.filter_map(move |descriptor: &PageDescriptor| {
+        if !matches!(&descriptor.origin, PageOrigin::Source(_)) {
+            return Ok(None);
+        }
+        let source = PageRoute::from_source(
+            &config,
+            descriptor.document.source.clone(),
+        )?
+        .url;
+        let published = descriptor.route.url.clone();
+        let decoded =
+            percent_decode_str(&source).decode_utf8_lossy().into_owned();
+        Ok::<_, PathError>((source != published).then_some(RoutedLink {
+            source,
+            decoded,
+            published,
+        }))
+    });
+    let selected = relocations.select(pages, |rendered| {
+        let targets =
+            html::local_targets(&rendered.page.content, &rendered.page.url);
+        move |route: &RoutedLink| {
+            targets.contains(&route.source) || targets.contains(&route.decoded)
+        }
+    });
+    (pages.clone(), selected).join().map(
+        |(rendered, routes): &(RenderedPage, Vec<(Key<Id>, RoutedLink)>)| {
+            let mut rendered = rendered.clone();
+            let mut mappings = HashMap::new();
+            for (_, route) in routes {
+                mappings
+                    .entry(route.decoded.clone())
+                    .or_insert_with(|| route.published.clone());
+            }
+            for (_, route) in routes {
+                mappings.insert(route.source.clone(), route.published.clone());
+            }
+            if let Some(content) = html::rewrite_urls(
+                &rendered.page.content,
+                &rendered.page.url,
+                &mappings,
+            ) {
+                rendered.page.apply_derived(
+                    Some(content),
+                    None,
+                    BTreeMap::new(),
+                );
             }
             rendered
         },

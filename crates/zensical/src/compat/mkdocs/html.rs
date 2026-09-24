@@ -27,7 +27,7 @@
 
 use html5gum::emitters::callback::{CallbackEmitter, CallbackEvent};
 use html5gum::{Span, Tokenizer};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::ops::Range;
 
@@ -80,6 +80,16 @@ struct RewriteUrls<'a> {
     mappings: &'a HashMap<String, String>,
     /// Whether the tokenizer is currently reading a rewritable attribute.
     attribute: bool,
+}
+
+/// Collects local URLs addressed by rendered page content.
+struct LocalTargets<'a> {
+    /// Route against which relative URLs are resolved.
+    base: &'a str,
+    /// Whether the tokenizer is reading a local link or media target.
+    attribute: bool,
+    /// Resolved URLs without query parameters or fragments.
+    targets: HashSet<String>,
 }
 
 /// One replacement in the original HTML input.
@@ -294,6 +304,28 @@ impl Visitor for RewriteUrls<'_> {
     }
 }
 
+impl Visitor for LocalTargets<'_> {
+    fn visit(
+        &mut self, event: &CallbackEvent<'_>, _span: Span<usize>,
+        _editor: &mut Editor<'_>,
+    ) {
+        match event {
+            CallbackEvent::OpenStartTag { .. } => self.attribute = false,
+            CallbackEvent::AttributeName { name } => {
+                self.attribute = matches!(*name, b"href" | b"src");
+            }
+            CallbackEvent::AttributeValue { value } if self.attribute => {
+                let value = String::from_utf8_lossy(value);
+                if let Some(target) = url::resolve(self.base, &value) {
+                    let end = target.find(['?', '#']).unwrap_or(target.len());
+                    self.targets.insert(target[..end].to_owned());
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Functions
 // ----------------------------------------------------------------------------
@@ -364,6 +396,17 @@ pub fn rewrite_urls(
         attribute: false,
     };
     scan(input, &mut [&mut visitor])
+}
+
+/// Returns the local URL paths referenced by a page's rendered HTML.
+pub fn local_targets(input: &str, base: &str) -> HashSet<String> {
+    let mut visitor = LocalTargets {
+        base,
+        attribute: false,
+        targets: HashSet::new(),
+    };
+    scan(input, &mut [&mut visitor]);
+    visitor.targets
 }
 
 /// Returns whether a byte is HTML whitespace.
