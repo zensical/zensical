@@ -65,9 +65,17 @@ pub fn closest(from: &str, urls: &[String], _qualifier: &str) -> String {
     }
 }
 
-/// Returns whether a URL has no HTTP(S) scheme.
+/// Returns whether a URL has neither a scheme nor a network location.
 pub fn is_relative(url: &str) -> bool {
-    !(url.starts_with("http://") || url.starts_with("https://"))
+    if url.starts_with("//") {
+        return false;
+    }
+    !url.split_once(':').is_some_and(|(scheme, _)| {
+        scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+            && scheme.chars().all(|c| {
+                c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')
+            })
+    })
 }
 
 /// Returns whether one URL path begins with another at a component boundary.
@@ -103,8 +111,24 @@ fn parent(url: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::closest;
+    use super::{closest, is_relative};
     use crate::compat::mkdocs::url::relative;
+
+    #[test]
+    fn distinguishes_external_url_forms() {
+        for url in [
+            "https://example.com/",
+            "//example.com/",
+            "mailto:a@b.c",
+            "ftp://example.com/",
+        ] {
+            assert!(!is_relative(url), "{url}");
+        }
+        for url in ["page/", "../page/", "#item", "page/#pkg:thing", "page/a:b"]
+        {
+            assert!(is_relative(url), "{url}");
+        }
+    }
 
     #[test]
     fn resolves_the_closest_url() {

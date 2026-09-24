@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from io import StringIO
 from typing import TYPE_CHECKING
@@ -34,11 +35,13 @@ from jinja2.exceptions import (
     TemplateSyntaxError,
     UndefinedError,
 )
+from markdown import Markdown
 
 from tests.unit.extensions.conftest import soup
 from zensical.extensions.context import ContextPreprocessor
 from zensical.extensions.macros import (
     MacroEnv,
+    MacrosExtension,
     _fix_url,
     _load_module,
     _load_one_yaml,
@@ -55,7 +58,6 @@ from zensical.extensions.table_reader import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from markdown import Markdown
     from pandas import DataFrame
 
 
@@ -126,6 +128,18 @@ class TestFilters:
 
 
 class TestMacroEnv:
+    @pytest.mark.parametrize("verbose", [False, True])
+    def test_chatter_respects_verbose(
+        self, caplog: pytest.LogCaptureFixture, verbose: bool
+    ) -> None:
+        env = MacroEnv(verbose=verbose)
+        chatter = env.start_chatting("Example", color="cyan")
+        with caplog.at_level(logging.INFO, logger="zensical.extensions.macros"):
+            chatter("Count:", 2)
+        assert caplog.messages == (
+            ["[macros - Example] - Count: 2"] if verbose else []
+        )
+
     def test_conf_is_stored(self) -> None:
         conf = {"site_name": "My Site", "docs_dir": "/docs"}
         env = MacroEnv(conf=conf)
@@ -269,6 +283,118 @@ class TestLoadModule:
 
 class TestPreprocessor:
     @pytest.mark.parametrize(
+        "md",
+        [
+            {
+                "config": {
+                    "markdown_extensions": {
+                        "zensical.extensions.macros": {
+                            "render_by_default": False,
+                            "force_render_paths": (
+                                "# Selected pages\n\n"
+                                "guides/\n!guides/drafts/\nguides/drafts/keep.md\n"
+                                "/only.md\nrender_*.md\n\\#literal.md\n\\!literal.md"
+                            ),
+                        }
+                    }
+                }
+            }
+        ],
+        indirect=True,
+    )
+    @pytest.mark.parametrize(
+        ("path", "override", "rendered"),
+        [
+            ("guides/index.md", None, True),
+            (os.path.join("guides", "nested", "page.md"), None, True),
+            ("guides/café.md", None, True),
+            ("guides/drafts/page.md", None, False),
+            ("guides/drafts/keep.md", None, True),
+            ("guides/disabled.md", False, False),
+            ("guides/drafts/keep.md", False, False),
+            ("outside.md", True, True),
+            ("outside.md", None, False),
+            ("guides.md", None, False),
+            ("only.md", None, True),
+            ("nested/only.md", None, False),
+            ("nested/render_example.md", None, True),
+            ("#literal.md", None, True),
+            ("!literal.md", None, True),
+        ],
+    )
+    def test_force_render_paths_respects_page_overrides(
+        self, md: Markdown, path: str, override: bool | None, rendered: bool
+    ) -> None:
+        context = ContextPreprocessor.from_markdown(md)
+        assert context is not None
+        context.page.path = path
+        if override is not None:
+            context.page.meta["render_macros"] = override
+
+        html = soup(md.convert("Value: {{ 1 + 1 }}"))
+        assert html.get_text() == (
+            "Value: 2" if rendered else "Value: {{ 1 + 1 }}"
+        )
+
+    def test_force_render_paths_does_not_require_page_context(self) -> None:
+        md = Markdown(
+            extensions=[
+                MacrosExtension(
+                    render_by_default=False, force_render_paths="**"
+                )
+            ]
+        )
+        assert md.convert("Value: {{ 1 + 1 }}") == "<p>Value: {{ 1 + 1 }}</p>"
+
+    @pytest.mark.parametrize("verbose", [False, True])
+    @pytest.mark.parametrize(
+        "md",
+        [
+            {
+                "config": {
+                    "markdown_extensions": {
+                        "zensical.extensions.macros": {"on_error_fail": True}
+                    }
+                }
+            }
+        ],
+        indirect=True,
+    )
+    def test_verbose_traces_module_loading_and_rendering(
+        self,
+        md: Markdown,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        verbose: bool,
+    ) -> None:
+        md.preprocessors["macros"].config.verbose = verbose
+        (tmp_path / "main.py").write_text(
+            "def define_env(env):\n"
+            '    chatter = env.start_chatting("Example")\n'
+            '    chatter("Registered macros")\n'
+            "    @env.macro\n"
+            "    def greet(name):\n"
+            '        chatter("Greeting:", name)\n'
+            '        return "Hello " + name\n',
+            encoding="utf-8",
+        )
+        with caplog.at_level(logging.INFO, logger="zensical.extensions.macros"):
+            html = md.convert('{{ greet("World") }}')
+        assert "Hello World" in html
+        if verbose:
+            assert (
+                "[macros - render] - Rendering page: index.md"
+                in caplog.messages
+            )
+            assert any(
+                "Loading local module:" in line for line in caplog.messages
+            )
+            assert "[macros - Example] - Registered macros" in caplog.messages
+            assert "[macros - Example] - Greeting: World" in caplog.messages
+        else:
+            assert caplog.messages == []
+
+    @pytest.mark.parametrize(
         ("md", "expected_text"),
         [
             pytest.param(
@@ -289,7 +415,8 @@ class TestPreprocessor:
                     "config": {
                         "markdown_extensions": {
                             "zensical.extensions.macros": {
-                                "render_by_default": True
+                                "render_by_default": True,
+                                "force_render_paths": "!**",
                             },
                         },
                     }

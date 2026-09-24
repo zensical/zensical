@@ -26,12 +26,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from zensical.extensions.autorefs import get_autorefs_store
 
 if TYPE_CHECKING:
-    from mkdocstrings import (  # ty:ignore[unresolved-import]
+    from mkdocstrings import (
         Handlers,
         MkdocstringsExtension,
     )
@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 
 
 HANDLERS: Handlers | None = None
+_ENABLE_INVENTORY: bool | None = None
 
 
 # ----------------------------------------------------------------------------
@@ -87,16 +88,18 @@ def _get_handlers(
     handlers: dict[str, Any] | None = None,
     *,
     custom_templates: str | None = None,
+    enable_inventory: bool | None = None,
     default_handler: str = "python",
     locale: str = "en",
     config: dict[str, Any],
 ) -> Handlers:
     """Create or return the handlers shared by the current build."""
-    from mkdocstrings import (  # noqa: PLC0415  # ty:ignore[unresolved-import]
+    from mkdocstrings import (  # noqa: PLC0415
         Handlers,
     )
 
-    global HANDLERS  # noqa: PLW0603
+    global HANDLERS, _ENABLE_INVENTORY  # noqa: PLW0603
+    _ENABLE_INVENTORY = enable_inventory
     if HANDLERS is None:
         root_dir = Path(config["root_dir"])
         config_file = root_dir / "zensical.toml"
@@ -135,7 +138,6 @@ def _ensure_handlers() -> Handlers | None:
         return None
     options = dict(options)
     options.pop("enabled", None)
-    options.pop("enable_inventory", None)
     return _get_handlers(**options, config=config)
 
 
@@ -157,13 +159,13 @@ def get_mkdocstrings_extension(
     handlers: dict[str, Any] | None = None,
     *,
     custom_templates: str | None = None,
-    enable_inventory: bool = True,  # noqa: ARG001
+    enable_inventory: bool | None = None,
     default_handler: str = "python",
     locale: str = "en",
     config: dict[str, Any],
 ) -> MkdocstringsExtension:
     """Create the mkdocstrings Markdown extension."""
-    from mkdocstrings import (  # noqa: PLC0415  # ty:ignore[unresolved-import]
+    from mkdocstrings import (  # noqa: PLC0415
         MkdocstringsExtension,
     )
 
@@ -172,13 +174,15 @@ def get_mkdocstrings_extension(
     handlers_instance = _get_handlers(
         handlers,
         custom_templates=custom_templates,
+        enable_inventory=enable_inventory,
         default_handler=default_handler,
         locale=locale,
         config=config,
     )
+    # Upstream annotates this as its full plugin; our store supplies the
+    # compatible anchor-registration interface used by the extension.
     return MkdocstringsExtension(
-        handlers=handlers_instance,
-        autorefs=autorefs,
+        handlers=handlers_instance, autorefs=cast("Any", autorefs)
     )
 
 
@@ -188,7 +192,7 @@ def get_inventory(cached: bytes | None) -> bytes:
         return cached or b""
 
     try:
-        from mkdocstrings import (  # noqa: PLC0415  # ty:ignore[unresolved-import]
+        from mkdocstrings import (  # noqa: PLC0415
             Inventory,
         )
     except ImportError:
@@ -232,18 +236,22 @@ def render_backlinks(
 
     from inspect import signature  # noqa: PLC0415
 
-    from mkdocs_autorefs import (  # noqa: PLC0415  # ty:ignore[unresolved-import]
+    from mkdocs_autorefs import (  # noqa: PLC0415
         Backlink,
     )
 
     # Rust already returns these paths sorted and deduplicated. Preserve that
     # order instead of introducing Python's process-random set order again.
+    # Our crumbs supply the title and URL fields expected by the handler.
     data = {
         backlink_type: tuple(
             Backlink(
-                tuple(
-                    _SortableBacklinkCrumb(title=title, url=url)
-                    for title, url in crumbs
+                cast(
+                    "Any",
+                    tuple(
+                        _SortableBacklinkCrumb(title=title, url=url)
+                        for title, url in crumbs
+                    ),
                 )
             )
             for crumbs in backlink_list
@@ -256,7 +264,39 @@ def render_backlinks(
     return handler.render_backlinks(data, **kwargs)
 
 
+def get_inventory_policy(cached_auto_enabled: bool) -> tuple[bool, bool]:
+    """Decide whether to write `objects.inv`.
+
+    Return two booleans: whether to write the file, and whether any handler
+    enables it by default.
+
+    We remember the second value for cached pages, whose handlers may not run
+    again. We reuse it only if the project configuration has not changed.
+    """
+    from zensical.config import get_config  # noqa: PLC0415
+
+    config = get_config()
+    plugin = config.get("plugins", {}).get("mkdocstrings", {}).get("config", {})
+    options = config.get("mdx_configs", {}).get(
+        "zensical.extensions.mkdocstrings", plugin
+    )
+    auto_enabled = cached_auto_enabled or (
+        HANDLERS is not None
+        and any(handler.enable_inventory for handler in HANDLERS.seen_handlers)
+    )
+    setting = (
+        _ENABLE_INVENTORY
+        if HANDLERS is not None
+        else options.get("enable_inventory")
+    )
+    enabled = options.get("enabled", True) and (
+        auto_enabled if setting is None else setting
+    )
+    return enabled, auto_enabled
+
+
 def reset() -> None:
     """Reset global state in-between rebuilds."""
-    global HANDLERS  # noqa: PLW0603
+    global HANDLERS, _ENABLE_INVENTORY  # noqa: PLW0603
     HANDLERS = None
+    _ENABLE_INVENTORY = None

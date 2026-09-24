@@ -30,6 +30,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -154,6 +156,64 @@ def test_build_with_config_in_watch(
 
     # A successful exit must also produce the documentation page.
     assert (tmp_path / "site" / "index.html").is_file()
+
+
+@pytest.mark.parametrize("config_format", ["yaml", "toml"])
+@pytest.mark.parametrize(
+    ("enabled", "version_selector", "expected"),
+    [
+        (None, None, True),
+        (None, True, True),
+        (None, False, False),
+        (True, False, False),
+        (False, False, True),
+    ],
+)
+def test_mike_version_selector_controls_theme_configuration(
+    tmp_path: Path,
+    config_format: str,
+    enabled: bool | None,
+    version_selector: bool | None,
+    expected: bool,
+) -> None:
+    # Only an active mike plugin can disable the theme's version selector.
+    value = "" if version_selector is None else str(version_selector).lower()
+    if config_format == "yaml":
+        mike = (
+            "  mike: {}"
+            if not value
+            else f"  mike:\n    version_selector: {value}"
+        )
+        if enabled is not None:
+            mike += f"\n    enabled: {str(enabled).lower()}"
+        config = _make_yml_project(
+            tmp_path,
+            yml_extra=(
+                f"extra:\n  version:\n    provider: mike\nplugins:\n{mike}"
+            ),
+        )
+    else:
+        option = "" if not value else f"\nversion_selector = {value}"
+        if enabled is not None:
+            option += f"\nenabled = {str(enabled).lower()}"
+        config = _make_toml_project(
+            tmp_path,
+            toml_extra=(
+                '[project.extra.version]\nprovider = "mike"\n'
+                f"[project.plugins.mike]{option}"
+            ),
+        )
+
+    _build(config)
+
+    html = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    match = re.search(
+        r'<script id="__config" type="application/json">(.*?)</script>', html
+    )
+    assert match is not None
+    settings = json.loads(match.group(1))
+    expected_version = {"provider": "mike"} if expected else None
+    assert settings["version"] == expected_version
 
 
 def test_navigation_title_precedes_metadata_and_heading(tmp_path: Path) -> None:

@@ -26,9 +26,12 @@
 from __future__ import annotations
 
 import builtins
+from io import BytesIO
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from mkdocstrings import Inventory
+from mkdocstrings_handlers.python import PythonHandler
 from yaml import safe_dump
 
 import zensical
@@ -107,11 +110,13 @@ def test_autorefs_without_backlinks_does_not_load_handlers(
 
 @pytest.mark.parametrize("backlinks", [None, False, "flat", "tree"])
 @pytest.mark.parametrize("blog", [False, True])
+@pytest.mark.parametrize("enable_inventory", [False, True, None])
 def test_backlinks_across_cold_cached_and_changed_builds(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     backlinks: str | bool | None,
     blog: bool,
+    enable_inventory: bool | None,
 ) -> None:
     """Backlinks are opt-in and refresh when only a referring page changes."""
     pytest.importorskip("mkdocstrings_handlers.python")
@@ -159,6 +164,7 @@ def test_backlinks_across_cold_cached_and_changed_builds(
         handler_options["backlinks"] = backlinks
     plugins: dict[str, dict[str, Any]] = {
         "mkdocstrings": {
+            "enable_inventory": enable_inventory,
             "handlers": {
                 "python": {"paths": ["."], "options": handler_options}
             },
@@ -197,6 +203,8 @@ def test_backlinks_across_cold_cached_and_changed_builds(
     zensical.build(str(config), _BUILD_OPTIONS)
 
     api = tmp_path / "site" / "api" / "index.html"
+    inventory = tmp_path / "site" / "objects.inv"
+    assert inventory.exists() is (enable_inventory is not False)
     first = api.read_text(encoding="utf-8")
     assert "<backlinks" not in first
     assert "<autoref" not in first
@@ -215,6 +223,7 @@ def test_backlinks_across_cold_cached_and_changed_builds(
         zensical.build(str(config), _BUILD_OPTIONS)
 
     assert api.read_text(encoding="utf-8") == first
+    assert inventory.exists() is (enable_inventory is not False)
 
     # Keep the API page cached while changing the backlink title and anchor.
     guide.write_text(
@@ -224,6 +233,7 @@ def test_backlinks_across_cold_cached_and_changed_builds(
     zensical.build(str(config), _BUILD_OPTIONS)
 
     updated = api.read_text(encoding="utf-8")
+    assert inventory.exists() is (enable_inventory is not False)
     if backlinks:
         assert f"{guide_url}#updated" in updated
         assert f"{guide_url}#example" not in updated
@@ -311,3 +321,123 @@ def test_backlinks_inside_autoref_titles(
     zensical.build(str(config), _BUILD_OPTIONS)
 
     assert api.read_text(encoding="utf-8") == output
+
+
+def _write_project(root: Path, options: dict[str, Any]) -> Path:
+    docs = root / "docs"
+    docs.mkdir(exist_ok=True)
+    if not (docs / "index.md").exists():
+        (docs / "index.md").write_text(
+            "# API\n\n::: sample_api.greet\n\n"
+            "[Greeting function][sample_api.greet]\n",
+            encoding="utf-8",
+        )
+        (docs / "other.md").write_text("# Other\n", encoding="utf-8")
+        (root / "sample_api.py").write_text(
+            "def greet(name: str) -> str:\n"
+            '    """Return a greeting."""\n'
+            '    return f"Hello {name}"\n',
+            encoding="utf-8",
+        )
+    config = root / "mkdocs.yml"
+    config.write_text(
+        safe_dump(
+            {
+                "site_name": "Inventory",
+                "plugins": {
+                    "mkdocstrings": {
+                        "handlers": {"python": {"paths": [str(root)]}},
+                        **options,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return config
+
+
+@pytest.mark.parametrize("setting", [True, False, None])
+def test_inventory_setting_keeps_api_rendering_and_cross_references(
+    tmp_path: Path, setting: bool | None
+) -> None:
+    config = _write_project(tmp_path, {"enable_inventory": setting})
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    html = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    assert "Return a greeting." in html
+    assert 'class="autorefs autorefs-internal"' in html
+    assert 'href="#sample_api.greet"' in html
+    exported = tmp_path / "site" / "objects.inv"
+    assert exported.exists() is (setting is not False)
+    data = (tmp_path / ".cache" / "objects.inv").read_bytes()
+    assert "sample_api.greet" in Inventory.parse_sphinx(BytesIO(data))
+
+
+def test_inventory_can_be_disabled_and_reenabled_between_builds(
+    tmp_path: Path,
+) -> None:
+    for enabled in [True, False, True]:
+        config = _write_project(tmp_path, {"enable_inventory": enabled})
+        zensical.build(str(config), _BUILD_OPTIONS)
+        exported = tmp_path / "site" / "objects.inv"
+        assert exported.exists() is enabled
+        if enabled:
+            assert (
+                exported.read_bytes()
+                == (tmp_path / ".cache" / "objects.inv").read_bytes()
+            )
+
+
+def test_automatic_inventory_survives_cached_api_pages(tmp_path: Path) -> None:
+    config = _write_project(tmp_path, {})
+    zensical.build(str(config), _BUILD_OPTIONS)
+    expected = (tmp_path / "site" / "objects.inv").read_bytes()
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+    assert mkdocstrings.HANDLERS is None
+    assert (tmp_path / "site" / "objects.inv").read_bytes() == expected
+
+    (tmp_path / "docs" / "other.md").write_text(
+        "# Other\n\nChanged\n", encoding="utf-8"
+    )
+    zensical.build(str(config), _BUILD_OPTIONS)
+    assert mkdocstrings.HANDLERS is not None
+    assert not mkdocstrings.HANDLERS.inventory
+    assert (tmp_path / "site" / "objects.inv").read_bytes() == expected
+
+
+def test_automatic_inventory_resets_handler_preference_with_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _write_project(tmp_path, {})
+    zensical.build(str(config), _BUILD_OPTIONS)
+    assert (tmp_path / "site" / "objects.inv").exists()
+
+    monkeypatch.setattr(PythonHandler, "enable_inventory", False)
+    # Changing the config makes the next build render pages again and check
+    # whether the handlers enable `objects.inv`.
+    config = _write_project(tmp_path, {"enable_inventory": None})
+    zensical.build(str(config), _BUILD_OPTIONS)
+    assert not (tmp_path / "site" / "objects.inv").exists()
+    zensical.build(str(config), _BUILD_OPTIONS)
+    assert mkdocstrings.HANDLERS is None
+    assert not (tmp_path / "site" / "objects.inv").exists()
+
+
+def test_disabled_plugin_preserves_static_inventory(tmp_path: Path) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text("# Home\n", encoding="utf-8")
+    (docs / "objects.inv").write_bytes(b"user-provided inventory")
+    config = tmp_path / "zensical.toml"
+    config.write_text(
+        '[project]\nsite_name = "Inventory"\n'
+        "[project.plugins.mkdocstrings]\n"
+        "enabled = false\nenable_inventory = false\n",
+        encoding="utf-8",
+    )
+    zensical.build(str(config), _BUILD_OPTIONS)
+    assert (
+        tmp_path / "site" / "objects.inv"
+    ).read_bytes() == b"user-provided inventory"

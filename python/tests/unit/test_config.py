@@ -279,10 +279,8 @@ class TestPluginShimming:
         self, tmp_path: Path
     ) -> None:
         plugins: dict[str, dict[str, Any]] = {
-            "autorefs": {},
             "callouts": {},
             "glightbox": {"auto": False},
-            "macros": {"render_by_default": False},
             "mike": {"version_selector": False},
             "mkdocstrings": {"enabled": False},
             "search": {"separator": r"\s+"},
@@ -290,12 +288,10 @@ class TestPluginShimming:
         }
         baseline = self._parse_yaml(tmp_path, plugins=plugins)
         for name, options in {
-            "autorefs": {"link_titles": "external"},
             "callouts": {"aliases": False, "breakless_lists": False},
             "glightbox": {"slide_effect": "fade"},
-            "macros": {"force_render_paths": "guides/**"},
             "mike": {"javascript_dir": "scripts"},
-            "mkdocstrings": {"enable_inventory": False, "watch": ["src"]},
+            "mkdocstrings": {"watch": ["src"]},
             "search": {"lang": ["en", "fr"]},
             "material/tags": {"tags_file": "tags.md", "export_only": True},
         }.items():
@@ -592,7 +588,23 @@ class TestPluginShimming:
             "redirect_template": None,
             "deploy_prefix": "",
             "canonical_version": None,
+            "version_selector": True,
         }
+
+    def test_disabled_mike_does_not_adjust_versioned_site_url(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        # A disabled plugin must stay inactive even during a mike deployment.
+        monkeypatch.setenv("MIKE_DOCS_VERSION", "0.3")
+
+        config = self._parse_yaml(
+            tmp_path,
+            site_url="https://example.com/docs/",
+            plugins={"mike": {"enabled": False, "version_selector": False}},
+        )
+
+        assert config["site_url"] == "https://example.com/docs/"
+        assert "mike" not in config["plugins"]
 
     def test_glightbox_adds_extension_and_forwards_config(
         self, tmp_path: Path
@@ -635,6 +647,23 @@ class TestPluginShimming:
     def test_macros_plugin_shimmed(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins={"macros": {}})
         assert MacrosExtension.name in config["markdown_extensions"]
+
+    @pytest.mark.parametrize(
+        ("option", "value"),
+        [("force_render_paths", "guides/\n!guides/drafts/"), ("verbose", True)],
+    )
+    def test_macros_settings_forwarded_and_hashed(
+        self, tmp_path: Path, option: str, value: str | bool
+    ) -> None:
+        baseline = self._parse_yaml(tmp_path, plugins={"macros": {}})
+        config_file = tmp_path / "mkdocs.yml"
+        config_file.write_text(
+            _minimal_yaml(plugins={"macros": {option: value}})
+        )
+        configured = parse_config(str(config_file))
+
+        assert configured["mdx_configs"][MacrosExtension.name][option] == value
+        assert configured["plugins_hash"] != baseline["plugins_hash"]
 
     def test_table_reader_plugin_shimmed(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins={"table-reader": {}})
@@ -708,7 +737,26 @@ class TestPluginShimming:
         }
         config = self._parse_yaml(tmp_path, plugins={"autorefs": options})
         assert AutorefsExtension.name in config["markdown_extensions"]
-        assert config["plugins"]["autorefs"]["config"] == {}
+        assert config["plugins"]["autorefs"]["config"] == options
+
+    @pytest.mark.parametrize(
+        ("option", "value"),
+        [
+            ("resolve_closest", True),
+            ("link_titles", False),
+            ("strip_title_tags", True),
+        ],
+    )
+    def test_autorefs_settings_affect_rebuild_hash(
+        self, tmp_path: Path, option: str, value: bool
+    ) -> None:
+        baseline = self._parse_yaml(tmp_path, plugins={"autorefs": {}})
+        config_file = tmp_path / "mkdocs.yml"
+        config_file.write_text(
+            _minimal_yaml(plugins={"autorefs": {option: value}})
+        )
+        configured = parse_config(str(config_file))
+        assert configured["plugins_hash"] != baseline["plugins_hash"]
 
     def test_autorefs_disabled_not_added(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -815,6 +863,28 @@ class TestPluginShimming:
         assert AutorefsExtension.name in config["markdown_extensions"]
         autorefs = config["mdx_configs"][AutorefsExtension.name]
         assert autorefs["record_backlinks"] is (backlinks is not False)
+
+    @pytest.mark.parametrize("value", [True, False, None])
+    def test_mkdocstrings_inventory_setting_forwarded_and_hashed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        value: bool | None,
+    ) -> None:
+        monkeypatch.setattr("zensical.config.find_spec", lambda _name: True)
+        baseline = self._parse_yaml(tmp_path, plugins={"mkdocstrings": {}})
+        config_file = tmp_path / "mkdocs.yml"
+        config_file.write_text(
+            _minimal_yaml(plugins={"mkdocstrings": {"enable_inventory": value}})
+        )
+        configured = parse_config(str(config_file))
+        assert (
+            configured["mdx_configs"][MkdocstringsExtension.name][
+                "enable_inventory"
+            ]
+            is value
+        )
+        assert configured["plugins_hash"] != baseline["plugins_hash"]
 
     def test_mkdocstrings_not_installed_raises(
         self,

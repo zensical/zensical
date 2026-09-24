@@ -117,12 +117,7 @@ DEFAULT_MARKDOWN_EXTENSIONS = {
 # Discard these before validation, hashing and forwarding to native modules or
 # Markdown extensions. Empty tuples mark plugins with no ignored options.
 _PLUGIN_UNSUPPORTED_OPTIONS = {
-    "autorefs": (
-        # TODO: Configure native URL selection and link title rendering.
-        "resolve_closest",
-        "link_titles",
-        "strip_title_tags",
-    ),
+    "autorefs": (),
     "awesome-nav": (),
     "blog": (),
     "callouts": (
@@ -141,12 +136,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
         "shadow",
     ),
     "literate-nav": (),
-    "macros": (
-        # TODO: Match page paths before deciding whether to render macros.
-        "force_render_paths",
-        # TODO: Add diagnostics for module loading and macro rendering.
-        "verbose",
-    ),
+    "macros": (),
     "markdown-exec": (),
     "meta": (),
     "mike": (
@@ -155,8 +145,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
     ),
     "minify": (),
     "mkdocstrings": (
-        # TODO: Gate native objects.inv generation on this setting.
-        "enable_inventory",
+        # TODO: Merge the removed plugin watch setting into project.watch.
         "watch",
     ),
     "offline": (),
@@ -1968,6 +1957,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
                 *nullable_strings,
             },
         )
+        set_default(mike, "version_selector", True)
         _validate_boolean_options("mike", mike, ("enabled", "version_selector"))
         for name, default in string_defaults.items():
             set_default(mike, name, default)
@@ -1978,13 +1968,37 @@ def _convert_plugins(value: Any, config: dict) -> dict:
                 raise ConfigurationError(
                     f"mike {name} must be a string or null"
                 )
-        plugins["mike"] = mike
+        # Disabled plugins must not affect the theme or versioned site URL.
+        if mike.get("enabled", True):
+            plugins["mike"] = mike
 
-    # Validate settings forwarded by the plugin-to-extension shims.
+    # Validate settings for plugins enabled through Markdown extensions.
     if "autorefs" in plugins:
         autorefs = plugins["autorefs"]
-        _reject_unknown_options("autorefs", autorefs, {"enabled"})
-        _validate_boolean_options("autorefs", autorefs, ("enabled",))
+        _reject_unknown_options(
+            "autorefs",
+            autorefs,
+            {"enabled", "resolve_closest", "link_titles", "strip_title_tags"},
+        )
+        set_default(autorefs, "resolve_closest", False)
+        set_default(autorefs, "link_titles", "auto")
+        set_default(autorefs, "strip_title_tags", "auto")
+        _validate_boolean_options(
+            "autorefs", autorefs, ("enabled", "resolve_closest")
+        )
+        for name, modes in (
+            ("link_titles", ("auto", "external")),
+            ("strip_title_tags", ("auto",)),
+        ):
+            setting = autorefs[name]
+            if not (
+                isinstance(setting, bool)
+                or (isinstance(setting, str) and setting in modes)
+            ):
+                choices = ", ".join(repr(mode) for mode in modes)
+                raise ConfigurationError(
+                    f"autorefs {name} must be a boolean or {choices}"
+                )
 
     if "callouts" in plugins:
         callouts = plugins["callouts"]
@@ -2043,11 +2057,18 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             string_options
             | {
                 "enabled",
+                "enable_inventory",
                 "handlers",
                 "custom_templates",
             },
         )
         _validate_boolean_options("mkdocstrings", mkdocstrings, ("enabled",))
+        if mkdocstrings.get("enable_inventory") is not None and not isinstance(
+            mkdocstrings["enable_inventory"], bool
+        ):
+            raise ConfigurationError(
+                "mkdocstrings enable_inventory must be a boolean or null"
+            )
         if (
             "handlers" in mkdocstrings
             and mkdocstrings["handlers"] is not None
@@ -2118,6 +2139,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
         string_options = {
             "module_name",
             "include_dir",
+            "force_render_paths",
             "j2_block_start_string",
             "j2_block_end_string",
             "j2_variable_start_string",
@@ -2130,6 +2152,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             "enabled",
             "render_by_default",
             "on_error_fail",
+            "verbose",
         }
         _reject_unknown_options(
             "macros",
@@ -2255,7 +2278,7 @@ def _apply_mike_plugin(
     version: str | None,
 ) -> None:
     """Apply project-wide effects of a mike versioned build."""
-    if not version or not config.get("site_url"):
+    if not version or not config.get("site_url") or "mike" not in plugins:
         return
     mike = plugins["mike"]["config"]
 

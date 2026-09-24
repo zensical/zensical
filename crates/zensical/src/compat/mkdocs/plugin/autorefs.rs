@@ -26,10 +26,13 @@
 //! MkDocs-compatible autorefs plugin.
 
 use ahash::{HashMap, HashSet};
+use html5gum::emitters::callback::{CallbackEmitter, CallbackEvent};
+use html5gum::{Span, Tokenizer};
 use pyo3::types::PyAnyMethods;
 use pyo3::{FromPyObject, Python};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::convert::Infallible;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use std::string::ToString;
@@ -40,6 +43,7 @@ use zrx::stream::function::Collection;
 use zrx::stream::{Key, Signal, Stream, Value};
 
 use crate::compat::mkdocs::url::relative;
+use crate::config::plugins::{AutorefsPluginConfig, AutorefsTitleSetting};
 use crate::config::Config;
 use crate::path::SourcePath;
 use crate::structure::nav::{source_sort_key, Navigation, NavigationItem};
@@ -91,6 +95,61 @@ pub struct Autorefs {
     cache: PathBuf,
     /// Hash of configuration that can affect backlink collection.
     config_hash: u64,
+    /// Resolved URL selection and title rendering behavior.
+    settings: Settings,
+}
+
+// ----------------------------------------------------------------------------
+
+/// Effective behavior after resolving automatic title settings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Settings {
+    resolve_closest: bool,
+    link_titles: LinkTitles,
+    strip_title_tags: bool,
+}
+
+/// Links on which a generated title may be shown.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LinkTitles {
+    All,
+    External,
+    None,
+}
+
+impl Settings {
+    fn new(config: &AutorefsPluginConfig, features: &[String]) -> Self {
+        let has_feature = |name| features.iter().any(|feature| feature == name);
+        Self {
+            resolve_closest: config.resolve_closest,
+            link_titles: match &config.link_titles {
+                AutorefsTitleSetting::Enabled(true) => LinkTitles::All,
+                AutorefsTitleSetting::Enabled(false) => LinkTitles::None,
+                AutorefsTitleSetting::Mode(mode) if mode == "external" => {
+                    LinkTitles::External
+                }
+                AutorefsTitleSetting::Mode(_) => {
+                    if has_feature("navigation.instant.preview") {
+                        LinkTitles::External
+                    } else {
+                        LinkTitles::All
+                    }
+                }
+            },
+            strip_title_tags: match config.strip_title_tags {
+                AutorefsTitleSetting::Enabled(enabled) => enabled,
+                AutorefsTitleSetting::Mode(_) => {
+                    !has_feature("content.tooltips")
+                }
+            },
+        }
+    }
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self::new(&AutorefsPluginConfig::default(), &[])
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -266,6 +325,8 @@ pub struct Facts {
 ///   (typically registered by loading inventories in mkdocstrings).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct Resolver {
+    // URL selection and title behavior.
+    settings: Settings,
     // Primary URLs.
     primary: HashMap<String, Vec<String>>,
     // Secondary URLs.
@@ -285,11 +346,19 @@ struct Resolver {
 impl Autorefs {
     /// Resolves the private settings owned by this pipeline instance.
     pub fn new(config: &Config) -> Self {
+        let options = config
+            .project
+            .plugins
+            .autorefs
+            .as_ref()
+            .map(|plugin| plugin.config.clone())
+            .unwrap_or_default();
         Self {
             enabled: config.has_markdown_extension(EXTENSION_NAME),
             record_backlinks: config.records_backlinks(),
             cache: config.get_cache_dir(),
             config_hash: config.hash,
+            settings: Settings::new(&options, &config.project.theme.features),
         }
     }
 
@@ -361,6 +430,7 @@ impl Autorefs {
         &self, facts: impl Iterator<Item = &'a Facts>,
     ) -> Resolver {
         let mut registry = Resolver::new();
+        registry.settings = self.settings.clone();
         for facts in facts {
             registry.merge(facts);
         }
@@ -734,7 +804,11 @@ impl Resolver {
     fn get_url_and_title_from_id(
         &self, identifier: &str, from_url: &str,
     ) -> Result<(String, Option<String>), String> {
-        let mut url = self.get_url_from_id(identifier, from_url, true)?;
+        let mut url = self.get_url_from_id(
+            identifier,
+            from_url,
+            self.settings.resolve_closest,
+        )?;
 
         // Get title using URL as key (not identifier)
         let title = self.titles.get(&url).cloned();
@@ -898,18 +972,13 @@ impl Resolver {
                     format!(" {}", remaining.join(" "))
                 };
 
-                let tooltip = if optional {
-                    original_title.as_deref().unwrap_or(identifier)
-                } else {
-                    original_title.as_deref().unwrap_or_default()
-                };
-                let title_attr = if !tooltip.is_empty()
-                    && !format!("<code>{title}</code>").contains(tooltip)
-                {
-                    format!(" title=\"{}\"", html_escape(tooltip))
-                } else {
-                    String::new()
-                };
+                let title_attr = self.title_attribute(
+                    identifier,
+                    title,
+                    original_title.as_deref(),
+                    optional,
+                    external,
+                );
 
                 format!(
                     "<a class=\"{class}\"{title_attr} href=\"{}\"{remaining}>{title}</a>",
@@ -933,6 +1002,46 @@ impl Resolver {
                 }
             }
         }
+    }
+
+    /// Builds a safely escaped title, preserving HTML only when configured.
+    fn title_attribute(
+        &self, identifier: &str, title: &str, original: Option<&str>,
+        optional: bool, external: bool,
+    ) -> String {
+        if self.settings.link_titles == LinkTitles::None
+            || self.settings.link_titles == LinkTitles::External && !external
+        {
+            return String::new();
+        }
+
+        let tooltip = if optional {
+            let identifier_text = html_escape(identifier);
+            let code = if self.settings.strip_title_tags {
+                identifier_text
+            } else {
+                format!("<code>{identifier_text}</code>")
+            };
+            match original.filter(|title| !title.is_empty()) {
+                Some(title) if title.contains(identifier) => title.to_string(),
+                Some(title) => format!("{title} ({code})"),
+                None => code,
+            }
+        } else {
+            original.unwrap_or_default().to_string()
+        };
+
+        if tooltip.is_empty()
+            || format!("<code>{title}</code>").contains(&tooltip)
+        {
+            return String::new();
+        }
+        let tooltip = if self.settings.strip_title_tags {
+            strip_html(&tooltip)
+        } else {
+            tooltip
+        };
+        format!(" title=\"{}\"", html_escape(&tooltip))
     }
 
     /// Expands page-local slots in one linear pass.
@@ -1137,6 +1246,23 @@ fn html_escape(text: &str) -> String {
         .replace('\'', "&#x27;")
 }
 
+/// Strips title markup and decodes entities before HTML attribute escaping.
+fn strip_html(input: &str) -> String {
+    let mut text = String::new();
+    let mut emitter =
+        CallbackEmitter::new(|event: CallbackEvent<'_>, _: Span<usize>| {
+            if let CallbackEvent::String { value } = event {
+                text.push_str(&String::from_utf8_lossy(value));
+            }
+            None::<Infallible>
+        });
+    emitter.naively_switch_states(true);
+    Tokenizer::new_with_emitter(input, emitter)
+        .finish()
+        .expect("string input is infallible");
+    text
+}
+
 // ----------------------------------------------------------------------------
 // Tests
 // ----------------------------------------------------------------------------
@@ -1147,12 +1273,13 @@ mod tests {
     use std::sync::{Arc, OnceLock};
 
     use crate::compat::mkdocs::html;
+    use crate::config::plugins::{AutorefsPluginConfig, AutorefsTitleSetting};
     use crate::structure::nav::{Navigation, NavigationItem};
     use crate::structure::toc::Section;
 
     use super::{
         navigation_crumb, BacklinkCrumb, BacklinkData, BacklinkIndex,
-        BreadcrumbNode, Facts, Parser, References, Resolver,
+        BreadcrumbNode, Facts, Parser, References, Resolver, Settings,
         UnresolvedAutorefs,
     };
 
@@ -1200,6 +1327,202 @@ mod tests {
             .data
             .get()
             .is_some());
+    }
+
+    #[test]
+    fn configured_primary_selection_preserves_secondary_resolution() {
+        let mut resolver = Resolver::new();
+        let urls = vec!["elsewhere/#item".into(), "guide/near/#item".into()];
+        resolver.primary.insert("item".into(), urls.clone());
+        resolver.secondary.insert("alias".into(), urls);
+
+        for (resolve_closest, expected) in
+            [(false, "../../elsewhere/#item"), (true, "../near/#item")]
+        {
+            resolver.settings.resolve_closest = resolve_closest;
+            assert_eq!(
+                resolver
+                    .get_url_and_title_from_id("item", "guide/current/")
+                    .unwrap()
+                    .0,
+                expected,
+            );
+            assert_eq!(
+                resolver
+                    .get_url_and_title_from_id("alias", "guide/current/")
+                    .unwrap()
+                    .0,
+                "../near/#item",
+            );
+        }
+    }
+
+    #[test]
+    fn title_modes_apply_to_reference_slots() {
+        let input = concat!(
+            "<autoref identifier=\"local\">Local</autoref>",
+            "<autoref identifier=\"pkg.remote\" optional><code>remote</code></autoref>",
+        );
+        for (mode, features, internal_title, external_title) in [
+            (AutorefsTitleSetting::Enabled(true), vec![], true, true),
+            (
+                AutorefsTitleSetting::Enabled(false),
+                vec!["navigation.instant.preview".into()],
+                false,
+                false,
+            ),
+            (
+                AutorefsTitleSetting::Mode("external".into()),
+                vec![],
+                false,
+                true,
+            ),
+            (
+                AutorefsTitleSetting::Mode("auto".into()),
+                vec![],
+                true,
+                true,
+            ),
+            (
+                AutorefsTitleSetting::Mode("auto".into()),
+                vec!["navigation.instant.preview".into()],
+                false,
+                true,
+            ),
+        ] {
+            let mut resolver = Resolver::new();
+            resolver.settings = Settings::new(
+                &AutorefsPluginConfig {
+                    link_titles: mode,
+                    ..Default::default()
+                },
+                &features,
+            );
+            resolver
+                .primary
+                .insert("local".into(), vec!["target/#local".into()]);
+            resolver
+                .titles
+                .insert("target/#local".into(), "Canonical local".into());
+            resolver.inventory.insert(
+                "pkg.remote".into(),
+                "//example.com/#pkg.remote".into(),
+            );
+
+            let (content, references) = prepare(input);
+            let mut unresolved = UnresolvedAutorefs::default();
+            let output = resolver.replace_slots(
+                content,
+                &references,
+                "guide/",
+                &mut unresolved,
+            );
+
+            assert_eq!(
+                output.contains("title=\"Canonical local\""),
+                internal_title
+            );
+            assert_eq!(output.contains("title=\"pkg.remote\""), external_title);
+            assert!(output.contains("href=\"//example.com/#pkg.remote\""));
+            assert!(output.contains("autorefs-external"));
+            assert!(unresolved.iter().next().is_none());
+        }
+    }
+
+    #[test]
+    fn title_html_modes_preserve_text_and_escape_attributes() {
+        let input = "<autoref identifier=\"item\">Label</autoref>";
+        let rich =
+            "A <em>rich</em> &amp; &quot;quoted&quot; title<!-- hidden -->";
+        let plain_attr = "title=\"A rich &amp; &quot;quoted&quot; title\"";
+        let html_attr = "title=\"A &lt;em&gt;rich&lt;/em&gt; &amp;amp; &amp;quot;quoted&amp;quot; title&lt;!-- hidden --&gt;\"";
+        for (mode, features, expected) in [
+            (
+                AutorefsTitleSetting::Enabled(true),
+                vec!["content.tooltips".into()],
+                plain_attr,
+            ),
+            (AutorefsTitleSetting::Enabled(false), vec![], html_attr),
+            (
+                AutorefsTitleSetting::Mode("auto".into()),
+                vec![],
+                plain_attr,
+            ),
+            (
+                AutorefsTitleSetting::Mode("auto".into()),
+                vec!["content.tooltips".into()],
+                html_attr,
+            ),
+        ] {
+            let mut resolver = Resolver::new();
+            resolver.settings = Settings::new(
+                &AutorefsPluginConfig {
+                    strip_title_tags: mode,
+                    ..Default::default()
+                },
+                &features,
+            );
+            resolver
+                .primary
+                .insert("item".into(), vec!["target/#item".into()]);
+            resolver.titles.insert("target/#item".into(), rich.into());
+
+            let (content, references) = prepare(input);
+            let mut unresolved = UnresolvedAutorefs::default();
+            let output = resolver.replace_slots(
+                content,
+                &references,
+                "guide/",
+                &mut unresolved,
+            );
+
+            assert!(output.contains(expected), "{output}");
+            assert!(output.ends_with(">Label</a>"));
+        }
+    }
+
+    #[test]
+    fn optional_titles_append_identifiers_and_suppress_redundancy() {
+        let mut resolver = Resolver::new();
+        for (strip, expected) in [
+            (true, " title=\"Canonical (pkg.item)\""),
+            (
+                false,
+                " title=\"Canonical (&lt;code&gt;pkg.item&lt;/code&gt;)\"",
+            ),
+        ] {
+            resolver.settings.strip_title_tags = strip;
+            assert_eq!(
+                resolver.title_attribute(
+                    "pkg.item",
+                    "item",
+                    Some("Canonical"),
+                    true,
+                    false
+                ),
+                expected,
+            );
+            assert_eq!(
+                resolver.title_attribute(
+                    "pkg.item",
+                    "<code>pkg.item</code>",
+                    None,
+                    true,
+                    false
+                ),
+                "",
+            );
+            assert_eq!(
+                resolver.title_attribute(
+                    "pkg.item",
+                    "Canonical",
+                    Some("Canonical"),
+                    false,
+                    false
+                ),
+                "",
+            );
+        }
     }
 
     fn prepare(input: &str) -> (String, References) {

@@ -31,7 +31,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use zrx::id::Id;
 use zrx::stream::Signal;
@@ -85,12 +85,27 @@ struct Cached<T> {
 /// Mkdocstrings compatibility pipeline.
 #[derive(Clone, Debug)]
 pub struct Mkdocstrings {
+    /// Hash of the project configuration, also used by the Markdown cache.
+    config_hash: u64,
     /// Cache directory shared with the Python compatibility layer.
     cache: PathBuf,
     /// Backlink cache, created only when collection is enabled.
     backlink_cache: Option<BacklinkCache>,
     /// Site output directory.
     output: OutputRoot,
+    /// Path to an `objects.inv` file supplied by the user in the docs directory.
+    source_inventory: PathBuf,
+}
+
+// ----------------------------------------------------------------------------
+
+/// Saved result of checking whether any handler enables `objects.inv` by default.
+#[derive(Debug, Serialize, Deserialize)]
+struct InventoryState {
+    /// Hash of the project configuration when this result was saved.
+    config_hash: u64,
+    /// Whether any handler used so far enables `objects.inv` by default.
+    auto_enabled: bool,
 }
 
 // ----------------------------------------------------------------------------
@@ -174,9 +189,11 @@ impl Mkdocstrings {
             config_hash: config.hash,
         });
         Self {
+            config_hash: config.hash,
             cache,
             backlink_cache,
             output: config.output_root().clone(),
+            source_inventory: config.docs_root().as_path().join("objects.inv"),
         }
     }
 
@@ -186,21 +203,53 @@ impl Mkdocstrings {
         let _ = dependencies.navigation.map(move |_: &Navigation| {
             let cache_path = pipeline.cache.join("objects.inv");
             let cached = fs::read(&cache_path).ok();
+            let state_path = pipeline.cache.join("mkdocstrings.json");
+            let previous = fs::read(&state_path).ok().and_then(|data| {
+                serde_json::from_slice::<InventoryState>(&data).ok()
+            });
+            let cached_auto_enabled = previous.map_or_else(
+                // Older versions did not save whether handlers enabled the
+                // inventory. They always wrote `objects.inv`, so keep doing
+                // that when using an old cache.
+                || cached.as_ref().is_some_and(|data| !data.is_empty()),
+                |state| {
+                    state.config_hash == pipeline.config_hash
+                        && state.auto_enabled
+                },
+            );
 
-            let data = Python::attach(|py| {
+            let (data, enabled, auto_enabled) = Python::attach(|py| {
                 let module = py.import("zensical.compat.mkdocstrings")?;
-                module
+                let data = module
                     .call_method1("get_inventory", (cached,))?
-                    .extract::<Vec<u8>>()
+                    .extract::<Vec<u8>>()?;
+                let (enabled, auto_enabled) = module
+                    .call_method1(
+                        "get_inventory_policy",
+                        (cached_auto_enabled,),
+                    )?
+                    .extract::<(bool, bool)>()?;
+                Ok::<_, pyo3::PyErr>((data, enabled, auto_enabled))
             })?;
 
             let path = pipeline.output.join(
                 &"objects.inv".parse::<SitePath>().expect("static site path"),
             );
-            fs::create_dir_all(path.parent().expect("invariant"))?;
-            fs::write(path, &data)?;
+            publish(
+                &path,
+                &data,
+                enabled,
+                pipeline.source_inventory.is_file(),
+            )?;
+            // Keep the inventory in the cache even when the public file
+            // is disabled, so later builds can still use it.
             fs::create_dir_all(&pipeline.cache)?;
             fs::write(&cache_path, &data)?;
+            let state = InventoryState {
+                config_hash: pipeline.config_hash,
+                auto_enabled,
+            };
+            fs::write(state_path, serde_json::to_vec(&state)?)?;
             Ok::<_, anyhow::Error>(())
         });
     }
@@ -293,6 +342,23 @@ impl Mkdocstrings {
     }
 }
 
+/// Write `objects.inv` when enabled.
+///
+/// When disabled, remove the generated file unless the docs directory contains
+/// its own `objects.inv`.
+fn publish(
+    path: &Path, data: &[u8], enabled: bool, has_source: bool,
+) -> std::io::Result<()> {
+    if enabled {
+        fs::create_dir_all(path.parent().expect("inventory has a parent"))?;
+        fs::write(path, data)
+    } else if !has_source && path.is_file() {
+        fs::remove_file(path)
+    } else {
+        Ok(())
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Tests
 // ----------------------------------------------------------------------------
@@ -300,10 +366,11 @@ impl Mkdocstrings {
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
+    use std::fs;
 
     use tempfile::tempdir;
 
-    use super::BacklinkCache;
+    use super::{publish, BacklinkCache};
 
     #[test]
     fn backlink_pages_are_reused_without_computing_again() {
@@ -362,5 +429,27 @@ mod tests {
             .unwrap();
         assert_eq!(first, "first");
         assert_eq!(second, "second");
+    }
+
+    #[test]
+    fn retracts_generated_inventory_and_can_publish_again() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("site/objects.inv");
+        publish(&path, b"old inventory", true, false).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"old inventory");
+        publish(&path, b"new inventory", false, false).unwrap();
+        assert!(!path.exists());
+        publish(&path, b"new inventory", false, false).unwrap();
+        publish(&path, b"new inventory", true, false).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"new inventory");
+    }
+
+    #[test]
+    fn disabling_export_preserves_a_documentation_resource() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("objects.inv");
+        fs::write(&path, b"user-provided inventory").unwrap();
+        publish(&path, b"generated", false, true).unwrap();
+        assert_eq!(fs::read(path).unwrap(), b"user-provided inventory");
     }
 }
