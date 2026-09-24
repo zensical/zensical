@@ -40,7 +40,8 @@ use zrx::id::Id;
 use zrx::stream::function::Collection;
 use zrx::stream::workflow::Builder;
 use zrx::stream::{
-    concurrent, Key, Signal, Stream, StreamTupleExt, Value, Workflow,
+    concurrent, Key, Signal, Stream, StreamSetExt, StreamTupleExt, Value,
+    Workflow,
 };
 
 use crate::compat::mkdocs::plugin::autorefs::UnresolvedAutorefs;
@@ -48,7 +49,7 @@ use crate::compat::mkdocs::{
     html,
     plugin::{
         self, autorefs, awesome_nav, blog, literate_nav, meta, minify,
-        mkdocstrings, redirects, search, tags,
+        mkdocstrings, redirects, rss, search, tags,
     },
     resource,
 };
@@ -64,7 +65,7 @@ use crate::template::Template;
 use crate::watcher::Source;
 
 mod cached;
-mod output;
+pub(crate) mod output;
 
 use cached::cached;
 
@@ -207,8 +208,6 @@ struct RenderedMarkdown {
     markdown: Markdown,
     /// Page title derived from metadata, Markdown, or source name.
     title: String,
-    /// Page-local registrations consumed during site settlement.
-    registrations: Arc<autorefs::Facts>,
     /// Facts extracted by the shared MkDocs-compatible HTML pass.
     html: plugin::HtmlFacts,
 }
@@ -222,8 +221,6 @@ impl Value for RenderedMarkdown {}
 struct RenderedPage {
     /// Page consumed by site-wide and page-local branches.
     page: Page,
-    /// Autoref registrations revision-aligned with the page.
-    registrations: Arc<autorefs::Facts>,
     /// HTML compatibility facts revision-aligned with the page.
     html: plugin::HtmlFacts,
 }
@@ -296,16 +293,16 @@ impl Main {
             provisional.map(|rendered: &RenderedPage| rendered.page.clone());
         let navigation_page =
             blogs.navigation_pages(&provisional_page, &view_pages);
-        // Autorefs only consumes registrations gathered during Markdown
-        // rendering, so keep it independent of finalized navigation titles.
-        let autorefs_input =
-            provisional.map(|rendered: &RenderedPage| autorefs::PageInput {
-                source: rendered.page.source().clone(),
-                facts: rendered.registrations.clone(),
-            });
-        let autorefs = plugins
-            .autorefs
-            .setup(autorefs::Dependencies { pages: &autorefs_input });
+        let autorefs = if plugins.autorefs.records_backlinks() {
+            None
+        } else {
+            let autorefs_input = provisional.map(autorefs_page_input);
+            Some(
+                plugins
+                    .autorefs
+                    .setup(autorefs::Dependencies { pages: &autorefs_input }),
+            )
+        };
         let resolution = resolve_navigation(
             &self.config,
             self.strict,
@@ -337,6 +334,19 @@ impl Main {
             apply_routed_links(&self.config, &rendered_page, &markdown)
         };
         let rendered_page = apply_tags(&plugins.tags, &rendered_page);
+        let autorefs = if let Some(autorefs) = autorefs {
+            autorefs
+        } else {
+            // Backlink breadcrumbs depend on final navigation titles and the
+            // effective ToC, so collect them from one complete snapshot.
+            let backlinks = rendered_page.map(autorefs_backlink_input);
+            plugins
+                .autorefs
+                .setup_backlinks(autorefs::BacklinkDependencies {
+                    pages: &backlinks,
+                    navigation: &nav,
+                })
+        };
         let page =
             rendered_page.map(|rendered: &RenderedPage| rendered.page.clone());
         let site_page = rendered_page.map(|rendered: &RenderedPage| SitePage {
@@ -356,8 +366,11 @@ impl Main {
             documents: &search_document,
             navigation: &nav,
         });
-        mkdocstrings::Mkdocstrings::new(&self.config)
-            .setup(mkdocstrings::Dependencies { navigation: &nav });
+        let mkdocstrings = mkdocstrings::Mkdocstrings::new(&self.config);
+        mkdocstrings.setup(mkdocstrings::Dependencies { navigation: &nav });
+        // Feed inputs are final pages and their original Markdown bodies.
+        let rss_artifacts =
+            rss::Rss::new(&self.config).setup(&page, &markdown, &configuration);
         let _ = render_templates(&self.config, &files, &nav, &assets, &minify);
         let unresolved = render_pages(
             &self.config,
@@ -366,6 +379,8 @@ impl Main {
             &autorefs,
             &assets,
             &minify,
+            &mkdocstrings,
+            &rss_artifacts,
         );
         validate(&self.config, self.strict, &files, &page, &unresolved);
     }
@@ -493,6 +508,25 @@ fn resolve_navigation(
     };
     blogs.navigation(&resolution, all_pages, view_pages)
 }
+
+/// Retains the lightweight autorefs facts needed for ordinary link resolution.
+fn autorefs_page_input(rendered: &RenderedPage) -> autorefs::PageInput {
+    autorefs::PageInput {
+        source: rendered.page.source().clone(),
+        facts: rendered.html.autorefs_registrations.clone(),
+    }
+}
+
+/// Retains resolved page data when backlink collection is enabled.
+fn autorefs_backlink_input(rendered: &RenderedPage) -> autorefs::BacklinkInput {
+    autorefs::BacklinkInput {
+        page: rendered.page.clone(),
+        facts: rendered.html.autorefs_registrations.clone(),
+        references: rendered.html.autorefs.clone(),
+    }
+}
+
+// ----------------------------------------------------------------------------
 
 /// Applies explicit navigation titles to their pages.
 fn apply_navigation_titles(
@@ -655,7 +689,7 @@ fn process_markdown(
                     &config,
                     document.source.as_str(),
                     (
-                        3_u8,
+                        6_u8,
                         config.hash,
                         origin,
                         document.clone(),
@@ -734,13 +768,13 @@ fn render_markdown(
     {
         markdown.replace_content(content);
     }
-    let html = plugin::prepare(&mut markdown, &route.source, &plugins)?;
+    let html =
+        plugin::prepare(&mut markdown, &route.source, &route.url, &plugins)?;
     plugins.blog.apply_readtime(
         &route.source,
         &markdown.content,
         &mut properties,
     )?;
-    let registrations = plugins.autorefs.take_page(&route.url);
     Ok(RenderedMarkdown {
         origin,
         route,
@@ -748,7 +782,6 @@ fn render_markdown(
         variables,
         markdown,
         title,
-        registrations,
         html,
     })
 }
@@ -781,7 +814,6 @@ fn generate_page(
         );
         RenderedPage {
             page,
-            registrations: markdown.registrations.clone(),
             html: markdown.html.clone(),
         }
     })
@@ -849,10 +881,13 @@ fn template_output(id: &Id) -> Result<SitePath, PathError> {
 }
 
 /// Render pages.
+#[allow(clippy::too_many_arguments)]
 fn render_pages(
     config: &Config, pages: &Stream<Id, SitePage>,
     nav: &Signal<Id, Navigation>, autorefs: &Signal<Id, autorefs::Registry>,
     assets: &Signal<Id, minify::Manifest>, minify: &minify::Minify,
+    mkdocstrings: &mkdocstrings::Mkdocstrings,
+    extra: &Stream<Id, output::Artifact>,
 ) -> Stream<Id, UnresolvedAutorefs> {
     let pages = pages.product(nav).product(autorefs).product(assets).map(
         |input: &((SitePage, Navigation), autorefs::Registry),
@@ -872,6 +907,7 @@ fn render_pages(
     let theme_dirs = config.theme_dirs.clone();
     let minify = minify.clone();
     let output = config.output_root().clone();
+    let mkdocstrings = mkdocstrings.clone();
     let config = config.clone();
     let rendered = pages.map(move |input: &PageRender| {
         let mut page = input.input.page.clone();
@@ -900,9 +936,14 @@ fn render_pages(
                 )?)
             })?;
 
-        // Replace autorefs and retain unresolved identifiers
-        let (data, unresolved) =
-            input.autorefs.replace_in(rendered, references, &page.url);
+        // Resolve template references and backlinks in the shared final pass.
+        let (data, unresolved) = plugin::finalize(
+            rendered.into(),
+            references,
+            &input.autorefs,
+            &mkdocstrings,
+            &page.url,
+        )?;
         let data = minify.html(data);
 
         Ok::<_, anyhow::Error>(RenderedSitePage {
@@ -916,7 +957,7 @@ fn render_pages(
     });
     let artifacts =
         rendered.map(|rendered: &RenderedSitePage| rendered.artifact.clone());
-    output::setup(output, &artifacts);
+    output::setup(output, &(artifacts, extra.clone()).coalesce());
     rendered.map(|rendered: &RenderedSitePage| rendered.unresolved.clone())
 }
 

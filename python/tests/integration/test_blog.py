@@ -42,9 +42,7 @@ def _project(
     overrides.mkdir()
     (docs / "index.md").write_text("# Home\n", encoding="utf-8")
     if entrypoint:
-        (docs / "blog" / "index.md").write_text(
-            "# Journal\n", encoding="utf-8"
-        )
+        (docs / "blog" / "index.md").write_text("# Journal\n", encoding="utf-8")
     (overrides / "main.html").write_text(
         "{{ page.title }}|{{ page.url }}|{{ page.content }}",
         encoding="utf-8",
@@ -115,9 +113,7 @@ def _post(
     **meta: object,
 ) -> None:
     lines = ["---", f"date: {date}", f"title: {title}"]
-    lines.extend(
-        f"{key}: {json.dumps(value)}" for key, value in meta.items()
-    )
+    lines.extend(f"{key}: {json.dumps(value)}" for key, value in meta.items())
     lines.extend(["---", f"# {title}", "", body])
     (root / "docs" / "blog" / "posts" / name).write_text(
         "\n".join(lines) + "\n",
@@ -136,9 +132,9 @@ def test_posts_are_routed_from_dates_and_native_unicode_slugs(
 
     output = tmp_path / "site" / "blog" / "2026" / "09" / "03"
     assert output.joinpath("héllo-world", "index.html").is_file()
-    assert "|READ=1" in output.joinpath(
-        "héllo-world", "index.html"
-    ).read_text("utf-8")
+    assert "|READ=1" in output.joinpath("héllo-world", "index.html").read_text(
+        "utf-8"
+    )
     assert not output.parent.joinpath("04", "draft", "index.html").exists()
     assert not (tmp_path / "site" / "blog" / "posts" / "hello").exists()
 
@@ -202,6 +198,32 @@ def test_source_links_follow_published_post_routes(
     assert "first-post/" not in home + second
 
 
+def test_post_anchor_aliases_survive_routing(tmp_path: Path) -> None:
+    """An empty Markdown link still aliases the next heading after routing."""
+    config = _project(tmp_path)
+    config.write_text(
+        config.read_text(encoding="utf-8")
+        + "  - autorefs\nmarkdown_extensions:\n  - attr_list\n",
+        encoding="utf-8",
+    )
+    _post(
+        tmp_path,
+        "post.md",
+        "Post",
+        "2026-09-03",
+        body="[](){#post-alias}\n\n## Details\n\nContent.",
+    )
+    (tmp_path / "docs" / "index.md").write_text(
+        "# Home\n\n[Details][post-alias]\n", encoding="utf-8"
+    )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    home = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    assert 'href="blog/2026/09/03/post/#details"' in home
+    assert "zensical:autoref" not in home
+
+
 def test_explicit_post_metadata_controls_route_order_and_readtime(
     tmp_path: Path,
 ) -> None:
@@ -254,11 +276,15 @@ def test_paginated_blog_pages_are_generated_without_source_files(
     assert "|1/2:NEXT=blog/page/2/|" in first
     assert not (tmp_path / "docs" / "blog" / "page").exists()
     one = (
-        tmp_path / "site" / "blog" / "2026" / "09" / "01" / "one"
-    ).joinpath("index.html").read_text("utf-8")
+        (tmp_path / "site" / "blog" / "2026" / "09" / "01" / "one")
+        .joinpath("index.html")
+        .read_text("utf-8")
+    )
     two = (
-        tmp_path / "site" / "blog" / "2026" / "09" / "02" / "two"
-    ).joinpath("index.html").read_text("utf-8")
+        (tmp_path / "site" / "blog" / "2026" / "09" / "02" / "two")
+        .joinpath("index.html")
+        .read_text("utf-8")
+    )
     assert "|PREV=|NEXT=blog/2026/09/02/two/" in one
     assert "|PREV=blog/2026/09/01/one/|NEXT=" in two
 
@@ -517,9 +543,7 @@ def test_archive_and_category_views_share_native_pagination_pipeline(
     assert "Categories[Rust=" in navigation
     assert "#Rust@blog/category/rust/" in navigation
     assert "Posts" not in navigation
-    paginated = category.joinpath("page", "2", "index.html").read_text(
-        "utf-8"
-    )
+    paginated = category.joinpath("page", "2", "index.html").read_text("utf-8")
     assert "Categories[Rust=true,]" in paginated
     assert not (tmp_path / "docs" / "blog" / "archive").exists()
     assert not (tmp_path / "docs" / "blog" / "category").exists()
@@ -606,9 +630,7 @@ def test_generated_view_sections_follow_material_sibling_order(
         authors=True,
         author_profiles=True,
     )
-    (tmp_path / "docs" / "guide.md").write_text(
-        "# Guide\n", encoding="utf-8"
-    )
+    (tmp_path / "docs" / "guide.md").write_text("# Guide\n", encoding="utf-8")
     (tmp_path / "docs" / "blog" / ".authors.yml").write_text(
         "authors:\n"
         "  jane:\n"
@@ -642,9 +664,7 @@ def test_generated_view_sections_follow_material_sibling_order(
 
     zensical.build(str(config), _BUILD_OPTIONS)
 
-    guide = (tmp_path / "site" / "guide" / "index.html").read_text(
-        "utf-8"
-    )
+    guide = (tmp_path / "site" / "guide" / "index.html").read_text("utf-8")
     assert guide == "guide/|PREV=blog/archive/2026/|NEXT="
 
 
@@ -655,7 +675,7 @@ def test_archive_url_keys_can_group_multiple_display_dates(
     with config.open("a", encoding="utf-8") as stream:
         stream.write(
             "      pagination: false\n"
-            '      archive_url_date_format: "\'all\'"\n'
+            "      archive_url_date_format: \"'all'\"\n"
         )
     _post(tmp_path, "older.md", "Older", "2025-01-01")
     _post(tmp_path, "newer.md", "Newer", "2026-01-01")
@@ -720,19 +740,12 @@ def test_excerpt_links_are_rebased_for_each_containing_view(
 
     zensical.build(str(config), _BUILD_OPTIONS)
 
-    page = (
-        tmp_path / "site" / "blog" / "page" / "2" / "index.html"
-    ).read_text("utf-8")
+    page = (tmp_path / "site" / "blog" / "page" / "2" / "index.html").read_text(
+        "utf-8"
+    )
     assert 'href="../../../notes/"' in page
     post = (
-        tmp_path
-        / "site"
-        / "blog"
-        / "2026"
-        / "09"
-        / "01"
-        / "one"
-        / "index.html"
+        tmp_path / "site" / "blog" / "2026" / "09" / "01" / "one" / "index.html"
     ).read_text("utf-8")
     assert 'href="../../../../../notes/"' in post
 
@@ -899,22 +912,12 @@ authors:
     zensical.build(str(config), _BUILD_OPTIONS)
 
     post = (
-        tmp_path
-        / "site"
-        / "blog"
-        / "2026"
-        / "09"
-        / "01"
-        / "one"
-        / "index.html"
+        tmp_path / "site" / "blog" / "2026" / "09" / "01" / "one" / "index.html"
     ).read_text("utf-8")
     assert (
-        "AUTHOR=Jane Doe:Technical writer:assets/jane.png:"
-        "blog/author/jane-doe/"
+        "AUTHOR=Jane Doe:Technical writer:assets/jane.png:blog/author/jane-doe/"
     ) in post
-    profile = (
-        tmp_path / "site" / "blog" / "author" / "jane-doe" / "index.html"
-    )
+    profile = tmp_path / "site" / "blog" / "author" / "jane-doe" / "index.html"
     assert profile.is_file()
     page = (tmp_path / "site" / "blog" / "index.html").read_text("utf-8")
     assert "@Jane Doe:assets/jane.png:blog/author/jane-doe/" in page
@@ -995,9 +998,7 @@ authors:
 
     zensical.build(str(config), _BUILD_OPTIONS)
 
-    profile = (
-        tmp_path / "site" / "blog" / "author" / "jane-doe" / "index.html"
-    )
+    profile = tmp_path / "site" / "blog" / "author" / "jane-doe" / "index.html"
     assert profile.is_file()
     assert not (tmp_path / "site" / "blog" / "people.yml").exists()
 
@@ -1024,14 +1025,7 @@ def test_post_assets_are_relocated_to_the_public_blog_tree(
         tmp_path / "site" / "blog" / "posts" / "assets" / "image.png"
     ).exists()
     post = (
-        tmp_path
-        / "site"
-        / "blog"
-        / "2026"
-        / "09"
-        / "01"
-        / "one"
-        / "index.html"
+        tmp_path / "site" / "blog" / "2026" / "09" / "01" / "one" / "index.html"
     ).read_text("utf-8")
     assert 'src="../../../../assets/image.png"' in post
     view = (tmp_path / "site" / "blog" / "index.html").read_text("utf-8")
@@ -1068,14 +1062,7 @@ def test_nested_post_asset_links_preserve_suffixes_and_url_boundaries(
     output = tmp_path / "site" / "blog" / "nested" / "media"
     assert output.joinpath("image.svg").is_file()
     post = (
-        tmp_path
-        / "site"
-        / "blog"
-        / "2026"
-        / "09"
-        / "01"
-        / "one"
-        / "index.html"
+        tmp_path / "site" / "blog" / "2026" / "09" / "01" / "one" / "index.html"
     ).read_text("utf-8")
     assert "../../../../nested/media/reference.txt?download=1#part" in post
     assert "../../../../nested/media/image.svg?version=2#icon" in post
@@ -1134,14 +1121,7 @@ def test_date_display_formats_are_independent_from_archive_routes(
     zensical.build(str(config), _BUILD_OPTIONS)
 
     post = (
-        tmp_path
-        / "site"
-        / "blog"
-        / "2026"
-        / "09"
-        / "03"
-        / "one"
-        / "index.html"
+        tmp_path / "site" / "blog" / "2026" / "09" / "03" / "one" / "index.html"
     ).read_text("utf-8")
     assert "|Sep 3, 2026|" in post
     archive = tmp_path / "site" / "blog" / "archive" / "2026"
@@ -1215,14 +1195,7 @@ def test_structured_links_resolve_pages_anchors_and_nested_sections(
     zensical.build(str(config), _BUILD_OPTIONS)
 
     post = (
-        tmp_path
-        / "site"
-        / "blog"
-        / "2026"
-        / "09"
-        / "01"
-        / "one"
-        / "index.html"
+        tmp_path / "site" / "blog" / "2026" / "09" / "01" / "one" / "index.html"
     ).read_text("utf-8")
     assert "Guide section=guide/#details=Details[]" in post
     assert "Download=blog/assets/reference.pdf=" in post
@@ -1255,8 +1228,7 @@ def test_excerpt_toc_contains_only_the_post_root(
     assert "Excluded=" not in page
     assert (
         '<h3 id="included"><a class="toclink" '
-        'href="2026/09/01/one/#included">Included</a></h3>'
-        in page
+        'href="2026/09/01/one/#included">Included</a></h3>' in page
     )
     assert '<a href="2026/09/01/one/#included">Jump</a>' in page
 
@@ -1275,8 +1247,7 @@ def test_excerpt_inserts_a_linked_title_when_the_post_has_no_h1(
     page = (tmp_path / "site" / "blog" / "index.html").read_text("utf-8")
     assert (
         '<h2 id="one-two"><a class="toclink" '
-        'href="2026/09/01/one--two/">One &amp; Two</a></h2>'
-        in page
+        'href="2026/09/01/one--two/">One &amp; Two</a></h2>' in page
     )
 
 
@@ -1310,13 +1281,7 @@ plugins:
 
     assert (tmp_path / "site" / "index.html").is_file()
     assert (
-        tmp_path
-        / "site"
-        / "2026"
-        / "09"
-        / "01"
-        / "one"
-        / "index.html"
+        tmp_path / "site" / "2026" / "09" / "01" / "one" / "index.html"
     ).is_file()
     assert not (tmp_path / "site" / "posts" / "one" / "index.html").exists()
 
@@ -1333,9 +1298,7 @@ def test_blog_routes_respect_disabled_directory_urls(tmp_path: Path) -> None:
     assert (
         tmp_path / "site" / "blog" / "2026" / "09" / "01" / "one.html"
     ).is_file()
-    assert (
-        tmp_path / "site" / "blog" / "page" / "2" / "index.html"
-    ).is_file()
+    assert (tmp_path / "site" / "blog" / "page" / "2" / "index.html").is_file()
 
 
 def test_posts_receive_inherited_meta_before_blog_classification(

@@ -33,7 +33,9 @@ use serde::{Deserialize, Serialize};
 // ----------------------------------------------------------------------------
 
 /// Table of contents section.
-#[derive(Clone, Debug, PartialEq, Eq, FromPyObject, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, Hash, PartialEq, Eq, FromPyObject, Serialize, Deserialize,
+)]
 #[pyo3(from_item_all)]
 pub struct Section {
     /// Section title.

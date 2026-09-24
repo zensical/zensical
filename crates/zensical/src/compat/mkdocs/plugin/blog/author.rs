@@ -49,6 +49,8 @@ pub struct Author {
     pub id: String,
     /// Display name.
     pub name: String,
+    /// Optional email used by feed authors.
+    pub email: Option<String>,
     /// Profile description.
     pub description: String,
     /// Avatar URL or documentation-relative path.
@@ -148,7 +150,7 @@ fn parse_author(
         .filter(|key| {
             !matches!(
                 key.as_str(),
-                "name" | "description" | "avatar" | "slug" | "url"
+                "name" | "email" | "description" | "avatar" | "slug" | "url"
             )
         })
         .cloned()
@@ -160,6 +162,7 @@ fn parse_author(
         )
     }
     let name = required_string(&mut values, &id, path, "name")?;
+    let email = optional_string(&mut values, &id, path, "email")?;
     let description = required_string(&mut values, &id, path, "description")?;
     let avatar = required_string(&mut values, &id, path, "avatar")?;
     let slug = optional_string(&mut values, &id, path, "slug")?;
@@ -167,6 +170,7 @@ fn parse_author(
     Ok(Author {
         id,
         name,
+        email,
         description,
         avatar,
         slug,
@@ -223,6 +227,7 @@ mod tests {
             Author {
                 id: "jane".into(),
                 name: "Jane".into(),
+                email: None,
                 description: "Writer".into(),
                 avatar: "jane.png".into(),
                 slug: None,

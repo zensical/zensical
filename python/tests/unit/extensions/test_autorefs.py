@@ -23,7 +23,6 @@
 
 from __future__ import annotations
 
-from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -60,17 +59,14 @@ def _autorefs(exts: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     }
 
 
-def _autorefs_toc(*, page: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Return md fixture params with attr_list, toc, and AutorefsExtension."""
-    param: dict[str, Any] = _autorefs({"attr_list": {}, "toc": {}})
-    if page is not None:
-        param["page"] = page
+def _autorefs_backlinks() -> dict[str, Any]:
+    """Return md fixture params with backlink recording enabled."""
+    param = _autorefs({"attr_list": {}, "toc": {}})
+    markdown_extensions = param["config"]["markdown_extensions"]
+    markdown_extensions["zensical.extensions.autorefs"] = {
+        "record_backlinks": True
+    }
     return param
-
-
-def _page(url: str = "page") -> dict[str, str]:
-    """Return a page-override dict that sets the page URL."""
-    return {"url": url, "path": f"{url}.html"}
 
 
 # ---------------------------------------------------------------------------
@@ -382,196 +378,48 @@ class TestInlineProcessor:
 
 
 # ---------------------------------------------------------------------------
-# Anchors tree processor
+# Rust HTML visitor boundary
 # ---------------------------------------------------------------------------
 
 
-class TestAnchorsTreeprocessor:
-    """Tests for AutorefsAnchorsTreeprocessor.
-
-    The processor scans `<a id="...">` elements produced by the
-    `attr_list` extension (e.g. `[](){#foo}`) and registers them as
-    anchors or heading aliases in the `AutorefsStore`.
-    """
+class TestTreeprocessorBoundary:
+    """Autorefs leaves post-Markdown HTML processing to Rust."""
 
     @pytest.mark.parametrize(
         "md",
         [
             pytest.param(
-                _autorefs_toc(page=_page()),
-                id="with_toc_attr_list",
+                _autorefs({"attr_list": {}, "toc": {}}),
+                id="with_heading_ids",
             )
         ],
         indirect=["md"],
     )
-    def test_register_anchors_and_aliases(self, md: Markdown) -> None:
-        """Anchors preceding a heading become aliases for that heading."""
-        md.convert(
-            dedent("""\
-                [](){#foo}
-                ## Heading foo
-
-                Paragraph 1.
-
-                [](){#bar}
-                Paragraph 2.
-
-                [](){#alias1}
-                [](){#alias2}
-                ## Heading bar
-
-                [](){#alias3}
-                Text.
-                [](){#alias4}
-                ## Heading baz
-
-                [](){#alias5}
-                [](){#alias6}
-                Decoy.
-                ## Heading more1
-
-                [](){#alias7}
-                [decoy](){#alias8}
-                [](){#alias9}
-                ## Heading more2 {#heading-custom2}
-
-                [](){#aliasSame}
-                ## Same heading 1
-                [](){#aliasSame}
-                ## Same heading 2
-
-                [](){#alias10}
-            """),
-        )
-        assert get_autorefs_page_data("page")["primary"] == {
-            "foo": ["page#heading-foo"],
-            "heading-foo": ["page#heading-foo"],
-            "bar": ["page#bar"],
-            "heading-bar": ["page#heading-bar"],
-            "alias1": ["page#heading-bar"],
-            "alias2": ["page#heading-bar"],
-            "alias3": ["page#alias3"],
-            "alias4": ["page#heading-baz"],
-            "heading-baz": ["page#heading-baz"],
-            "alias5": ["page#alias5"],
-            "alias6": ["page#alias6"],
-            "heading-more1": ["page#heading-more1"],
-            "alias7": ["page#alias7"],
-            "alias8": ["page#alias8"],
-            "alias9": ["page#heading-custom2"],
-            "heading-custom2": ["page#heading-custom2"],
-            "alias10": ["page#alias10"],
-            "aliasSame": ["page#same-heading-1", "page#same-heading-2"],
-            "same-heading-1": ["page#same-heading-1"],
-            "same-heading-2": ["page#same-heading-2"],
-        }
+    def test_does_not_register_treeprocessors(self, md: Markdown) -> None:
+        """The Python extension only retains its inline processor."""
+        assert "autorefs-anchors" not in md.treeprocessors
+        assert "autorefs-headings" not in md.treeprocessors
+        assert "mkdocs-autorefs-backlinks" not in md.treeprocessors
+        assert "data-zensical-autoref" not in md.convert("[Foo][foo]")
 
     @pytest.mark.parametrize(
         "md",
-        [
-            pytest.param(
-                {
-                    "config": {
-                        "markdown_extensions": {
-                            "attr_list": {},
-                            "toc": {},
-                            "admonition": {},
-                            "zensical.extensions.autorefs": {},
-                        }
-                    },
-                    "page": _page(),
-                },
-                id="with_admonition",
-            )
-        ],
+        [pytest.param(_autorefs_backlinks(), id="with_backlinks")],
         indirect=["md"],
     )
-    def test_register_anchors_inside_admonition(self, md: Markdown) -> None:
-        """Anchors inside a nested block element are registered separately."""
-        md.convert(
-            dedent("""\
-                [](){#alias1}
-                !!! note
-                    ## Heading foo
-
-                    [](){#alias2}
-                    ## Heading bar
-
-                    [](){#alias3}
-                ## Heading baz
-            """),
-        )
-        assert get_autorefs_page_data("page")["primary"] == {
-            "heading-foo": ["page#heading-foo"],
-            "heading-bar": ["page#heading-bar"],
-            "heading-baz": ["page#heading-baz"],
-            "alias1": ["page#alias1"],
-            "alias2": ["page#heading-bar"],
-            "alias3": ["page#alias3"],
-        }
-
-
-# ---------------------------------------------------------------------------
-# Headings tree processor
-# ---------------------------------------------------------------------------
-
-
-class TestHeadingsTreeprocessor:
-    """Tests for AutorefsHeadingsTreeprocessor.
-
-    The processor scans headings that received an `id` attribute from the
-    `toc` extension and registers them in the `AutorefsStore`.
-    """
-
-    @pytest.mark.parametrize(
-        "md",
-        [
-            pytest.param(
-                _autorefs_toc(page=_page()),
-                id="with_toc",
-            )
-        ],
-        indirect=["md"],
-    )
-    def test_register_heading(self, md: Markdown) -> None:
-        """A single heading is registered under its toc-generated slug."""
-        md.convert("## Foo")
-        assert get_autorefs_page_data("page")["primary"]["foo"] == ["page#foo"]
-
-    @pytest.mark.parametrize(
-        "md",
-        [
-            pytest.param(
-                _autorefs_toc(page=_page()),
-                id="with_toc",
-            )
-        ],
-        indirect=["md"],
-    )
-    def test_register_multiple_headings_at_different_levels(
+    def test_retains_constant_time_mkdocstrings_context_bridge(
         self, md: Markdown
     ) -> None:
-        """All headings across all levels are individually registered."""
-        md.convert("# Top\n\n## Middle\n\n### Bottom")
-        store = get_autorefs_store()
-        assert "top" in store._primary_url_map
-        assert "middle" in store._primary_url_map
-        assert "bottom" in store._primary_url_map
+        """Nested Markdown exposes its object ID without scanning in Python."""
+        processor = md.treeprocessors["mkdocs-autorefs-backlinks"]
+        processor.initial_id = "object-id"
 
-    @pytest.mark.parametrize(
-        "md",
-        [
-            pytest.param(
-                _autorefs_toc(page=_page()),
-                id="with_toc",
-            )
-        ],
-        indirect=["md"],
-    )
-    def test_heading_not_registered_without_id(self, md: Markdown) -> None:
-        """Headings without an `id` attribute (no toc) are not registered."""
-        # Use a raw HTML heading that has no id attribute.
-        md.convert("<h2>No ID heading</h2>")
-        store = get_autorefs_store()
-        assert "no-id-heading" not in store._primary_url_map
-        assert store._primary_url_map == {}
+        html = md.convert("[Foo][foo]")
+
+        assert (
+            "<!--zensical:autoref-context:start:6f626a6563742d6964-->" in html
+        )
+        assert "<!--zensical:autoref-context:end-->" in html
+        assert "data-zensical-autoref" in html
+        assert "backlink-type" not in html
+        assert "backlink-anchor" not in html

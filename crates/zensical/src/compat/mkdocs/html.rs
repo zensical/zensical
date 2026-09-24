@@ -56,6 +56,8 @@ pub struct Editor<'a> {
     input: &'a str,
     /// Edits recorded by visitors.
     edits: Vec<Edit>,
+    /// Whether edits are ordered by their source ranges.
+    sorted: bool,
 }
 
 /// Rewrites page-relative link and media targets between route bases.
@@ -106,9 +108,29 @@ struct Edit {
 // ----------------------------------------------------------------------------
 
 impl<'a> Editor<'a> {
-    /// Creates an editor for an HTML input.
-    fn new(input: &'a str) -> Self {
-        Self { input, edits: Vec::new() }
+    /// Scans HTML once and retains edits for completion after visitors finish.
+    pub fn scan(input: &'a str, visitors: &mut [&mut dyn Visitor]) -> Self {
+        let mut editor = Self {
+            input,
+            edits: Vec::new(),
+            sorted: true,
+        };
+        {
+            let mut emitter = CallbackEmitter::new(
+                |event: CallbackEvent<'_>, span: Span<usize>| {
+                    for visitor in &mut *visitors {
+                        visitor.visit(&event, span, &mut editor);
+                    }
+                    None::<Infallible>
+                },
+            );
+            emitter.naively_switch_states(true);
+
+            Tokenizer::new_with_emitter(input, emitter)
+                .finish()
+                .expect("string input is infallible");
+        }
+        editor
     }
 
     /// Returns original HTML covered by a tokenizer span.
@@ -130,6 +152,7 @@ impl<'a> Editor<'a> {
             range,
             replacement: replacement.into(),
         });
+        self.sorted = false;
     }
 
     /// Removes the complete attribute whose name occupies `span`.
@@ -182,24 +205,38 @@ impl<'a> Editor<'a> {
         self.replace(start..end, Box::default());
     }
 
-    /// Applies all deferred edits in one linear output pass.
-    fn finish(mut self) -> Option<String> {
-        if self.edits.is_empty() {
-            return None;
+    /// Renders edits contained in a source range without consuming them.
+    ///
+    /// An enclosing replacement is excluded, allowing a visitor to retain
+    /// edited inner content when it replaces the surrounding element.
+    pub fn render_range(&mut self, range: Range<usize>) -> Option<String> {
+        assert!(range.start <= range.end && range.end <= self.input.len());
+        if !self.sorted {
+            // Sort once, then use binary searches for individual reference
+            // titles so pages with many references do not rescan every edit.
+            self.edits.sort_by(|left, right| {
+                left.range
+                    .start
+                    .cmp(&right.range.start)
+                    .then_with(|| right.range.end.cmp(&left.range.end))
+            });
+            self.sorted = true;
         }
 
         // Outer edits sort before edits they contain. An outer replacement
         // owns its complete input span, while partially overlapping edits are
         // always a programming error between visitors.
-        self.edits.sort_by(|left, right| {
-            left.range
-                .start
-                .cmp(&right.range.start)
-                .then_with(|| right.range.end.cmp(&left.range.end))
-        });
-
-        let mut edits: Vec<Edit> = Vec::with_capacity(self.edits.len());
-        for edit in self.edits {
+        let start = self
+            .edits
+            .partition_point(|edit| edit.range.start < range.start);
+        let end = self
+            .edits
+            .partition_point(|edit| edit.range.start <= range.end);
+        let mut edits: Vec<&Edit> = Vec::new();
+        for edit in &self.edits[start..end] {
+            if edit.range.end > range.end {
+                continue;
+            }
             if let Some(previous) = edits.last()
                 && edit.range.start < previous.range.end
             {
@@ -217,6 +254,9 @@ impl<'a> Editor<'a> {
             }
             edits.push(edit);
         }
+        if edits.is_empty() {
+            return None;
+        }
 
         let removed = edits.iter().map(|edit| edit.range.len()).sum::<usize>();
         let inserted = edits
@@ -224,9 +264,9 @@ impl<'a> Editor<'a> {
             .map(|edit| edit.replacement.len())
             .sum::<usize>();
         let mut output = String::with_capacity(
-            self.input.len().saturating_sub(removed) + inserted,
+            range.len().saturating_sub(removed) + inserted,
         );
-        let mut cursor = 0;
+        let mut cursor = range.start;
         for edit in edits {
             assert!(self.input.is_char_boundary(edit.range.start));
             assert!(self.input.is_char_boundary(edit.range.end));
@@ -234,8 +274,13 @@ impl<'a> Editor<'a> {
             output.push_str(&edit.replacement);
             cursor = edit.range.end;
         }
-        output.push_str(&self.input[cursor..]);
+        output.push_str(&self.input[cursor..range.end]);
         Some(output)
+    }
+
+    /// Applies all deferred edits in one linear output pass.
+    pub fn finish(mut self) -> Option<String> {
+        self.render_range(0..self.input.len())
     }
 }
 
@@ -335,23 +380,7 @@ impl Visitor for LocalTargets<'_> {
 /// Returns modified HTML only when a visitor recorded an edit, allowing the
 /// caller to retain the original allocation for observational passes.
 pub fn scan(input: &str, visitors: &mut [&mut dyn Visitor]) -> Option<String> {
-    let mut editor = Editor::new(input);
-    {
-        let mut emitter = CallbackEmitter::new(
-            |event: CallbackEvent<'_>, span: Span<usize>| {
-                for visitor in &mut *visitors {
-                    visitor.visit(&event, span, &mut editor);
-                }
-                None::<Infallible>
-            },
-        );
-        emitter.naively_switch_states(true);
-
-        Tokenizer::new_with_emitter(input, emitter)
-            .finish()
-            .expect("string input is infallible");
-    }
-    editor.finish()
+    Editor::scan(input, visitors).finish()
 }
 
 /// Rebases local `href` and `src` attributes between two page routes.
@@ -516,6 +545,24 @@ mod tests {
             scan(input, &mut [&mut remove, &mut replace]).as_deref(),
             Some("slot")
         );
+    }
+
+    #[test]
+    fn renders_nested_edits_before_replacing_the_enclosing_element() {
+        let input = "<replace><span data-remove>Label</span></replace>";
+        let mut remove = RemoveDataAttribute;
+        let mut replace = ReplaceElement::default();
+        let inner =
+            input.find("<span").unwrap()..input.find("</replace>").unwrap();
+
+        let mut editor = Editor::scan(input, &mut [&mut remove, &mut replace]);
+        let title = editor.render_range(inner);
+        let output = editor.finish();
+
+        // A reference renderer can retain the edited title even though its
+        // enclosing element is replaced with a slot in the shared output.
+        assert_eq!(title.as_deref(), Some("<span>Label</span>"));
+        assert_eq!(output.as_deref(), Some("slot"));
     }
 
     #[test]

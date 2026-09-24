@@ -231,7 +231,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
     revision
         .insert(
-            Key::<Id>::from_iter(std::iter::empty()),
+            std::iter::empty().collect::<Key<Id>>(),
             Configuration::new(config.clone(), strict),
         )
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
@@ -448,7 +448,7 @@ mod tests {
     use std::fs;
     use tempfile::tempdir;
     use zrx::id::Id;
-    use zrx::stream::{Key, Workflow};
+    use zrx::stream::Workflow;
 
     use super::{clear_dir, unresolved_failures};
 
@@ -464,9 +464,7 @@ mod tests {
         let mut runner = workflow.runner().unwrap();
         let input = runner.input::<u64>().unwrap();
         let mut revision = input.begin().unwrap();
-        revision
-            .insert(Key::from_iter(std::iter::empty()), 1)
-            .unwrap();
+        revision.insert(std::iter::empty().collect(), 1).unwrap();
         let _input = revision.seal().unwrap();
         let _run = runner.settle().unwrap();
 
