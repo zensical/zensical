@@ -30,9 +30,11 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 
 mod blog;
+mod rss;
 mod tags;
 
 pub use blog::{BlogPlugin, BlogPluginConfig, CategorySort, ExcerptPolicy};
+pub use rss::{RssDateConfig, RssPlugin, RssPluginConfig};
 pub use tags::{
     python_bool, python_float, python_scalar, TagsListingConfig, TagsPlugin,
     TagsPluginConfig,
@@ -66,6 +68,8 @@ pub struct Plugins {
     pub tags: TagsPlugin,
     /// Material blog plugin instances.
     pub blogs: BlogPlugin,
+    /// RSS feed plugin instances.
+    pub rss: RssPlugin,
     /// Literate navigation plugin.
     pub literate_nav: LiterateNavPlugin,
     /// Awesome navigation plugin.

@@ -440,6 +440,11 @@ impl Page {
         &self.source
     }
 
+    /// Returns a module-derived page property without serializing the page.
+    pub fn property(&self, name: &str) -> Option<&Dynamic> {
+        self.properties.get(name)
+    }
+
     /// Adds module-derived template context to a page-render cache key.
     pub fn hash_derived_template_context<H: Hasher>(&self, state: &mut H) {
         self.template_variables.hash(state);

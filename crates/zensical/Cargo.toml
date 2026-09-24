@@ -55,6 +55,7 @@ html5gum.workspace = true
 icu_casemap.workspace = true
 icu_locale_core.workspace = true
 icu_normalizer.workspace = true
+jiff.workspace = true
 minijinja = { workspace = true, features = [
   "json", "loader", "builtins", "urlencode"
 ] }

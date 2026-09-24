@@ -28,11 +28,14 @@ import hashlib
 import importlib
 import os
 import pickle
+import re
+from datetime import datetime
 from importlib.metadata import EntryPoint, entry_points
 from importlib.util import find_spec
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, cast
 from urllib.parse import urljoin, urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from click import ClickException
@@ -157,6 +160,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
     ),
     "offline": (),
     "redirects": (),
+    "rss": (),
     "search": (
         "fields",
         "indexing",
@@ -1529,11 +1533,152 @@ def _validate_string_options(
             raise ConfigurationError(f"{label} {name} must be a string")
 
 
+def _normalize_rss(raw: dict[str, Any]) -> dict[str, Any]:
+    """Validate and fill the MkDocs RSS plugin's supported settings."""
+    rss = dict(raw)
+    defaults: dict[str, Any] = {
+        "enabled": True,
+        "abstract_chars_count": 160,
+        "abstract_delimiter": "<!-- more -->",
+        "categories": [],
+        "comments_path": None,
+        "feed_description": None,
+        "feed_title": None,
+        "feed_ttl": 1440,
+        "image": None,
+        "json_feed_enabled": True,
+        "length": 20,
+        "match_path": ".*",
+        "pretty_print": False,
+        "rss_feed_enabled": True,
+        "stylesheet": "auto",
+        "url_parameters": {},
+        "use_git": True,
+        "use_material_blog": True,
+        "use_material_social_cards": True,
+    }
+    _reject_unknown_options(
+        "rss",
+        rss,
+        set(defaults) | {"cache_dir", "date_from_meta", "feeds_filenames"},
+    )
+    # Upstream only uses cache_dir for remote image requests. Feed generation
+    # does not make network requests, so the setting has no native effect.
+    cache_dir = rss.pop("cache_dir", None)
+    if cache_dir is not None and not isinstance(cache_dir, str):
+        raise ConfigurationError("rss cache_dir must be a string")
+    for name, value in defaults.items():
+        rss.setdefault(name, value)
+    _validate_boolean_options(
+        "rss",
+        rss,
+        (
+            "enabled",
+            "json_feed_enabled",
+            "pretty_print",
+            "rss_feed_enabled",
+            "use_git",
+            "use_material_blog",
+            "use_material_social_cards",
+        ),
+    )
+    _validate_string_options(
+        "rss", rss, ("abstract_delimiter", "match_path", "stylesheet")
+    )
+    for name in ("comments_path", "feed_description", "feed_title", "image"):
+        if rss[name] is not None and not isinstance(rss[name], str):
+            raise ConfigurationError(f"rss {name} must be a string")
+    for name in ("abstract_chars_count", "feed_ttl", "length"):
+        if isinstance(rss[name], bool) or not isinstance(rss[name], int):
+            raise ConfigurationError(f"rss {name} must be an integer")
+    if (
+        rss["abstract_chars_count"] < -1
+        or rss["feed_ttl"] < 0
+        or rss["length"] < 0
+    ):
+        raise ConfigurationError(
+            "rss abstract_chars_count must be at least -1; "
+            "feed_ttl and length must be non-negative"
+        )
+    if not isinstance(rss["categories"], list) or not all(
+        isinstance(value, str) for value in rss["categories"]
+    ):
+        raise ConfigurationError("rss categories must be a list of strings")
+    if not isinstance(rss["url_parameters"], dict) or not all(
+        isinstance(key, str) and isinstance(value, (str, int, float, bool))
+        for key, value in rss["url_parameters"].items()
+    ):
+        raise ConfigurationError(
+            "rss url_parameters must be a mapping of scalar values"
+        )
+    rss["url_parameters"] = [
+        (key, str(value)) for key, value in rss["url_parameters"].items()
+    ]
+    try:
+        re.compile(rss["match_path"])
+    except re.error as error:
+        raise ConfigurationError(f"invalid rss match_path: {error}") from error
+    dates = rss.get("date_from_meta") or {}
+    if not isinstance(dates, dict):
+        raise ConfigurationError("rss date_from_meta must be a mapping")
+    date_defaults = {
+        "as_creation": "git",
+        "as_update": "git",
+        "datetime_format": "%Y-%m-%d %H:%M",
+        "default_time": "00:00",
+        "default_timezone": "UTC",
+    }
+    _reject_unknown_options("rss date_from_meta", dates, set(date_defaults))
+    rss["date_from_meta"] = {**date_defaults, **dates}
+    for name in ("as_creation", "as_update"):
+        if isinstance(rss["date_from_meta"][name], bool):
+            rss["date_from_meta"][name] = "git"
+    _validate_string_options(
+        "rss date_from_meta", rss["date_from_meta"], date_defaults
+    )
+    try:
+        datetime.strptime(  # noqa: DTZ007 - validates only a clock time
+            rss["date_from_meta"]["default_time"], "%H:%M"
+        )
+        ZoneInfo(rss["date_from_meta"]["default_timezone"])
+    except (ValueError, ZoneInfoNotFoundError) as error:
+        raise ConfigurationError(
+            f"invalid rss date_from_meta: {error}"
+        ) from error
+    filenames = rss.get("feeds_filenames") or {}
+    if not isinstance(filenames, dict):
+        raise ConfigurationError("rss feeds_filenames must be a mapping")
+    filename_defaults = {
+        "json_created": "feed_json_created.json",
+        "json_updated": "feed_json_updated.json",
+        "rss_created": "feed_rss_created.xml",
+        "rss_updated": "feed_rss_updated.xml",
+    }
+    _reject_unknown_options(
+        "rss feeds_filenames", filenames, set(filename_defaults)
+    )
+    rss["feeds_filenames"] = {**filename_defaults, **filenames}
+    _validate_string_options(
+        "rss feeds_filenames", rss["feeds_filenames"], filename_defaults
+    )
+    for filename in rss["feeds_filenames"].values():
+        if (
+            not filename
+            or filename.startswith("/")
+            or any(part in ("", ".", "..") for part in filename.split("/"))
+        ):
+            raise ConfigurationError(f"invalid rss feed filename: {filename}")
+    # Accept the upstream option until native social metadata is available.
+    rss.pop("use_material_social_cards")
+    return rss
+
+
 def _convert_plugins(value: Any, config: dict) -> dict:
     """Convert plugins configuration to something we can work with."""
     plugins: dict[str, Any] = {}
     tags: list[dict[str, Any]] = []
     blogs: list[dict[str, Any]] = []
+    rss: list[dict[str, Any]] = []
 
     def add(name: Any, data: Any) -> None:
         """Canonicalize Material aliases while preserving tag instances."""
@@ -1555,6 +1700,8 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             tags.append({"name": name, "config": data})
         elif name == "blog":
             blogs.append({"name": name, "config": data})
+        elif name == "rss":
+            rss.append({"name": name, "config": _normalize_rss(data)})
         else:
             plugins[name] = data
 
@@ -1584,6 +1731,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     plugins["tags"] = tags
     plugins["blogs"] = blogs
 
+    plugins["rss"] = rss
     # Search is enabled by default, even when it isn't explicitly configured.
     search = plugins.pop("search", {})
     _reject_unknown_options("search", search, {"enabled", "separator"})
