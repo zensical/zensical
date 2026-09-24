@@ -243,6 +243,11 @@ impl Blog {
         }
     }
 
+    /// Returns whether no native blog instances are enabled.
+    pub fn is_empty(&self) -> bool {
+        self.instances.is_empty()
+    }
+
     /// Routes posts before Markdown rendering and preserves ordinary pages.
     pub fn setup(&self, dependencies: Dependencies<'_>) -> Output {
         let blog = self.clone();

@@ -139,6 +139,65 @@ def test_posts_are_routed_from_dates_and_native_unicode_slugs(
     assert not (tmp_path / "site" / "blog" / "posts" / "hello").exists()
 
 
+@pytest.mark.parametrize(
+    ("source_name", "link_name"),
+    [
+        ("first.md", "first.md"),
+        ("café.md", "café.md"),
+        ("café.md", "caf%C3%A9.md"),
+    ],
+)
+def test_source_links_follow_published_post_routes(
+    tmp_path: Path, source_name: str, link_name: str
+) -> None:
+    config = _project(tmp_path)
+    (tmp_path / "docs" / "index.md").write_text(
+        f"[First](blog/posts/{link_name}#details)\n", encoding="utf-8"
+    )
+    _post(
+        tmp_path,
+        source_name,
+        "First post",
+        "2024-09-01",
+        body="## Details\n\nBody.",
+    )
+    _post(
+        tmp_path,
+        "second.md",
+        "Second post",
+        "2024-09-02",
+        body=f"[First]({link_name}#details)",
+    )
+
+    zensical.build(str(config), {"clean": False, "strict": True})
+
+    site = tmp_path / "site"
+    home = (site / "index.html").read_text("utf-8")
+    second = site.joinpath(
+        "blog", "2024", "09", "02", "second-post", "index.html"
+    ).read_text("utf-8")
+    assert 'href="blog/2024/09/01/first-post/#details"' in home
+    assert 'href="../../01/first-post/#details"' in second
+    assert "blog/posts/first/" not in home + second
+
+    _post(
+        tmp_path,
+        source_name,
+        "Renamed post",
+        "2024-08-31",
+        body="## Details\n\nBody.",
+    )
+    zensical.build(str(config), {"clean": False, "strict": True})
+
+    home = (site / "index.html").read_text("utf-8")
+    second = site.joinpath(
+        "blog", "2024", "09", "02", "second-post", "index.html"
+    ).read_text("utf-8")
+    assert 'href="blog/2024/08/31/renamed-post/#details"' in home
+    assert 'href="../../../08/31/renamed-post/#details"' in second
+    assert "first-post/" not in home + second
+
+
 def test_post_anchor_aliases_survive_routing(tmp_path: Path) -> None:
     """An empty Markdown link still aliases the next heading after routing."""
     config = _project(tmp_path)
@@ -243,6 +302,9 @@ def test_single_page_keeps_empty_pagination_context(tmp_path: Path) -> None:
 def test_serve_reconciles_routes_views_and_pagination(tmp_path: Path) -> None:
     """Retained blog revisions retract every superseded output."""
     config = _project(tmp_path, per_page=1, archive=True, categories=True)
+    (tmp_path / "docs" / "index.md").write_text(
+        "[One](blog/posts/one.md)\n", encoding="utf-8"
+    )
     with config.open("a", encoding="utf-8") as stream:
         stream.write("dev_addr: 127.0.0.1:0\n")
     _post(
@@ -258,6 +320,7 @@ def test_serve_reconciles_routes_views_and_pagination(tmp_path: Path) -> None:
         "Two",
         "2026-09-02",
         categories=["Alpha"],
+        body="[One](one.md)",
     )
     log = (tmp_path / "serve.log").open("w+", encoding="utf-8")
     process = subprocess.Popen(  # noqa: S603
@@ -274,6 +337,7 @@ def test_serve_reconciles_routes_views_and_pagination(tmp_path: Path) -> None:
         stderr=subprocess.STDOUT,
     )
     site = tmp_path / "site" / "blog"
+    home = tmp_path / "site" / "index.html"
     index = site / "index.html"
     second = site / "page" / "2" / "index.html"
     one = site / "2026" / "09" / "01" / "one" / "index.html"
@@ -314,6 +378,8 @@ def test_serve_reconciles_routes_views_and_pagination(tmp_path: Path) -> None:
                 and one.is_file()
                 and contains(index, "Two:")
                 and contains(second, "One:")
+                and contains(home, 'href="blog/2026/09/01/one/"')
+                and contains(two, 'href="../../01/one/"')
             )
         )
         _post(
@@ -330,6 +396,8 @@ def test_serve_reconciles_routes_views_and_pagination(tmp_path: Path) -> None:
                 and beta.is_file()
                 and contains(index, "Moved:")
                 and contains(second, "Two:")
+                and contains(home, 'href="blog/2026/09/03/moved/"')
+                and contains(two, 'href="../../03/moved/"')
             )
         )
         (tmp_path / "docs" / "blog" / "posts" / "two.md").unlink()
