@@ -50,6 +50,7 @@ from zensical.extensions.autorefs import AutorefsExtension
 from zensical.extensions.emoji import to_svg, twemoji
 from zensical.extensions.glightbox import GlightboxExtension
 from zensical.extensions.macros import MacrosExtension
+from zensical.extensions.media import MediaExtension
 from zensical.extensions.mkdocstrings import MkdocstringsExtension
 from zensical.extensions.table_reader import TABLE_READERS, TableReaderExtension
 
@@ -149,7 +150,9 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
         "javascript_dir",
     ),
     "minify": (),
+    "mkdocs-audio": (),
     "mkdocs-autoapi": (),
+    "mkdocs-video": (),
     "mkdocstrings": (
         # TODO: Merge the removed plugin watch setting into project.watch.
         "watch",
@@ -813,6 +816,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     _shim_gh_admonitions(config)
     _shim_markdown_exec(config)
     _shim_glightbox(config)
+    _shim_media(config)
     _shim_macros(config)
     _shim_table_reader(config)
 
@@ -1094,6 +1098,40 @@ def _shim_glightbox(config: dict[str, Any]) -> None:
         if plugin.get("enabled", True):
             config["markdown_extensions"].append(GlightboxExtension.name)
             config["mdx_configs"][GlightboxExtension.name] = plugin
+
+
+def _shim_media(config: dict[str, Any]) -> None:
+    """Map the audio and video plugins onto one Markdown extension."""
+    plugins = config["plugins"]
+    present = any(name in plugins for name in ("mkdocs-video", "mkdocs-audio"))
+    if not present:
+        return
+
+    name = MediaExtension.name
+    direct = name in config["markdown_extensions"]
+    if not direct:
+        config["markdown_extensions"].append(name)
+    media = config["mdx_configs"].setdefault(name, {})
+    if "mkdocs-video" in plugins and "mkdocs-audio" in plugins:
+        media.setdefault(
+            "order",
+            [
+                "video" if plugin_name == "mkdocs-video" else "audio"
+                for plugin_name in plugins
+                if plugin_name in {"mkdocs-video", "mkdocs-audio"}
+            ],
+        )
+
+    for kind, plugin_name in (
+        ("video", "mkdocs-video"),
+        ("audio", "mkdocs-audio"),
+    ):
+        settings = media.setdefault(kind, {})
+        if plugin_name in plugins:
+            for option, value in plugins[plugin_name]["config"].items():
+                settings.setdefault(option, value)
+        if not direct:
+            settings.setdefault("enabled", plugin_name in plugins)
 
 
 def _shim_macros(config: dict[str, Any]) -> None:
@@ -2467,6 +2505,38 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             raise ConfigurationError(
                 "glightbox manual must be a boolean or null"
             )
+
+    # These plugins only transform rendered Markdown images. Their settings
+    # are forwarded to the corresponding section of the media extension.
+    for name, string_options, boolean_options in (
+        (
+            "mkdocs-video",
+            {"mark", "video_type"},
+            {
+                "enabled",
+                "is_video",
+                "video_muted",
+                "video_loop",
+                "video_controls",
+                "video_autoplay",
+            },
+        ),
+        (
+            "mkdocs-audio",
+            {"mark", "audio_type"},
+            {"enabled", "audio_loop", "audio_controls", "audio_autoplay"},
+        ),
+    ):
+        if name not in plugins:
+            continue
+        media = plugins[name]
+        _reject_unknown_options(
+            name, media, string_options | boolean_options | {"css_style"}
+        )
+        _validate_string_options(name, media, string_options)
+        _validate_boolean_options(name, media, boolean_options)
+        if "css_style" in media and not isinstance(media["css_style"], dict):
+            raise ConfigurationError(f"{name} css_style must be a mapping")
 
     if "macros" in plugins:
         macros = plugins["macros"]
