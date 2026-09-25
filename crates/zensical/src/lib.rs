@@ -321,7 +321,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
                                 key[0].location().parse::<SourcePath>()
                             && path.extension() == Some("md")
                             && !path.is_hidden()
-                            && has_snippets(&fs::read_to_string(&**source)?)
+                            && has_snippets(&source.read_to_string()?)
                         {
                             snippets.insert(key.clone(), source.clone());
                         }

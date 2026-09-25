@@ -639,7 +639,7 @@ fn read_documents(
         if source.is_hidden() {
             return Ok(None);
         }
-        let data = fs::read_to_string(&*input.source)?;
+        let data = input.source.read_to_string()?;
         let (body, page_meta) = meta::front_matter(&source, &data)?;
         let resolved = input.metadata.resolve(&source, page_meta)?;
         Ok::<_, anyhow::Error>(Some(DocumentHeader::new(
