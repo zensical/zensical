@@ -77,6 +77,8 @@ pub(super) struct Section {
     pub(super) title: Option<String>,
     pub(super) children: Vec<NavigationItem>,
     pub(super) autonav: bool,
+    pub(super) nav_item_prefix: String,
+    pub(super) show_full_namespace: bool,
     pub(super) generated: bool,
 }
 

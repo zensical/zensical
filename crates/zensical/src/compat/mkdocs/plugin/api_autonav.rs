@@ -97,6 +97,21 @@ pub fn generate(
                 }
                 let content = module_markdown(auto, &parts)?;
                 sources.add(&path, content, None, false)?;
+                if config.project.plugins.awesome_nav.config.enabled
+                    && let Some(directory) = path.strip_suffix("/index.md")
+                {
+                    let title = if auto.show_full_namespace {
+                        &identifier
+                    } else {
+                        parts.last().unwrap()
+                    };
+                    sources.add(
+                        &format!("{directory}/.nav.yml"),
+                        format!("title: {}\n", serde_json::to_string(title)?),
+                        None,
+                        true,
+                    )?;
+                }
                 tree.insert(&parts, path);
             }
         }
@@ -109,6 +124,8 @@ pub fn generate(
                 &[],
             ),
             autonav: true,
+            nav_item_prefix: auto.nav_item_prefix.clone(),
+            show_full_namespace: auto.show_full_namespace,
             generated: true,
         });
     }

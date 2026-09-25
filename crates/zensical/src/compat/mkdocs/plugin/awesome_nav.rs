@@ -23,11 +23,10 @@
 
 // ----------------------------------------------------------------------------
 
-//! Native compatibility pipeline for filesystem-backed awesome navigation.
+//! Native compatibility pipeline for awesome navigation.
 
 use anyhow::{bail, Context, Result};
 use std::collections::BTreeMap;
-use std::fs;
 use std::sync::Arc;
 
 use zrx::id::Id;
@@ -65,12 +64,11 @@ enum Level {
 #[derive(Clone, Debug)]
 pub struct AwesomeNav {
     settings: Arc<Settings>,
-    api: Arc<crate::compat::mkdocs::apidocs::Snapshot>,
 }
 
 /// Inputs required to derive revision-complete navigation.
 pub struct Dependencies<'a> {
-    /// Physical sources, including `.nav.yml` control files.
+    /// Documentation sources, including `.nav.yml` control files.
     pub sources: &'a Stream<Id, Source>,
     /// Rendered documentation pages.
     pub pages: &'a Stream<Id, Page>,
@@ -130,7 +128,6 @@ impl AwesomeNav {
             bail!("awesome-nav filename must not be empty")
         }
         Ok(Self {
-            api: config.api.clone(),
             settings: Arc::new(Settings {
                 enabled: plugin.enabled,
                 docs: config.project.docs_dir.clone(),
@@ -162,10 +159,9 @@ impl AwesomeNav {
                 if !is_config_file(&path, &settings.filename) {
                     return Ok(None);
                 }
-                let content =
-                    fs::read_to_string(&**source).with_context(|| {
-                        format!("failed to read awesome-nav file {path}")
-                    })?;
+                let content = source.read_to_string().with_context(|| {
+                    format!("failed to read awesome-nav file {path}")
+                })?;
                 Ok::<_, anyhow::Error>(Some(Document { path, content }))
             }
         });
@@ -189,14 +185,12 @@ impl AwesomeNav {
                 Some(Pages(Arc::new(pages.values().cloned().collect())))
             },
         );
-        let api = self.api.clone();
         let navigation = pages.product(&documents).map(
             move |pages: &Pages, documents: &Documents| {
-                let ordinary = api.ordinary_pages(&pages.0);
                 let (navigation, diagnostics) =
-                    resolver::resolve(&settings, &documents.0, &ordinary)?;
+                    resolver::resolve(&settings, &documents.0, &pages.0)?;
                 report(&diagnostics, settings.strict)?;
-                Ok::<_, anyhow::Error>(api.awesome(&navigation, &pages.0))
+                Ok::<_, anyhow::Error>(navigation)
             },
         );
         navigation.reduce(

@@ -66,9 +66,6 @@ pub fn generate(config: &Config, sources: &mut Snapshot) -> Result<()> {
             for file in files {
                 let relative = file.strip_prefix(&root)?;
                 sources.observe(&file)?;
-                if ignores.iter().any(|pattern| pattern.is_match(relative)) {
-                    continue;
-                }
                 if let Some(priority) = patterns
                     .iter()
                     .position(|pattern| pattern.is_match(relative))
@@ -87,6 +84,11 @@ pub fn generate(config: &Config, sources: &mut Snapshot) -> Result<()> {
                 &root
             };
             for (_, (_, file)) in selected {
+                // Ignore the preferred source without falling back to another extension.
+                let relative = file.strip_prefix(&root)?;
+                if ignores.iter().any(|pattern| pattern.is_match(relative)) {
+                    continue;
+                }
                 let relative = file.strip_prefix(base)?;
                 let (parts, path) =
                     module_path(relative, &auto.autoapi_root, false)?;
@@ -125,6 +127,8 @@ pub fn generate(config: &Config, sources: &mut Snapshot) -> Result<()> {
             title,
             children: tree.items("", false, &[]),
             autonav: false,
+            nav_item_prefix: String::new(),
+            show_full_namespace: false,
             generated: auto.autoapi_generate_api_docs,
         });
     }

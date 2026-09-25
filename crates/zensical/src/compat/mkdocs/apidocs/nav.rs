@@ -25,7 +25,7 @@
 
 //! Navigation plans for generated API pages.
 use super::{under, Section, Snapshot};
-use crate::structure::nav::{Navigation, NavigationItem, NavigationResolution};
+use crate::structure::nav::{Navigation, NavigationItem};
 use crate::structure::page::Page;
 use anyhow::{bail, Result};
 use std::collections::BTreeMap;
@@ -62,7 +62,9 @@ impl Snapshot {
         };
         for section in &self.sections {
             let mut children = section.children.clone();
-            if !section.generated {
+            if configured.is_empty() && section.autonav {
+                children = automatic_children(section, pages);
+            } else if !section.generated {
                 children = unresolved(
                     &Navigation::from(
                         pages
@@ -93,41 +95,57 @@ impl Snapshot {
         }
         Ok(items)
     }
+}
 
-    /// Appends API navigation after awesome-nav resolves ordinary pages.
-    pub fn awesome(
-        &self, resolution: &NavigationResolution, pages: &[Page],
-    ) -> NavigationResolution {
-        if self.sections.is_empty() {
-            return resolution.clone();
-        }
-        let mut items = unresolved(&resolution.navigation, pages);
-        for section in &self.sections {
-            if let Some(title) = &section.title {
-                items.push(item(
-                    Some(title.clone()),
-                    None,
-                    section.children.clone(),
+/// Uses all pages under the API root, including handwritten documentation.
+fn automatic_children(
+    section: &Section, pages: &[Page],
+) -> Vec<NavigationItem> {
+    fn titles(
+        items: &mut [NavigationItem], section: &Section, ancestors: &[String],
+    ) {
+        for item in items {
+            if item.url.is_none() {
+                let name = item
+                    .title
+                    .as_deref()
+                    .unwrap_or_default()
+                    .to_lowercase()
+                    .replace(' ', "_");
+                let mut parts = ancestors.to_vec();
+                parts.push(name.clone());
+                item.title = Some(format!(
+                    "{}{}",
+                    section.nav_item_prefix,
+                    if section.show_full_namespace {
+                        parts.join(".")
+                    } else {
+                        name
+                    },
                 ));
+                titles(&mut item.children, section, &parts);
             }
         }
-        Navigation::resolve(items, pages.to_vec())
     }
 
-    /// Excludes automatically grouped API pages from awesome-nav's own scan.
-    pub fn ordinary_pages(&self, pages: &[Page]) -> Vec<Page> {
+    let navigation = Navigation::from(
         pages
             .iter()
-            .filter(|page| {
-                !self.sections.iter().any(|section| {
-                    section.title.is_some()
-                        && under(page.source().as_str(), &section.root)
-                        && self.files.contains_key(page.source())
-                })
-            })
+            .filter(|page| under(page.source().as_str(), &section.root))
             .cloned()
-            .collect()
+            .collect::<Vec<_>>(),
+    );
+    let mut items = unresolved(&navigation, pages);
+    // The API section replaces the directory wrappers created by automatic navigation.
+    for _ in section.root.split('/') {
+        items = items
+            .into_iter()
+            .next()
+            .map(|item| item.children)
+            .unwrap_or_default();
     }
+    titles(&mut items, section, &[]);
+    items
 }
 
 fn replace_section(
@@ -136,10 +154,11 @@ fn replace_section(
 ) -> Result<bool> {
     let mut found = false;
     for entry in items {
-        let directory = entry
-            .url
-            .as_deref()
-            .is_some_and(|url| url.trim_end_matches('/') == section.root);
+        let directory = !section.autonav
+            && entry
+                .url
+                .as_deref()
+                .is_some_and(|url| url.trim_end_matches('/') == section.root);
         let title =
             section.autonav && entry.title.as_ref() == section.title.as_ref();
         let placeholder = section.autonav
@@ -301,6 +320,8 @@ mod tests {
             title: Some("API".into()),
             children: vec![],
             autonav: true,
+            nav_item_prefix: String::new(),
+            show_full_namespace: false,
             generated: true,
         };
         let mut items = vec![item(

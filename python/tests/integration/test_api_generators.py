@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 
 import pytest
 import yaml
+from bs4 import BeautifulSoup
 
 import zensical
 
@@ -78,6 +79,35 @@ def project(
 
 def build(path: Path, *, strict: bool = True) -> None:
     zensical.build(str(path), {"clean": False, "strict": strict})
+
+
+def navigation_template(config: Path) -> None:
+    """Render navigation entries with their depth, title, and URL."""
+    overrides = config.parent / "overrides"
+    overrides.mkdir()
+    (overrides / "main.html").write_text(
+        """\
+{% macro render(items, depth) %}
+{% for item in items %}
+<item depth="{{ depth }}" title="{{ (item.title or '') | e }}"
+      url="{{ (item.url or '') | e }}" />
+{{ render(item.children, depth + 1) }}
+{% endfor %}
+{% endmacro %}
+{{ render(nav.items, 0) }}
+"""
+    )
+    data = yaml.safe_load(config.read_text())
+    data["theme"]["custom_dir"] = "overrides"
+    config.write_text(yaml.safe_dump(data, sort_keys=False))
+
+
+def navigation_items(root: Path) -> list[tuple[int, str, str]]:
+    soup = BeautifulSoup((root / "site/index.html").read_text(), "html.parser")
+    return [
+        (int(str(item["depth"])), str(item["title"]), str(item["url"]))
+        for item in soup.find_all("item")
+    ]
 
 
 @pytest.mark.parametrize(
@@ -138,6 +168,101 @@ def test_autoapi_patterns_stubs_keep_and_manual_navigation(
     home = (tmp_path / "site/index.html").read_text()
     assert "Manual API" in home
     assert "API Reference" not in home
+
+
+@pytest.mark.parametrize("preferred", ["py", "pyi"])
+@pytest.mark.parametrize("source_root", ["src", "src/sample"])
+def test_autoapi_excludes_preferred_source_without_falling_back(
+    tmp_path: Path, preferred: str, source_root: str
+) -> None:
+    fallback = "pyi" if preferred == "py" else "py"
+    ignored = (
+        f"**/public.{preferred}"
+        if source_root == "src"
+        else f"public.{preferred}"
+    )
+    config = project(
+        tmp_path,
+        "mkdocs-autoapi",
+        {
+            "autoapi_dir": source_root,
+            "autoapi_file_patterns": [f"*.{preferred}", f"*.{fallback}"],
+            "autoapi_ignore": [ignored, "**/index.py"],
+            "autoapi_keep_files": True,
+        },
+    )
+    (tmp_path / "src/sample/public.pyi").write_text(
+        '"""Stub documentation."""\n'
+    )
+
+    build(config)
+
+    # Excluding the selected extension must exclude the module altogether.
+    assert (tmp_path / "docs/autoapi/sample/index.md").exists()
+    assert not (tmp_path / "docs/autoapi/sample/public.md").exists()
+    assert not (tmp_path / "site/autoapi/sample/public/index.html").exists()
+    assert "public" not in (tmp_path / "docs/autoapi/summary.md").read_text()
+
+
+@pytest.mark.parametrize("api_root", ["reference", "api/reference"])
+def test_autonav_preserves_handwritten_pages_in_automatic_navigation(
+    tmp_path: Path, api_root: str
+) -> None:
+    config = project(
+        tmp_path,
+        "api-autonav",
+        {
+            "modules": ["src/sample"],
+            "api_root_uri": api_root,
+            "nav_item_prefix": "MOD ",
+            "show_full_namespace": True,
+        },
+    )
+    directory = tmp_path / "docs" / api_root
+    (directory / "sample/topics").mkdir(parents=True)
+    (directory / "overview.md").write_text("# API overview\n")
+    (directory / "sample/guide.md").write_text("# Package guide\n")
+    (directory / "sample/topics/start.md").write_text("# Getting started\n")
+    navigation_template(config)
+
+    build(config)
+
+    # Automatic navigation includes every page, with API section titles applied.
+    assert navigation_items(tmp_path) == [
+        (0, "Home", ""),
+        (0, "API Reference", ""),
+        (1, "API overview", f"{api_root}/overview/"),
+        (1, "MOD sample", ""),
+        (2, "sample", f"{api_root}/sample/"),
+        (2, "Package guide", f"{api_root}/sample/guide/"),
+        (2, "sample.index", f"{api_root}/sample/index_py/"),
+        (2, "sample.public", f"{api_root}/sample/public/"),
+        (2, "MOD sample.topics", ""),
+        (3, "Getting started", f"{api_root}/sample/topics/start/"),
+    ]
+
+
+def test_autonav_preserves_directory_links_with_a_different_title(
+    tmp_path: Path,
+) -> None:
+    config = project(
+        tmp_path,
+        "api-autonav",
+        {"modules": ["src/sample"], "nav_item_prefix": ""},
+        nav=[{"Home": "index.md"}, {"Manual docs": "reference/"}],
+    )
+    navigation_template(config)
+
+    build(config)
+
+    # Only the configured API section title is an Autonav placeholder.
+    items = navigation_items(tmp_path)
+    assert items[:3] == [
+        (0, "Home", ""),
+        (0, "Manual docs", "reference/"),
+        (0, "API Reference", ""),
+    ]
+    assert (2, "public", "reference/sample/public/") in items
 
 
 @pytest.mark.parametrize(
@@ -203,17 +328,74 @@ def test_namespace_policy(tmp_path: Path, policy: str) -> None:
         assert (tmp_path / "site/reference/sample/public/index.html").exists()
 
 
-def test_autonav_with_awesome_nav(tmp_path: Path) -> None:
+@pytest.mark.parametrize("full_namespace", [False, True])
+def test_autonav_with_awesome_nav(tmp_path: Path, full_namespace: bool) -> None:
     config = project(
         tmp_path,
         "api-autonav",
-        {"modules": ["src/sample"]},
+        {
+            "modules": ["src/sample"],
+            "show_full_namespace": full_namespace,
+            "nav_item_prefix": "MOD ",
+        },
         extra_plugins=["awesome-nav"],
     )
+    package = tmp_path / "src/sample/sub_package"
+    package.mkdir()
+    (package / "__init__.py").write_text('"""Subpackage documentation."""\n')
+    (package / "child.py").write_text('"""Child module documentation."""\n')
+    navigation_template(config)
+
     build(config)
-    home = (tmp_path / "site/index.html").read_text()
-    assert "API Reference" in home
-    assert "reference/sample/public/" in home
+
+    # Awesome-nav uses its own root title and the generated package titles.
+    items = navigation_items(tmp_path)
+    assert items[:3] == [
+        (0, "Home", ""), (0, "Reference", ""), (1, "sample", "")
+    ]
+    assert (
+        2, "sample.public" if full_namespace else "public",
+        "reference/sample/public/",
+    ) in items
+    assert (
+        2, "sample.sub_package" if full_namespace else "sub_package", "",
+    ) in items
+    assert not (tmp_path / "docs/reference").exists()
+    assert not list((tmp_path / "site").rglob(".nav.yml"))
+
+
+@pytest.mark.parametrize("plugin", ["mkdocs-autoapi", "api-autonav"])
+@pytest.mark.parametrize("control", ["hide: true\n", "nav:\n  - overview.md\n"])
+def test_awesome_nav_controls_generated_api_pages(
+    tmp_path: Path, plugin: str, control: str
+) -> None:
+    options = (
+        {
+            "autoapi_dir": "src",
+            "autoapi_root": "reference",
+            "autoapi_ignore": ["**/index.py"],
+        }
+        if plugin == "mkdocs-autoapi"
+        else {"modules": ["src/sample"]}
+    )
+    config = project(tmp_path, plugin, options, extra_plugins=["awesome-nav"])
+    directory = tmp_path / "docs/reference"
+    directory.mkdir()
+    (directory / ".nav.yml").write_text(control)
+    (directory / "overview.md").write_text("# API overview\n")
+    navigation_template(config)
+
+    build(config)
+
+    # API pages still build, but awesome-nav controls their navigation entries.
+    assert (tmp_path / "site/reference/sample/public/index.html").exists()
+    expected = [(0, "Home", "")]
+    if control.startswith("nav:"):
+        expected.extend([
+            (0, "Reference", ""),
+            (1, "API overview", "reference/overview/"),
+        ])
+    assert navigation_items(tmp_path) == expected
 
 
 def test_autonav_index_module_and_source_rebuild(tmp_path: Path) -> None:
@@ -417,6 +599,7 @@ def test_autonav_preserves_root_order_and_uses_last_matching_options(
                 ".*": {"heading_level": 2, "show_root_heading": True},
             },
         },
+        nav=["API Reference"],
     )
     for name in ("zeta", "alpha"):
         directory = tmp_path / "src" / name
