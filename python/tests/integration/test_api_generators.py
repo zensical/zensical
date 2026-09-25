@@ -351,14 +351,19 @@ def test_autonav_with_awesome_nav(tmp_path: Path, full_namespace: bool) -> None:
     # Awesome-nav uses its own root title and the generated package titles.
     items = navigation_items(tmp_path)
     assert items[:3] == [
-        (0, "Home", ""), (0, "Reference", ""), (1, "sample", "")
+        (0, "Home", ""),
+        (0, "Reference", ""),
+        (1, "sample", ""),
     ]
     assert (
-        2, "sample.public" if full_namespace else "public",
+        2,
+        "sample.public" if full_namespace else "public",
         "reference/sample/public/",
     ) in items
     assert (
-        2, "sample.sub_package" if full_namespace else "sub_package", "",
+        2,
+        "sample.sub_package" if full_namespace else "sub_package",
+        "",
     ) in items
     assert not (tmp_path / "docs/reference").exists()
     assert not list((tmp_path / "site").rglob(".nav.yml"))
@@ -391,10 +396,12 @@ def test_awesome_nav_controls_generated_api_pages(
     assert (tmp_path / "site/reference/sample/public/index.html").exists()
     expected = [(0, "Home", "")]
     if control.startswith("nav:"):
-        expected.extend([
-            (0, "Reference", ""),
-            (1, "API overview", "reference/overview/"),
-        ])
+        expected.extend(
+            [
+                (0, "Reference", ""),
+                (1, "API overview", "reference/overview/"),
+            ]
+        )
     assert navigation_items(tmp_path) == expected
 
 
