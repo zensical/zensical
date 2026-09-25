@@ -34,6 +34,7 @@ use std::sync::Arc;
 
 use zensical_serve::http::Uri;
 use zrx::id::Id;
+use zrx::path::PathExt;
 use zrx::scheduler::Value;
 
 use crate::config::{Config, Project};
@@ -315,15 +316,31 @@ impl Page {
             PageOrigin::Generated { provenance, .. } => provenance.as_ref(),
         };
         let edit_url = edit_source.and_then(|source| {
-            repo_url.clone().and_then(|repo_url| {
-                edit_uri.clone().map(|uri| {
-                    if uri.starts_with("https://") {
-                        format!("{uri}/{source}")
-                    } else {
-                        format!("{repo_url}/{uri}/{source}")
-                    }
-                })
-            })
+            let repo_url = repo_url.as_ref()?;
+            let uri = edit_uri.as_ref()?;
+            let generated = config.api.files.get(source);
+            let source = if let Some(document) = generated {
+                document
+                    .edit
+                    .as_ref()?
+                    .relative_to(config.docs_root().as_path().join("index.md"))
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            } else {
+                source.to_string()
+            };
+            let url = if uri.starts_with("https://") {
+                format!("{uri}/{source}")
+            } else {
+                format!("{repo_url}/{uri}/{source}")
+            };
+            if generated.is_none() {
+                return Some(url);
+            }
+            Some(fluent_uri::Iri::parse(url.as_str()).map_or_else(
+                |_| url.clone(),
+                |url| url.normalize().to_string(),
+            ))
         });
 
         // Return page - note that ancestors, as well as previous and next

@@ -165,7 +165,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     // scheduler. Once we have the module system set up, this will be tightly
     // integrated and not necessary anymore, since partial rebuilds of the
     // network of tasks will be supported.
-    let config = match Config::new(config_file) {
+    let mut config = match Config::new(config_file) {
         Ok(config) => config,
         // If we're already serving (seq > 0), a previous build succeeded, so
         // we can wait for the config file to be fixed and retry. On the first
@@ -192,9 +192,9 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     // true differential builds, which will also include cleaning up old files
     // that are not needed anymore but for now, we just remove everything, like
     // MkDocs does it, but not the directory itself, see https://t.ly/Lrjdx
-    let site_dir = config.output_root().as_path();
+    let site_dir = config.output_root().as_path().to_owned();
     if site_dir.exists() {
-        clear_dir(site_dir).expect("site directory could not be cleaned");
+        clear_dir(&site_dir).expect("site directory could not be cleaned");
     }
 
     // Determine if strict mode is enabled
@@ -204,6 +204,20 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         }
         Mode::Serve(_, _) => false,
     };
+
+    config.api = std::sync::Arc::new(
+        compat::mkdocs::apidocs::Snapshot::new(&config, strict)
+            .map_err(|error| PyRuntimeError::new_err(format!("{error:#}")))?,
+    );
+    // Source edits must invalidate generated-page rendering, even when the
+    // mkdocstrings directive itself remains identical.
+    {
+        use std::hash::{Hash, Hasher};
+        let mut hash = std::hash::DefaultHasher::new();
+        config.hash.hash(&mut hash);
+        config.api.observed.hash(&mut hash);
+        config.hash = hash.finish();
+    }
 
     // Resolve the metadata pipeline once for the workflow and provider
     // boundary. Provider admission remains a revision-fact workaround, so
@@ -307,7 +321,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
                                 key[0].location().parse::<SourcePath>()
                             && path.extension() == Some("md")
                             && !path.is_hidden()
-                            && has_snippets(&fs::read_to_string(&**source)?)
+                            && has_snippets(&source.read_to_string()?)
                         {
                             snippets.insert(key.clone(), source.clone());
                         }

@@ -34,6 +34,8 @@ PYTHON_PLUGINS = (
     "search",
     "meta",
     "redirects",
+    "mkdocs-autoapi",
+    "api-autonav",
     "minify",
     "literate-nav",
     "awesome-nav",
@@ -705,3 +707,76 @@ def test_rejects_invalid_plugin_options(
 def test_rejects_invalid_plugin_collections(value: Any) -> None:
     with pytest.raises(ConfigurationError):
         _convert_plugins(value)
+
+
+@pytest.mark.parametrize(
+    ("plugin", "option", "value", "message"),
+    [
+        ("mkdocs-autoapi", "autoapi_keep_files", 1, "must be a boolean"),
+        (
+            "mkdocs-autoapi",
+            "autoapi_generate_api_docs",
+            "yes",
+            "must be a boolean",
+        ),
+        (
+            "mkdocs-autoapi",
+            "autoapi_add_nav_entry",
+            [],
+            "must be a string or boolean",
+        ),
+        (
+            "mkdocs-autoapi",
+            "autoapi_file_patterns",
+            "*.py",
+            "must be a list of strings",
+        ),
+        ("mkdocs-autoapi", "autoapi_ignore", [1], "must be a list of strings"),
+        ("mkdocs-autoapi", "autoapi_root", "../api", "relative directory"),
+        ("api-autonav", "modules", "src/pkg", "must be a list of strings"),
+        ("api-autonav", "exclude", [False], "must be a list of strings"),
+        ("api-autonav", "exclude_private", "false", "must be a boolean"),
+        ("api-autonav", "show_full_namespace", 1, "must be a boolean"),
+        ("api-autonav", "nav_item_prefix", 1, "must be a string"),
+        (
+            "api-autonav",
+            "module_options",
+            {"pkg": []},
+            "mapping of strings to mappings",
+        ),
+        (
+            "api-autonav",
+            "module_options",
+            {"[": {}},
+            "invalid regular expression",
+        ),
+        ("api-autonav", "exclude", ["re:["], "invalid regular expression"),
+        (
+            "api-autonav",
+            "on_implicit_namespace_package",
+            "include",
+            "must be raise, warn or skip",
+        ),
+        ("api-autonav", "api_root_uri", "/api", "relative directory"),
+    ],
+)
+def test_validates_api_generator_options(
+    plugin: str, option: str, value: Any, message: str
+) -> None:
+    with pytest.raises(ConfigurationError, match=message):
+        _convert_plugins({plugin: {option: value}})
+
+
+def test_api_generators_are_disabled_when_absent() -> None:
+    plugins = _convert_plugins([])
+    assert plugins["autoapi"]["config"]["enabled"] is False
+    assert plugins["api_autonav"]["config"]["enabled"] is False
+
+
+def test_api_autonav_preserves_module_option_order() -> None:
+    options = {"pkg.*": {"heading_level": 2}, ".*": {"heading_level": 1}}
+    plugin = _convert_plugins({"api-autonav": {"module_options": options}})
+    assert list(plugin["api_autonav"]["config"]["module_options"]) == [
+        "pkg.*",
+        ".*",
+    ]

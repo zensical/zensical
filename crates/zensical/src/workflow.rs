@@ -561,7 +561,7 @@ fn collect_references(
         .filter(move |id: &Id| matcher.is_match(id).expect("invariant"))
         .map(|source: &Input| {
             let references: References =
-                fs::read_to_string(&*source.source)?.parse()?;
+                source.source.read_to_string()?.parse()?;
             Ok::<_, anyhow::Error>(SharedReferences::from(references))
         })
 }
@@ -628,15 +628,18 @@ fn read_documents(
         ))
         .expect("invariant"),
     );
+    let api = config.api.clone();
     files.filter_map(move |id: &Id, input: &Input| {
-        if !matcher.is_match(id).expect("invariant") {
+        if !matcher.is_match(id).expect("invariant")
+            || api.is_control(&id.location())
+        {
             return Ok(None);
         }
         let source = id.location().parse::<SourcePath>()?;
         if source.is_hidden() {
             return Ok(None);
         }
-        let data = fs::read_to_string(&*input.source)?;
+        let data = input.source.read_to_string()?;
         let (body, page_meta) = meta::front_matter(&source, &data)?;
         let resolved = input.metadata.resolve(&source, page_meta)?;
         Ok::<_, anyhow::Error>(Some(DocumentHeader::new(

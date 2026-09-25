@@ -23,10 +23,40 @@
 
 // ----------------------------------------------------------------------------
 
-//! MkDocs compatibility modules.
+//! mkdocs-autoapi settings.
 
-pub mod apidocs;
-pub mod html;
-pub mod plugin;
-pub mod resource;
-pub mod url;
+use crate::structure::dynamic::Dynamic;
+use pyo3::FromPyObject;
+use serde::Serialize;
+
+/// AutoAPI plugin.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct AutoApiPlugin {
+    /// Validated configuration.
+    pub config: AutoApiConfig,
+}
+
+/// AutoAPI settings.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct AutoApiConfig {
+    /// Whether the generator is enabled.
+    pub enabled: bool,
+    /// Source directory, resolved against the project root.
+    pub autoapi_dir: String,
+    /// Recursive inclusion patterns, in priority order.
+    pub autoapi_file_patterns: Vec<String>,
+    /// Root-relative exclusion patterns.
+    pub autoapi_ignore: Vec<String>,
+    /// Whether generated Markdown is also saved in docs_dir.
+    pub autoapi_keep_files: bool,
+    /// Whether to generate pages, or only link existing documentation.
+    pub autoapi_generate_api_docs: bool,
+    /// Boolean or section title controlling automatic navigation insertion.
+    pub autoapi_add_nav_entry: Dynamic,
+    /// Documentation-relative output directory.
+    pub autoapi_root: String,
+    /// Configured mkdocstrings default handler.
+    pub handler: String,
+}
