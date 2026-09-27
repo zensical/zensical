@@ -151,6 +151,39 @@ def test_rewrites_links_in_stashed_raw_html() -> None:
     )
 
 
+def test_rewrites_picture_sources_relative_to_markdown_file() -> None:
+    """Both picture URLs use the source file's directory as their base."""
+    md = Markdown(
+        extensions=[LinksExtension(path="page.md", use_directory_urls=True)]
+    )
+
+    assert md.convert(
+        '<picture><source srcset="assets/image.svg">'
+        '<img src="assets/image.svg"></picture>'
+    ) == (
+        '<p><picture><source srcset="../assets/image.svg">'
+        '<img src="../assets/image.svg"></picture></p>'
+    )
+
+
+def test_rewrites_each_srcset_candidate_without_changing_descriptors() -> None:
+    """Candidate lists retain separators, descriptors, and absolute URLs."""
+    md = Markdown(
+        extensions=[LinksExtension(path="page.md", use_directory_urls=True)]
+    )
+
+    assert md.convert(
+        '<img srcset="image-1.png 1x, image-2.png?raw=1#image 2x, '
+        "https://example.com/image.png 3x, "
+        'data:image/png;base64,AAAA 4x">'
+    ) == (
+        '<p><img srcset="../image-1.png 1x, '
+        "../image-2.png?raw=1#image 2x, "
+        "https://example.com/image.png 3x, "
+        'data:image/png;base64,AAAA 4x"></p>'
+    )
+
+
 def test_postprocessor_does_not_rescan_stash_for_toc() -> None:
     """TOC rendering does not cause processed blocks to be scanned again."""
     md = Markdown(extensions=["toc"])

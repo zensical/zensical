@@ -45,10 +45,10 @@ if TYPE_CHECKING:
 
 
 _RE = re.compile(
-    r'(?:href|src)=(?P<quote>["\'])(?P<value>[^"\']+)(?P=quote)',
+    r'(?P<attr>href|src|srcset)=(?P<quote>["\'])(?P<value>[^"\']+)(?P=quote)',
     re.IGNORECASE,
 )
-"""Match `href` and `src` attribute values in stashed raw HTML blocks."""
+"""Match URL attributes in stashed raw HTML blocks."""
 
 
 # -----------------------------------------------------------------------------
@@ -125,17 +125,22 @@ class LinksPostprocessor(Postprocessor):
         return text
 
     def _maybe_process(self, m: re.Match[str]) -> str:
-        """Rewrite a single matched `href` or `src` value."""
+        """Rewrite a matched URL attribute value."""
         value = m.group("value")
 
         # Rewrite relative links, leaving absolute URLs unchanged
-        updated = _rewrite_url(value, self._path, self._use_directory_urls)
+        if m.group("attr").lower() == "srcset":
+            updated = _rewrite_srcset(
+                value, self._path, self._use_directory_urls
+            )
+        else:
+            updated = _rewrite_url(value, self._path, self._use_directory_urls)
         if updated is None:
             return m.group(0)
 
         # Reconstruct the attribute with the original quote style preserved
         q = m.group("quote")
-        attr = m.group(0).split("=")[0]
+        attr = m.group("attr")
         return f"{attr}={q}{updated}{q}"
 
 
@@ -265,3 +270,52 @@ def _rewrite_url(value: str, path: str, use_directory_urls: bool) -> str | None:
     value = _md_path_to_html(url.path, use_directory_urls)
     value = _apply_directory_prefix(value, path, use_directory_urls)
     return url._replace(path=value).geturl()
+
+
+def _rewrite_srcset(value: str, path: str, use_directory_urls: bool) -> str:
+    """Rewrite each URL in a `srcset` while retaining its descriptors."""
+    whitespace = " \t\n\r\f"
+    parts: list[str] = []
+    cursor = pos = 0
+
+    while pos < len(value):
+        # A candidate starts after any whitespace or separator commas. Its URL
+        # ends at whitespace, but may itself contain commas (e.g. data URLs).
+        while pos < len(value) and value[pos] in whitespace + ",":
+            pos += 1
+        start = pos
+        while pos < len(value) and value[pos] not in whitespace:
+            pos += 1
+        end = pos
+        while end > start and value[end - 1] == ",":
+            end -= 1
+
+        if (
+            end > start
+            and (
+                updated := _rewrite_url(
+                    value[start:end], path, use_directory_urls
+                )
+            )
+            is not None
+        ):
+            parts.extend((value[cursor:start], updated))
+            cursor = end
+
+        # A URL ending in a comma has no descriptors. Otherwise, skip them up
+        # to the next separator, allowing commas inside parentheses.
+        if end == pos:
+            depth = 0
+            while pos < len(value):
+                char = value[pos]
+                if char == "(":
+                    depth += 1
+                elif char == ")" and depth:
+                    depth -= 1
+                elif char == "," and not depth:
+                    pos += 1
+                    break
+                pos += 1
+
+    parts.append(value[cursor:])
+    return "".join(parts)
