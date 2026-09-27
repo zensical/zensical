@@ -159,6 +159,12 @@ struct SitePage {
 
 impl Value for SitePage {}
 
+/// Complete page collection exposed to static and extra templates.
+#[derive(Clone, Debug)]
+struct TemplatePages(Arc<Vec<Page>>);
+
+impl Value for TemplatePages {}
+
 // ----------------------------------------------------------------------------
 
 /// Rendered page artifact paired with its validation facts.
@@ -371,7 +377,14 @@ impl Main {
         // Feed inputs are final pages and their original Markdown bodies.
         let rss_artifacts =
             rss::Rss::new(&self.config).setup(&page, &markdown, &configuration);
-        let _ = render_templates(&self.config, &files, &nav, &assets, &minify);
+        let _ = render_templates(
+            &self.config,
+            &files,
+            &page,
+            &nav,
+            &assets,
+            &minify,
+        );
         let unresolved = render_pages(
             &self.config,
             &site_page,
@@ -821,8 +834,9 @@ fn generate_page(
 
 /// Render static and extra templates.
 fn render_templates(
-    config: &Config, files: &Stream<Id, Input>, nav: &Signal<Id, Navigation>,
-    assets: &Signal<Id, minify::Manifest>, minify: &minify::Minify,
+    config: &Config, files: &Stream<Id, Input>, pages: &Stream<Id, Page>,
+    nav: &Signal<Id, Navigation>, assets: &Signal<Id, minify::Manifest>,
+    minify: &minify::Minify,
 ) -> Stream<Id, ()> {
     let docs_dir = config.project.docs_dir.clone();
 
@@ -851,20 +865,37 @@ fn render_templates(
     let mut theme_dirs = config.theme_dirs.clone();
     theme_dirs.push(config.docs_root().as_path().to_owned());
 
+    // Collect every published page, including pages absent from navigation.
+    let pages = pages.reduce(|pages: &dyn Collection<Key<Id>, Page>| {
+        let mut pages = pages.values().cloned().collect::<Vec<_>>();
+        pages.sort_by(|left, right| {
+            left.url
+                .cmp(&right.url)
+                .then_with(|| left.source().cmp(right.source()))
+        });
+        Some(TemplatePages(Arc::new(pages)))
+    });
+
     // Create pipeline to render templates
     let renderer = Template::new(theme_dirs);
     let minify = minify.clone();
     let config = config.clone();
-    templates.product(nav).product(assets).map(
+    templates.product(nav).product(&pages).product(assets).map(
         move |id: &Id,
-              input: &(Input, Navigation),
+              input: &((Input, Navigation), TemplatePages),
               assets: &minify::Manifest| {
-            let (_, nav) = input;
+            let ((_, nav), pages) = input;
             let output = template_output(id)?;
             let name = output.as_str();
 
             // Render template and write to disk
-            let data = renderer.render(name, &config, nav, &assets.project)?;
+            let data = renderer.render(
+                name,
+                &config,
+                nav,
+                pages.0.as_slice(),
+                &assets.project,
+            )?;
             let data = minify.template(name, data);
             let path = config.output_root().join(&output);
             fs::create_dir_all(path.parent().expect("invariant"))?;

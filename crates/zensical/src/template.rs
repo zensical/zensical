@@ -33,6 +33,7 @@ use std::sync::Arc;
 
 use super::config::{Config, Project};
 use super::structure::nav::{Navigation, NavigationView};
+use super::structure::page::Page;
 
 mod filter;
 mod loader;
@@ -120,12 +121,11 @@ impl Template<'_> {
 
     /// Renders the template.
     pub fn render(
-        &self, name: &str, config: &Config, nav: &Navigation,
+        &self, name: &str, config: &Config, nav: &Navigation, pages: &[Page],
         project: &Arc<Project>,
     ) -> Result<String, Error> {
         let template = self.env.get_template(name)?;
         let nav = NavigationView::new(nav.clone(), None);
-        let pages = nav.pages();
 
         // Create context and render template
         template.render(context! {

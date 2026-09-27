@@ -127,33 +127,6 @@ impl NavigationView {
         }
     }
 
-    /// Creates the flattened page sequence used by static templates.
-    pub fn pages(&self) -> Value {
-        fn collect(
-            items: &[NavigationItem], parent: &mut Vec<usize>,
-            overlay: &Arc<Overlay>, values: &mut Vec<Value>,
-        ) {
-            for (index, item) in items.iter().enumerate() {
-                parent.push(index);
-                values.push(Value::from_object(ItemView {
-                    overlay: Arc::clone(overlay),
-                    path: parent.clone(),
-                }));
-                collect(&item.children, parent, overlay, values);
-                parent.pop();
-            }
-        }
-
-        let mut values = Vec::new();
-        collect(
-            &self.overlay.navigation.items,
-            &mut Vec::new(),
-            &self.overlay,
-            &mut values,
-        );
-        Value::from_object(values)
-    }
-
     /// Resolves one template-visible field.
     fn field(&self, field: &str) -> Option<Value> {
         match field {
@@ -322,21 +295,5 @@ mod tests {
             })
             .expect("navigation view renders");
         assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn pages_preserve_preorder() {
-        let environment = Environment::new();
-        let template = environment
-            .template_from_str(
-                "{% for item in pages %}{{ item.title }}|{% endfor %}",
-            )
-            .expect("template is valid");
-        let view = NavigationView::new(navigation(false), None);
-        let pages = view.pages();
-        let rendered = template
-            .render(context! { pages => pages })
-            .expect("page view renders");
-        assert_eq!(rendered, "Root|Child|Sibling|");
     }
 }
