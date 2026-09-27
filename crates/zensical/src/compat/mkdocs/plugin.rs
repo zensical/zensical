@@ -41,6 +41,7 @@ pub mod awesome_nav;
 pub mod blog;
 pub mod exclude;
 pub mod literate_nav;
+pub mod llmstxt;
 pub mod meta;
 pub mod minify;
 pub mod mkdocstrings;
@@ -65,6 +66,9 @@ pub struct HtmlFacts {
     pub search: Arc<search::Facts>,
     /// Page-local tag mappings and listing slots.
     pub tags: Arc<tags::Facts>,
+    /// CommonMark rebuilt for a page selected by llmstxt.
+    #[serde(default)]
+    pub llmstxt: Option<Arc<str>>,
 }
 
 // ----------------------------------------------------------------------------
@@ -80,6 +84,8 @@ pub struct Settings {
     pub tags: tags::Tags,
     /// Material blog compatibility pipeline.
     pub blog: blog::Blog,
+    /// LLM text output compatibility pipeline.
+    pub llmstxt: Arc<llmstxt::Llmstxt>,
 }
 
 // ----------------------------------------------------------------------------
@@ -94,6 +100,7 @@ impl Settings {
             search: Arc::new(search::Search::new(config)),
             tags: tags::Tags::new(config, serve),
             blog: blog::Blog::new(config, serve),
+            llmstxt: Arc::new(llmstxt::Llmstxt::new(config)),
         }
     }
 }
@@ -182,6 +189,7 @@ pub fn prepare(
     } else {
         Some(tags::Parser::new(&settings.tags, source, &markdown.meta)?)
     };
+    let mut llmstxt = settings.llmstxt.parser(source, url)?;
 
     // Compose enabled observers dynamically so adding a compatibility module
     // doesn't grow an exhaustive Boolean match or another HTML traversal.
@@ -193,6 +201,9 @@ pub fn prepare(
         visitors.push(parser);
     }
     if let Some(parser) = &mut tags {
+        visitors.push(parser);
+    }
+    if let Some(parser) = &mut llmstxt {
         visitors.push(parser);
     }
     let content = (!visitors.is_empty())
@@ -227,5 +238,6 @@ pub fn prepare(
             Arc::default()
         },
         tags: Arc::new(tag_facts),
+        llmstxt: llmstxt.map(|parser| Arc::from(parser.finish())),
     })
 }

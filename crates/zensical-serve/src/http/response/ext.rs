@@ -57,7 +57,7 @@ pub trait ResponseExt: Sized {
             Some("ico") => "image/x-icon",
             Some("pdf") => "application/pdf",
             Some("mp4") => "video/mp4",
-            Some("txt") => "text/plain; charset=utf-8",
+            Some("txt" | "md" | "markdown") => "text/plain; charset=utf-8",
             Some("xml") => "application/xml",
             _ => "application/octet-stream",
         };
