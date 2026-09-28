@@ -61,6 +61,8 @@ pub use project::Project;
 /// so we can move them out one by one once we start refactoring configuration.
 #[derive(Clone, Debug)]
 pub struct Config {
+    /// API sources and navigation generated for this build.
+    pub api: Arc<crate::compat::mkdocs::apidocs::Snapshot>,
     /// Path to configuration file.
     pub path: PathBuf,
     /// Project settings.
@@ -174,6 +176,7 @@ impl Config {
 
         // Return configuration
         Ok(Config {
+            api: Arc::default(),
             path,
             project: Arc::new(project),
             theme_dirs,

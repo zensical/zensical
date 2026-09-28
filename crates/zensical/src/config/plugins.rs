@@ -29,10 +29,14 @@ use pyo3::FromPyObject;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
+mod api_autonav;
+mod autoapi;
 mod blog;
 mod rss;
 mod tags;
 
+pub use api_autonav::{ApiAutonavConfig, ApiAutonavPlugin};
+pub use autoapi::AutoApiPlugin;
 pub use blog::{BlogPlugin, BlogPluginConfig, CategorySort, ExcerptPolicy};
 pub use rss::{RssDateConfig, RssPlugin, RssPluginConfig};
 pub use tags::{
@@ -64,6 +68,10 @@ pub struct Plugins {
     #[pyo3(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mike: Option<MikePlugin>,
+    /// AutoAPI generator.
+    pub autoapi: AutoApiPlugin,
+    /// API autonav generator.
+    pub api_autonav: ApiAutonavPlugin,
     /// Search plugin.
     pub search: SearchPlugin,
     /// Material meta plugin.

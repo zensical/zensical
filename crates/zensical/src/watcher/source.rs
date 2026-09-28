@@ -41,7 +41,27 @@ use zrx::stream::Value;
 /// the `Value` trait. Physical paths stay physical throughout the data plane;
 /// provider-relative identity is carried separately by the stream key.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Source(Arc<PathBuf>);
+pub struct Source(Arc<PathBuf>, Option<Arc<str>>);
+
+impl Source {
+    /// Whether the source has build-generated content.
+    pub fn is_generated(&self) -> bool {
+        self.1.is_some()
+    }
+
+    /// Creates a generated source with a logical physical location.
+    pub fn generated(path: PathBuf, content: Arc<str>) -> Self {
+        Self(Arc::new(path), Some(content))
+    }
+
+    /// Reads either generated content or the underlying physical source.
+    pub fn read_to_string(&self) -> std::io::Result<String> {
+        match &self.1 {
+            Some(content) => Ok(content.to_string()),
+            None => std::fs::read_to_string(&*self.0),
+        }
+    }
+}
 
 // ----------------------------------------------------------------------------
 // Trait implementations
@@ -55,7 +75,7 @@ impl From<PathBuf> for Source {
     /// Creates a source from an owned physical path.
     #[inline]
     fn from(path: PathBuf) -> Self {
-        Self(Arc::new(path))
+        Self(Arc::new(path), None)
     }
 }
 
@@ -63,7 +83,7 @@ impl From<Arc<PathBuf>> for Source {
     /// Creates a source while reusing a watcher-owned physical path.
     #[inline]
     fn from(path: Arc<PathBuf>) -> Self {
-        Self(path)
+        Self(path, None)
     }
 }
 

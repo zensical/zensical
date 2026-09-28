@@ -34,6 +34,8 @@ use crate::structure::markdown::Markdown;
 
 use super::html::{self, Visitor};
 
+pub mod api_autonav;
+pub mod autoapi;
 pub mod autorefs;
 pub mod awesome_nav;
 pub mod blog;

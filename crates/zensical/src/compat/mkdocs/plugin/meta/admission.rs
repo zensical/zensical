@@ -57,6 +57,8 @@ pub struct Admission {
     settings: Arc<Settings>,
     /// Most recently prepared metadata index.
     index: Option<Arc<Index>>,
+    /// Virtual Markdown sources absent from filesystem descendant scans.
+    generated: BTreeMap<Key<Id>, Source>,
 }
 
 // ----------------------------------------------------------------------------
@@ -83,6 +85,7 @@ impl Admission {
             context,
             settings,
             index: None,
+            generated: BTreeMap::new(),
         }
     }
 
@@ -90,6 +93,18 @@ impl Admission {
     pub fn prepare(
         &mut self, changes: &[Change<Id, Source>],
     ) -> Result<Prepared> {
+        if self.settings.enabled {
+            for change in changes {
+                match change {
+                    Change::Insert(key, source) if source.is_generated() => {
+                        self.generated.insert(key.clone(), source.clone());
+                    }
+                    Change::Insert(key, _) | Change::Remove(key) => {
+                        self.generated.remove(key);
+                    }
+                }
+            }
+        }
         if self.index.is_none()
             || changes.iter().any(|change| self.claims(change_key(change)))
         {
@@ -142,6 +157,15 @@ impl Admission {
                     .build()
                     .expect("invariant");
                 dependents.insert(Key::from(id), Source::from(path));
+            }
+            for (key, source) in &self.generated {
+                let page = key[0].location().parse::<SourcePath>()?;
+                if key[0].context() == self.context
+                    && page.extension() == Some("md")
+                    && super::applies(&location, &page)
+                {
+                    dependents.insert(key.clone(), source.clone());
+                }
             }
         }
 
@@ -204,6 +228,38 @@ mod tests {
 
     use super::Admission;
     use super::Settings;
+
+    #[test]
+    fn metadata_changes_retain_virtual_source_content() {
+        let dir = tempdir().unwrap();
+        let docs = dir.path();
+        fs::create_dir_all(docs.join("api")).unwrap();
+        let path = docs.join("api/page.md");
+        fs::write(&path, "physical collision").unwrap();
+        let id = Id::builder()
+            .provider("file")
+            .context("docs")
+            .location("api/page.md")
+            .build()
+            .unwrap();
+        let mut metadata = admission(docs);
+        metadata
+            .prepare(&[Change::Insert(
+                id.clone().into(),
+                Source::generated(path, Arc::from("virtual content")),
+            )])
+            .unwrap();
+        let change =
+            source_insert("docs", "api/.meta.yml", docs.join("api/.meta.yml"));
+        let prepared = metadata.prepare(&[change]).unwrap();
+        assert_eq!(prepared.dependents.len(), 1);
+        assert_eq!(
+            prepared.dependents[0].1.read_to_string().unwrap(),
+            "virtual content"
+        );
+        metadata.prepare(&[Change::Remove(id.into())]).unwrap();
+        assert!(metadata.generated.is_empty());
+    }
 
     #[test]
     fn selects_only_descendant_markdown() {

@@ -27,7 +27,6 @@
 
 use anyhow::Context;
 use std::collections::BTreeMap;
-use std::fs;
 use std::sync::Arc;
 
 use zrx::id::Id;
@@ -51,6 +50,7 @@ mod resolver;
 #[derive(Clone, Debug)]
 pub struct LiterateNav {
     settings: Arc<Settings>,
+    api: Arc<crate::compat::mkdocs::apidocs::Snapshot>,
 }
 
 /// Inputs required to derive revision-complete navigation.
@@ -114,10 +114,18 @@ impl LiterateNav {
     pub fn new(config: &Config) -> Self {
         let plugin = &config.project.plugins.literate_nav.config;
         Self {
+            api: config.api.clone(),
             settings: Arc::new(Settings {
-                enabled: plugin.enabled,
+                enabled: plugin.enabled
+                    || config.project.plugins.autoapi.config.enabled,
                 docs: config.project.docs_dir.clone(),
-                nav_file: plugin.nav_file.clone(),
+                nav_file: if !plugin.enabled
+                    && config.project.plugins.autoapi.config.enabled
+                {
+                    "summary.md".into()
+                } else {
+                    plugin.nav_file.clone()
+                },
                 implicit_index: plugin.implicit_index,
                 configured: config.project.nav.clone(),
             }),
@@ -139,12 +147,9 @@ impl LiterateNav {
                 if !is_navigation_file(&path, &settings.nav_file) {
                     return Ok(None);
                 }
-                let content =
-                    fs::read_to_string(&**source).with_context(|| {
-                        format!(
-                            "failed to read literate navigation file {path}"
-                        )
-                    })?;
+                let content = source.read_to_string().with_context(|| {
+                    format!("failed to read literate navigation file {path}")
+                })?;
                 Ok::<_, anyhow::Error>(Some(Document {
                     path,
                     content: content.trim_start_matches('\u{feff}').into(),
@@ -172,8 +177,12 @@ impl LiterateNav {
             },
         );
 
+        let api = self.api.clone();
         let navigation = pages.product(&documents).map(
             move |pages: &Pages, docs: &Documents| {
+                let mut settings = settings.as_ref().clone();
+                settings.configured =
+                    api.navigation(&settings.configured, &pages.0)?;
                 if settings.enabled {
                     resolver::resolve(&settings, &docs.0, pages.0.as_ref())
                 } else {
