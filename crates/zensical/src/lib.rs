@@ -230,7 +230,8 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         strict,
         matches!(&mode, Mode::Serve(_, _)),
         meta.clone(),
-    );
+    )
+    .map_err(|error| PyRuntimeError::new_err(format!("{error:#}")))?;
     let mut runner = workflow
         .runner()
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;

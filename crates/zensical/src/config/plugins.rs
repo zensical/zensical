@@ -76,6 +76,8 @@ pub struct Plugins {
     pub search: SearchPlugin,
     /// Material meta plugin.
     pub meta: MetaPlugin,
+    /// File exclusion plugin.
+    pub exclude: ExcludePlugin,
     /// Redirects plugin.
     pub redirects: RedirectsPlugin,
     /// Minify plugin.
@@ -228,6 +230,28 @@ pub struct MetaPluginConfig {
     pub enabled: bool,
     /// Name of metadata files inside the documentation tree.
     pub meta_file: String,
+}
+
+// ----------------------------------------------------------------------------
+
+/// File exclusion plugin.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct ExcludePlugin {
+    /// Plugin configuration.
+    pub config: ExcludePluginConfig,
+}
+
+/// File exclusion plugin configuration.
+#[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
+#[pyo3(from_item_all)]
+pub struct ExcludePluginConfig {
+    /// Whether file exclusion is enabled.
+    pub enabled: bool,
+    /// Glob patterns matched against source paths.
+    pub glob: Vec<String>,
+    /// Python regular expressions matched at the start of source paths.
+    pub regex: Vec<String>,
 }
 
 // ----------------------------------------------------------------------------

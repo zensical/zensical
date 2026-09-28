@@ -39,6 +39,7 @@ pub mod autoapi;
 pub mod autorefs;
 pub mod awesome_nav;
 pub mod blog;
+pub mod exclude;
 pub mod literate_nav;
 pub mod meta;
 pub mod minify;

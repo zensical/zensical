@@ -140,6 +140,32 @@ def test_generates_api_pages_and_navigation(
     )
 
 
+@pytest.mark.parametrize(
+    ("plugin", "options", "prefix"),
+    [
+        ("mkdocs-autoapi", {"autoapi_dir": "src"}, "autoapi"),
+        ("api-autonav", {"modules": ["src/sample"]}, "reference"),
+    ],
+)
+def test_exclude_filters_generated_api_pages(
+    tmp_path: Path, plugin: str, options: dict, prefix: str
+) -> None:
+    config = project(
+        tmp_path,
+        plugin,
+        options,
+        extra_plugins=[{"exclude": {"glob": f"{prefix}/sample/public.md"}}],
+    )
+
+    build(config, strict=False)
+
+    # Generated Markdown follows the same exclusion rules as physical pages.
+    assert not (tmp_path / f"site/{prefix}/sample/public/index.html").exists()
+    assert (tmp_path / f"site/{prefix}/sample/index.html").exists()
+    search = (tmp_path / "site/search.json").read_text()
+    assert "Public module documentation" not in search
+
+
 def test_autoapi_patterns_stubs_keep_and_manual_navigation(
     tmp_path: Path,
 ) -> None:

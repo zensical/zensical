@@ -48,7 +48,7 @@ use crate::compat::mkdocs::plugin::autorefs::UnresolvedAutorefs;
 use crate::compat::mkdocs::{
     html,
     plugin::{
-        self, autorefs, awesome_nav, blog, literate_nav, meta, minify,
+        self, autorefs, awesome_nav, blog, exclude, literate_nav, meta, minify,
         mkdocstrings, redirects, rss, search, tags,
     },
     resource,
@@ -99,6 +99,8 @@ struct Main {
     serve: bool,
     /// Metadata pipeline shared with source admission.
     meta: meta::Meta,
+    /// File exclusion shared by documentation and resource processing.
+    exclude: exclude::Exclude,
 }
 
 /// File input enriched with immutable facts for the current revision.
@@ -256,7 +258,7 @@ impl Main {
     /// Initializes the module.
     #[allow(clippy::too_many_lines)]
     fn setup(&self, ctx: &mut Builder<Id>) {
-        let files = ctx.input::<Input>();
+        let files = self.exclude.sources(&ctx.input::<Input>());
         let configuration = ctx.input::<Configuration>();
         let minify = minify::Minify::new(&self.config);
 
@@ -264,6 +266,7 @@ impl Main {
         let sources = files.map(|input: &Input| input.source.clone());
         let resources = resource::Resources::new(&self.config, &self.meta)
             .setup(resource::Dependencies { sources: &sources });
+        let resources = self.exclude.resources(&resources);
         let assets =
             minify.setup(minify::Dependencies { resources: &resources });
         let documents = read_documents(&self.config, &files);
@@ -998,16 +1001,18 @@ fn render_pages(
 /// Creates a workflow for the given config.
 pub fn create_workflow(
     config: &Config, strict: bool, serve: bool, meta: meta::Meta,
-) -> Workflow<Id> {
-    Workflow::build(|workflow| {
+) -> anyhow::Result<Workflow<Id>> {
+    let exclude = exclude::Exclude::new(config)?;
+    Ok(Workflow::build(|workflow| {
         Main {
             config: config.clone(),
             strict,
             serve,
             meta,
+            exclude,
         }
         .setup(workflow);
-    })
+    }))
 }
 
 // ----------------------------------------------------------------------------

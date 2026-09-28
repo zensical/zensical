@@ -126,6 +126,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
         "breakless_lists",
         "title_from_first_bold",
     ),
+    "exclude": (),
     "gh-admonitions": (),
     "glightbox": (
         "touchNavigation",
@@ -1810,6 +1811,34 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     _validate_boolean_options("meta", meta, ("enabled",))
     _validate_string_options("meta", meta, ("meta_file",))
     plugins["meta"] = meta
+
+    # Normalize file exclusion without importing or executing the plugin.
+    present = "exclude" in plugins
+    exclude = plugins.pop("exclude", {})
+    _reject_unknown_options("exclude", exclude, {"enabled", "glob", "regex"})
+    set_default(exclude, "enabled", present)
+    _validate_boolean_options("exclude", exclude, ("enabled",))
+    for name in ("glob", "regex"):
+        patterns = exclude.get(name)
+        if patterns is None or patterns == "":
+            patterns = []
+        elif isinstance(patterns, str):
+            patterns = [patterns]
+        if not isinstance(patterns, list) or not all(
+            isinstance(pattern, str) for pattern in patterns
+        ):
+            raise ConfigurationError(
+                f"exclude {name} must be a string or a list of strings"
+            )
+        exclude[name] = patterns
+    try:
+        for pattern in exclude["regex"]:
+            re.compile(pattern)
+    except re.error as error:
+        raise ConfigurationError(
+            f"exclude invalid regular expression {pattern!r}: {error}"
+        ) from error
+    plugins["exclude"] = exclude
 
     # Normalize redirects into typed native configuration. The enabled flag is
     # internal; plugin presence retains MkDocs' activation semantics. The
