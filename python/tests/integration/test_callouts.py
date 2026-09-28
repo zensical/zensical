@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import pytest
+
 import zensical
 
 if TYPE_CHECKING:
@@ -59,3 +61,45 @@ def test_callouts_plugin_renders_obsidian_callout(tmp_path: Path) -> None:
     assert '<div class="admonition note">' in html
     assert '<p class="admonition-title">Native title</p>' in html
     assert "Rendered body." in html
+
+
+@pytest.mark.parametrize(
+    ("config_name", "config_text"),
+    [
+        pytest.param(
+            "mkdocs.yml",
+            "site_name: GitHub alerts\nplugins:\n  - gh-admonitions\n",
+            id="yaml",
+        ),
+        pytest.param(
+            "zensical.toml",
+            "[project]\n"
+            'site_name = "GitHub alerts"\n'
+            "[project.plugins.gh-admonitions]\n",
+            id="toml",
+        ),
+    ],
+)
+def test_gh_admonitions_plugin_renders_github_alerts(
+    tmp_path: Path, config_name: str, config_text: str
+) -> None:
+    """The gh-admonitions plugin entry renders GitHub alert syntax."""
+    # Cover all five GitHub alert types in one page.
+    alert_types = ("NOTE", "TIP", "IMPORTANT", "WARNING", "CAUTION")
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    alerts = [f"> [!{alert}]\n> Body for {alert}." for alert in alert_types]
+    (docs / "index.md").write_text(
+        "# GitHub alerts\n\n" + "\n\n".join(alerts),
+        encoding="utf-8",
+    )
+    config = tmp_path / config_name
+    config.write_text(config_text, encoding="utf-8")
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    html = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    for alert in alert_types:
+        assert f'<div class="admonition {alert.lower()}">' in html
+        assert f'<p class="admonition-title">{alert.title()}</p>' in html
+        assert f"Body for {alert}." in html

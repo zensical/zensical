@@ -126,6 +126,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
         "breakless_lists",
         "title_from_first_bold",
     ),
+    "gh-admonitions": (),
     "glightbox": (
         "touchNavigation",
         "loop",
@@ -796,6 +797,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     _shim_mkdocstrings(config)
     _shim_autorefs(config)
     _shim_callouts(config)
+    _shim_gh_admonitions(config)
     _shim_markdown_exec(config)
     _shim_glightbox(config)
     _shim_macros(config)
@@ -981,6 +983,21 @@ def _shim_callouts(config: dict[str, Any]) -> None:
         return
 
     plugin = config["plugins"]["callouts"]["config"]
+    if not plugin.get("enabled", True):
+        return
+
+    extension = "pymdownx.quotes"
+    if extension not in config["markdown_extensions"]:
+        config["markdown_extensions"].append(extension)
+    config["mdx_configs"].setdefault(extension, {})["callouts"] = True
+
+
+def _shim_gh_admonitions(config: dict[str, Any]) -> None:
+    """Enable callout blockquotes for an enabled gh-admonitions plugin."""
+    if "gh-admonitions" not in config["plugins"]:
+        return
+
+    plugin = config["plugins"]["gh-admonitions"]["config"]
     if not plugin.get("enabled", True):
         return
 
@@ -2179,6 +2196,13 @@ def _convert_plugins(value: Any, config: dict) -> dict:
         callouts = plugins["callouts"]
         _reject_unknown_options("callouts", callouts, {"enabled"})
         _validate_boolean_options("callouts", callouts, ("enabled",))
+
+    if "gh-admonitions" in plugins:
+        gh_admonitions = plugins["gh-admonitions"]
+        _reject_unknown_options("gh-admonitions", gh_admonitions, {"enabled"})
+        _validate_boolean_options(
+            "gh-admonitions", gh_admonitions, ("enabled",)
+        )
 
     if "markdown-exec" in plugins:
         markdown_exec = plugins["markdown-exec"]
