@@ -778,6 +778,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     # find a better solution, once we work on configuration management, but for
     # now this should be sufficient.
     _resolve_pymdownx_emoji(config)
+    _resolve_pymdownx_inlinehilite(config)
     _resolve_pymdownx_superfences(config)
     _resolve_pymdownx_tabbed(config)
     _resolve_pymdownx_blocks_tab(config)
@@ -877,6 +878,19 @@ def _resolve_pymdownx_emoji(config: dict[str, Any]) -> None:
         emoji["emoji_generator"] = _resolve(emoji.get("emoji_generator"))
     if isinstance(emoji.get("emoji_index"), str):
         emoji["emoji_index"] = _resolve(emoji.get("emoji_index"))
+
+
+def _resolve_pymdownx_inlinehilite(config: dict[str, Any]) -> None:
+    # InlineHilite extension: resolve custom formatter functions
+    inlinehilite = config["mdx_configs"].get("pymdownx.inlinehilite", {})
+    for inline in inlinehilite.get("custom_inline", []):
+        if isinstance(inline.get("format"), str):
+            inline["format"] = _resolve(inline.get("format"))
+        elif isinstance(inline.get("format"), dict):
+            object = inline["format"]["object"]
+            inline["format"] = _resolve(object)(
+                **inline["format"].get("kwds", {})
+            )
 
 
 def _resolve_pymdownx_tabbed(config: dict[str, Any]) -> None:
