@@ -76,6 +76,9 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           manylinux: auto
+          before-script-linux: |
+            # The manylinux2014 AArch64 cross compiler omits this ACLE macro.
+            export CFLAGS_aarch64_unknown_linux_gnu="${CFLAGS_aarch64_unknown_linux_gnu:-} -D__ARM_ARCH=8"
           # Temporary fix for https://github.com/zensical/zensical/issues/425
           args: >-
             --release --out artifacts
