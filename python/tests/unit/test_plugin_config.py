@@ -43,6 +43,7 @@ PYTHON_PLUGINS = (
     "mike",
     "autorefs",
     "callouts",
+    "gh-admonitions",
     "markdown-exec",
     "mkdocstrings",
     "glightbox",
@@ -53,6 +54,7 @@ PYTHON_PLUGINS = (
 SHIM_PLUGINS = (
     "autorefs",
     "callouts",
+    "gh-admonitions",
     "markdown-exec",
     "mkdocstrings",
     "glightbox",
@@ -399,6 +401,7 @@ def test_normalizes_null_shim_configuration(name: str) -> None:
     ("name", "config"),
     [
         pytest.param("callouts", {"enabled": False}, id="callouts"),
+        pytest.param("gh-admonitions", {"enabled": False}, id="gh-admonitions"),
         pytest.param(
             "autorefs",
             {
@@ -641,6 +644,7 @@ def test_normalizes_null_autorefs_settings() -> None:
         ),
         ("autorefs", {"enabled": "yes"}, "enabled must be a boolean"),
         ("callouts", {"enabled": "yes"}, "enabled must be a boolean"),
+        ("gh-admonitions", {"enabled": "yes"}, "enabled must be a boolean"),
         ("autorefs", {"resolve_closest": "auto"}, "resolve_closest must be"),
         (
             "autorefs",

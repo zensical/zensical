@@ -618,31 +618,65 @@ class TestPluginShimming:
             "width": "80%"
         }
 
-    def test_callouts_enables_quotes_callouts(self, tmp_path: Path) -> None:
-        config = self._parse_yaml(
-            tmp_path,
-            markdown_extensions=[{"pymdownx.quotes": {"callouts": False}}],
-            plugins={
-                "callouts": {
+    @pytest.mark.parametrize(
+        ("plugin", "options"),
+        [
+            (
+                "callouts",
+                {
                     "aliases": False,
                     "breakless_lists": False,
                     "title_from_first_bold": True,
-                }
+                },
+            ),
+            ("gh-admonitions", {}),
+        ],
+    )
+    def test_callout_plugins_enable_quotes_callouts(
+        self, tmp_path: Path, plugin: str, options: dict[str, Any]
+    ) -> None:
+        # Plugin configuration enables callouts on an existing quotes extension.
+        config = self._parse_yaml(
+            tmp_path,
+            markdown_extensions=[{"pymdownx.quotes": {"callouts": False}}],
+            plugins={plugin: options},
+        )
+
+        assert config["markdown_extensions"].count("pymdownx.quotes") == 1
+        assert config["mdx_configs"]["pymdownx.quotes"] == {"callouts": True}
+        assert config["plugins"][plugin]["config"] == {}
+
+    @pytest.mark.parametrize("plugin", ["callouts", "gh-admonitions"])
+    def test_disabled_callout_plugins_do_not_enable_quotes(
+        self, tmp_path: Path, plugin: str
+    ) -> None:
+        config = self._parse_yaml(
+            tmp_path, plugins={plugin: {"enabled": False}}
+        )
+
+        assert "pymdownx.quotes" not in config["markdown_extensions"]
+
+    @pytest.mark.parametrize(
+        ("callouts_enabled", "gh_admonitions_enabled"),
+        [(True, True), (False, True), (True, False)],
+    )
+    def test_callout_plugins_share_quotes_extension(
+        self,
+        tmp_path: Path,
+        callouts_enabled: bool,
+        gh_admonitions_enabled: bool,
+    ) -> None:
+        # Either enabled plugin must suffice when both entries are present.
+        config = self._parse_yaml(
+            tmp_path,
+            plugins={
+                "callouts": {"enabled": callouts_enabled},
+                "gh-admonitions": {"enabled": gh_admonitions_enabled},
             },
         )
 
         assert config["markdown_extensions"].count("pymdownx.quotes") == 1
         assert config["mdx_configs"]["pymdownx.quotes"] == {"callouts": True}
-        assert config["plugins"]["callouts"]["config"] == {}
-
-    def test_disabled_callouts_does_not_enable_quotes(
-        self, tmp_path: Path
-    ) -> None:
-        config = self._parse_yaml(
-            tmp_path, plugins={"callouts": {"enabled": False}}
-        )
-
-        assert "pymdownx.quotes" not in config["markdown_extensions"]
 
     def test_macros_plugin_shimmed(self, tmp_path: Path) -> None:
         config = self._parse_yaml(tmp_path, plugins={"macros": {}})
