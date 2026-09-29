@@ -103,7 +103,7 @@ def test_excludes_pages_resources_and_extra_templates(
         "private-note.md": "# Excluded root note\n",
         "root.tmp": "temporary",
         "files/archive.tmp": "temporary",
-        "files/archive.TMP": "case matters",
+        "files/uppercase.TMP": "case matters",
         "files/archive.bin": "binary",
         "export.html": "{{ must_not_render() }}",
     }.items():
@@ -141,7 +141,7 @@ def test_excludes_pages_resources_and_extra_templates(
         "index.html",
         "guide/keep/index.html",
         "guide/private-note/index.html",
-        "files/archive.TMP",
+        "files/uppercase.TMP",
         "theme.txt",
     ):
         assert (site / name).exists(), name
