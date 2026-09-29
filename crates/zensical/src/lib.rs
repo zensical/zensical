@@ -60,8 +60,10 @@ use compat::mkdocs::plugin::meta;
 use config::Config;
 use path::SourcePath;
 use server::{create_server, ServeOptions};
-use watcher::Watcher;
-use workflow::{create_workflow, has_snippets, Configuration, Input};
+use watcher::{Batch, Watcher};
+use workflow::{
+    create_workflow, has_snippets, Configuration, Input, SourcesReady,
+};
 
 // ----------------------------------------------------------------------------
 // Enums
@@ -238,6 +240,9 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     let mut input = runner
         .input::<Input>()
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    let mut sources_ready = runner
+        .input::<SourcesReady>()
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
     let configuration = runner
         .input::<Configuration>()
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
@@ -297,7 +302,10 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     let time = Instant::now();
     loop {
         match watcher.receive(Duration::from_millis(100)) {
-            Ok(changes) => {
+            Ok(Batch {
+                changes,
+                sources_ready: discovered,
+            }) => {
                 let meta::Prepared { index, dependents } =
                     metadata.prepare(&changes).map_err(|error| {
                         PyRuntimeError::new_err(format!("{error:#}"))
@@ -361,6 +369,27 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
                     .settle()
                     .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
                 report_failures(&runner)?;
+
+                // Readiness is published after all pages from the initial
+                // documentation scan have been processed, even for an empty site.
+                if discovered {
+                    let mut revision =
+                        sources_ready.begin().map_err(|err| {
+                            PyRuntimeError::new_err(err.to_string())
+                        })?;
+                    revision
+                        .insert(std::iter::empty().collect(), SourcesReady)
+                        .map_err(|err| {
+                            PyRuntimeError::new_err(err.to_string())
+                        })?;
+                    sources_ready = revision.seal().map_err(|err| {
+                        PyRuntimeError::new_err(err.to_string())
+                    })?;
+                    let _run = runner.settle().map_err(|err| {
+                        PyRuntimeError::new_err(err.to_string())
+                    })?;
+                    report_failures(&runner)?;
+                }
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => match mode {

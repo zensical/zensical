@@ -59,7 +59,15 @@ pub struct Watcher {
     /// File agent.
     _agent: Agent,
     /// Debounced source changes.
-    changes: Receiver<Vec<Change<Id, Source>>>,
+    changes: Receiver<Batch>,
+}
+
+/// Source changes and initial discovery completion are delivered together.
+pub struct Batch {
+    /// Debounced source changes.
+    pub changes: Vec<Change<Id, Source>>,
+    /// The initial documentation scan is completed by this batch.
+    pub sources_ready: bool,
 }
 
 /// One physical source root and its provider-relative identity context.
@@ -156,6 +164,7 @@ impl Watcher {
         // Normalize watched paths once, so path comparisons stay stable across
         // platforms and watcher backends (notably on Windows).
         let config_path = canonical_or_clone(&config.path);
+        let docs_path = canonical_or_clone(config.docs_root().as_path());
         let theme_dirs = config
             .theme_dirs
             .iter()
@@ -171,13 +180,25 @@ impl Watcher {
         // should be sufficient to correctly determine rename events
         let agent = Agent::new(Duration::from_millis(20), serve, {
             let config = config.clone();
+            let mut discovered = false;
             move |results| {
                 let mut batch = Vec::new();
+                let mut sources_ready = false;
                 for res in results {
                     // For now, we just swallow errors from the file agent.
                     let Ok(event) = res else {
                         continue;
                     };
+
+                    // The root creation event is delivered with its complete
+                    // recursive scan, including when no documents are found.
+                    if !discovered
+                        && matches!(&event, Event::Create { kind: Kind::Folder, path }
+                            if canonical_or_clone(path) == docs_path)
+                    {
+                        discovered = true;
+                        sources_ready = true;
+                    }
 
                     // Skip anything other than files and symbolic links.
                     // Link events allow assets provided via editable installs
@@ -320,8 +341,8 @@ impl Watcher {
                         )
                 });
                 batch.append(&mut generated);
-                if !batch.is_empty() {
-                    changes.send(batch)?;
+                if sources_ready || !batch.is_empty() {
+                    changes.send(Batch { changes: batch, sources_ready })?;
                 }
                 Ok(())
             }
@@ -381,7 +402,7 @@ impl Watcher {
     /// Receives the next debounced source-change batch.
     pub fn receive(
         &self, timeout: Duration,
-    ) -> std::result::Result<Vec<Change<Id, Source>>, RecvTimeoutError> {
+    ) -> std::result::Result<Batch, RecvTimeoutError> {
         self.changes.recv_timeout(timeout)
     }
 }

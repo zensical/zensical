@@ -540,23 +540,84 @@ def test_footnotes_remain_distinct_in_aggregated_output(tmp_path: Path) -> None:
         assert f"[^{path}#same]: Footnote from {title}." in full
 
 
-def test_missing_explicit_pages_warn_and_strict_builds_fail(
-    tmp_path: Path, capfd: pytest.CaptureFixture[str]
+@pytest.mark.parametrize("strict", [False, True])
+def test_startup_waits_for_selected_pages(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], strict: bool
 ) -> None:
+    # Explicit paths and a wildcard are selected before any pages are rendered.
     docs = tmp_path / "docs"
-    docs.mkdir()
-    (docs / "index.md").write_text("# Home\n", encoding="utf-8")
+    (docs / "guide").mkdir(parents=True)
+    sources = {
+        "index.md": "Home",
+        "guide/quickstart.md": "Quickstart",
+        "guide/formatting.md": "Formatting",
+    }
+    for source, title in sources.items():
+        (docs / source).write_text(f"# {title}\n", encoding="utf-8")
     config = dedent("""\
         plugins:
           - llmstxt:
-              sections: {Pages: [missing.md]}
+              full_output: llms-full.txt
+              sections:
+                Start: [index.md, guide/quickstart.md]
+                Guides: ["guide/*.md", guide/formatting.md]
+    """)
+
+    # No missing-page warnings should be emitted on fresh or cached builds.
+    for _ in range(2):
+        site = build(tmp_path, config, strict=strict)
+
+        assert "llmstxt:" not in capfd.readouterr().err
+        index = (site / "llms.txt").read_text(encoding="utf-8")
+        full = (site / "llms-full.txt").read_text(encoding="utf-8")
+        for title in sources.values():
+            assert f"[{title}]" in index
+            assert f"# {title}\n" in full
+
+
+def test_empty_site_emits_indexes_without_warnings(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str]
+) -> None:
+    # The initial scan is completed even when no documentation pages are found.
+    (tmp_path / "docs").mkdir()
+
+    site = build(tmp_path, dedent("""\
+        plugins:
+          - llmstxt:
+              full_output: llms-full.txt
+              sections: {Pages: ["*.md"]}
+    """), strict=True)
+
+    index = (site / "llms.txt").read_text(encoding="utf-8")
+    full = (site / "llms-full.txt").read_text(encoding="utf-8")
+
+    assert "llmstxt:" not in capfd.readouterr().err
+    assert index == "# LLM test\n\n## Pages\n"
+    assert full == "# LLM test\n\n# Pages\n"
+
+
+@pytest.mark.parametrize("has_pages", [False, True])
+def test_missing_explicit_pages_warn_and_strict_builds_fail(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], has_pages: bool
+) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    if has_pages:
+        (docs / "index.md").write_text("# Home\n", encoding="utf-8")
+    paths = "index.md, missing.md" if has_pages else "missing.md"
+    config = dedent(f"""\
+        plugins:
+          - llmstxt:
+              sections: {{Pages: [{paths}]}}
     """)
 
     site = build(tmp_path, config)
 
-    assert "Page URI 'missing.md' not found" in capfd.readouterr().err
+    warnings = capfd.readouterr().err
+    assert warnings.count("Page URI 'missing.md' not found") == 1
+    assert "Page URI 'index.md' not found" not in warnings
     assert (site / "llms.txt").is_file()
-    assert not (site / "index.md").exists()
+    assert (site / "index.md").exists() == has_pages
 
     with pytest.raises(Exception, match="strict"):
         build(tmp_path, config, strict=True)
@@ -719,12 +780,13 @@ def test_serve_updates_adds_renames_and_removes_markdown_outputs(
             plugins:
               - llmstxt:
                   full_output: llms-full.txt
-                  sections: {Pages: ['*.md']}
+                  sections: {Pages: [post.md, '*.md']}
         """),
         encoding="utf-8",
     )
     site = tmp_path / "site"
-    log = (tmp_path / "serve.log").open("w+", encoding="utf-8")
+    log_path = tmp_path / "serve.log"
+    log = log_path.open("w+", encoding="utf-8")
     process = subprocess.Popen(  # noqa: S603  # Run this checkout's CLI on the test project.
         [
             sys.executable,
@@ -771,6 +833,10 @@ def test_serve_updates_adds_renames_and_removes_markdown_outputs(
     try:
         wait_for({"post": "Original"})
 
+        # The explicit source must be found before startup warnings are checked.
+        startup_log = log_path.read_text(encoding="utf-8")
+        assert "llmstxt:" not in startup_log
+
         # Body changes update the per-page output and both aggregate files.
         source.write_text("# Revised\n", encoding="utf-8")
         wait_for({"post": "Revised"})
@@ -783,6 +849,10 @@ def test_serve_updates_adds_renames_and_removes_markdown_outputs(
         renamed = docs / "renamed.md"
         source.rename(renamed)
         wait_for({"renamed": "Revised", "added": "Added"}, ("post",))
+
+        # The original explicit path is now absent and must be reported.
+        rename_log = log_path.read_text(encoding="utf-8")
+        assert "Page URI 'post.md' not found" in rename_log
 
         renamed.unlink()
         added.unlink()

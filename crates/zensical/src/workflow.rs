@@ -114,6 +114,12 @@ pub struct Input {
 
 impl Value for Input {}
 
+/// The initial documentation scan and its derived page work are complete.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourcesReady;
+
+impl Value for SourcesReady {}
+
 /// Immutable build configuration supplied through the workflow data plane.
 #[derive(Clone, Debug)]
 pub struct Configuration {
@@ -262,6 +268,7 @@ impl Main {
     fn setup(&self, ctx: &mut Builder<Id>) {
         let files = self.exclude.sources(&ctx.input::<Input>());
         let configuration = ctx.input::<Configuration>();
+        let sources_ready = ctx.input::<SourcesReady>();
         let minify = minify::Minify::new(&self.config);
 
         // Set up workflow to process static assets and Markdown files.
@@ -398,7 +405,7 @@ impl Main {
             });
         let llmstxt_artifacts = plugins.llmstxt.setup(
             &llmstxt_documents,
-            &configuration,
+            &sources_ready,
             self.strict,
         );
         let extra_artifacts = (rss_artifacts, llmstxt_artifacts).coalesce();

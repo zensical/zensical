@@ -36,7 +36,7 @@ use zrx::stream::{Key, Stream, StreamSetExt, Value};
 use crate::config::{plugins::LlmstxtPluginConfig, Config};
 use crate::path::{SitePath, SourcePath};
 use crate::structure::page::{Page, PageOrigin};
-use crate::workflow::{output::Artifact, Configuration};
+use crate::workflow::{output::Artifact, SourcesReady};
 
 mod markdown;
 
@@ -135,20 +135,20 @@ impl Llmstxt {
         Ok(None)
     }
 
-    /// Installs revision-settled index generation and removal-aware artifacts.
+    /// Index generation is enabled after initial source discovery settles.
     pub fn setup(
         &self, documents: &Stream<Id, Document>,
-        configuration: &Stream<Id, Configuration>, strict: bool,
+        sources_ready: &Stream<Id, SourcesReady>, strict: bool,
     ) -> Stream<Id, Artifact> {
         if !self.settings.enabled {
-            return configuration.flat_map(|_: &Configuration| {
+            return sources_ready.flat_map(|_: &SourcesReady| {
                 Ok::<Vec<(Key<Id>, Artifact)>, anyhow::Error>(Vec::new())
             });
         }
         let markdown = documents.flat_map(|document: &Document| {
             Ok::<_, anyhow::Error>(vec![document.artifact()?])
         });
-        let seed = configuration.map(|_: &Configuration| Documents(Vec::new()));
+        let seed = sources_ready.map(|_: &SourcesReady| Documents(Vec::new()));
         let pages = documents
             .map(|document: &Document| Documents(vec![document.clone()]));
         let snapshot = (seed, pages).coalesce().reduce(
@@ -162,9 +162,11 @@ impl Llmstxt {
             },
         );
         let pipeline = self.clone();
-        let indexes = snapshot.flat_map(move |documents: &Documents| {
-            pipeline.indexes(&documents.0, strict)
-        });
+        let indexes = snapshot.product(sources_ready).flat_map(
+            move |(documents, _): &(Documents, SourcesReady)| {
+                pipeline.indexes(&documents.0, strict)
+            },
+        );
         (markdown, indexes).coalesce()
     }
 
