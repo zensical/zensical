@@ -33,6 +33,7 @@ from zensical.config import ConfigurationError
 PYTHON_PLUGINS = (
     "search",
     "meta",
+    "exclude",
     "redirects",
     "mkdocs-autoapi",
     "api-autonav",
@@ -112,6 +113,7 @@ def test_preserves_plugin_presence_semantics() -> None:
     assert plugins["search"]["config"]["enabled"] is True
     for name in (
         "meta",
+        "exclude",
         "redirects",
         "minify",
         "literate_nav",
@@ -123,6 +125,71 @@ def test_preserves_plugin_presence_semantics() -> None:
     assert plugins["rss"]["config"] == []
     assert "mike" not in plugins
     assert not set(SHIM_PLUGINS) & set(plugins)
+
+
+@pytest.mark.parametrize(
+    "entry", ["exclude", {"exclude": None}, {"exclude": {}}]
+)
+def test_exclude_presence_enables_empty_defaults(entry: Any) -> None:
+    plugins = _convert_plugins([entry])
+
+    assert plugins["exclude"]["config"] == {
+        "enabled": True,
+        "glob": [],
+        "regex": [],
+    }
+
+
+@pytest.mark.parametrize("option", ["glob", "regex"])
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, []),
+        ("", []),
+        ([], []),
+        ("drafts/.*", ["drafts/.*"]),
+        (["", "drafts/.*"], ["", "drafts/.*"]),
+    ],
+)
+def test_exclude_normalizes_pattern_options(
+    option: str, value: Any, expected: list[str]
+) -> None:
+    plugins = _convert_plugins({"exclude": {option: value}})
+
+    # An empty scalar disables an option; an empty expression in a list stays.
+    assert plugins["exclude"]["config"][option] == expected
+
+
+@pytest.mark.parametrize("option", ["glob", "regex"])
+@pytest.mark.parametrize("value", [False, 1, {}, [None], [42], [["*.md"]]])
+def test_exclude_rejects_invalid_pattern_types(option: str, value: Any) -> None:
+    with pytest.raises(
+        ConfigurationError,
+        match=rf"exclude {option} must be a string or a list of strings",
+    ):
+        _convert_plugins({"exclude": {option: value}})
+
+
+@pytest.mark.parametrize("pattern", ["[", "(?P<bad", "(?<=a*)b"])
+def test_exclude_rejects_invalid_regular_expressions(pattern: str) -> None:
+    with pytest.raises(
+        ConfigurationError, match="exclude invalid regular expression"
+    ):
+        _convert_plugins({"exclude": {"regex": pattern}})
+
+
+def test_exclude_accepts_python_regular_expressions_and_disabling() -> None:
+    patterns = [r"(?i)drafts/", r"(?!public/).*\.md$", r"(.+)/\1\.md$"]
+
+    plugins = _convert_plugins(
+        {"exclude": {"enabled": False, "regex": patterns}}
+    )
+
+    assert plugins["exclude"]["config"] == {
+        "enabled": False,
+        "glob": [],
+        "regex": patterns,
+    }
 
 
 def test_rss_instances_keep_defaults_and_validate_output_names() -> None:
@@ -594,6 +661,7 @@ def test_normalizes_null_autorefs_settings() -> None:
         ("search", {"enabled": "yes"}, "enabled must be a boolean"),
         ("search", {"separator": 42}, "separator must be a string"),
         ("meta", {"meta_file": 42}, "meta_file must be a string"),
+        ("exclude", {"enabled": "yes"}, "enabled must be a boolean"),
         (
             "redirects",
             {"redirect_maps": {"old.md": 42}},
