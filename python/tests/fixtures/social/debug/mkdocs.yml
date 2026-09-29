@@ -1,0 +1,14 @@
+site_name: Debug cards
+site_url: https://example.test/docs/
+site_dir: site
+theme: { name: material }
+plugins:
+  - social:
+      cache: false
+      cache_dir: social-cache
+      cards_layout: flat
+      debug: true
+      debug_on_build: true
+      debug_grid: true
+      debug_grid_step: 32
+      debug_color: red

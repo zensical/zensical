@@ -165,6 +165,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
         "pipeline",
         "prebuild_index",
     ),
+    "social": (),
     "table-reader": (),
     "tags": (
         "tags_compare",
@@ -568,6 +569,13 @@ def _apply_defaults(config: dict, path: str) -> dict:
     elif "theme" not in config:
         config["theme"] = {}
 
+    font_explicit = "font" in config["theme"]
+    configured_icons = config["theme"].get("icon")
+    logo_icon_explicit = (
+        isinstance(configured_icons, dict)
+        and configured_icons.get("logo") is not None
+    )
+
     # Set defaults for custom theme directory
     set_default(config["theme"], "custom_dir", None, str)
 
@@ -597,6 +605,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     config["theme"] = {**theme_config, **config["theme"]}
 
     theme = config["theme"]
+    theme["font_explicit"] = font_explicit
 
     # Set defaults for theme name
     # (we do this after loading the theme configuration
@@ -629,6 +638,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
 
     # Set defaults for theme icons
     icon = set_default(theme, "icon", {}, dict)
+    icon["logo_explicit"] = logo_icon_explicit
     set_default(icon, "repo", None, str)
     set_default(icon, "annotation", None, str)
     set_default(icon, "tag", {}, dict)
@@ -1738,13 +1748,15 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     tags: list[dict[str, Any]] = []
     blogs: list[dict[str, Any]] = []
     rss: list[dict[str, Any]] = []
+    social: list[dict[str, Any]] = []
 
     def add(name: Any, data: Any) -> None:
         """Canonicalize Material aliases while preserving tag instances."""
         if not isinstance(name, str):
             raise ConfigurationError("Plugin names must be strings")
         name = name.removeprefix("material/")
-        if name not in _PLUGIN_UNSUPPORTED_OPTIONS:
+        canonical = "social" if name.startswith("social/") else name
+        if canonical not in _PLUGIN_UNSUPPORTED_OPTIONS:
             return
         if data is None:
             data = {}
@@ -1752,13 +1764,15 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             raise ConfigurationError(f"{name} configuration must be a mapping")
         else:
             data = dict(data)
-        for option in _PLUGIN_UNSUPPORTED_OPTIONS[name]:
+        for option in _PLUGIN_UNSUPPORTED_OPTIONS[canonical]:
             data.pop(option, None)
         if name == "tags":
             _reject_unknown_options("tags", data, _TAGS_SUPPORTED_OPTIONS)
             tags.append({"name": name, "config": data})
         elif name == "blog":
             blogs.append({"name": name, "config": data})
+        elif canonical == "social":
+            social.append({"name": name, "config": data})
         elif name == "rss":
             rss.append({"name": name, "config": _normalize_rss(data)})
         else:
@@ -1791,6 +1805,8 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     plugins["blogs"] = blogs
 
     plugins["rss"] = rss
+    # Preserve ordered social instances for native validation and rendering.
+    plugins["social"] = social
     # Search is enabled by default, even when it isn't explicitly configured.
     search = plugins.pop("search", {})
     _reject_unknown_options("search", search, {"enabled", "separator"})

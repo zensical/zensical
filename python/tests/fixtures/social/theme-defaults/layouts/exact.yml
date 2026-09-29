@@ -1,0 +1,12 @@
+tags:
+  og:image: '{{ image.url }}'
+size: { width: 1200, height: 630 }
+layers:
+  - background: { color: '#ffc107' }
+  - size: { width: 900, height: 150 }
+    offset: { x: 64, y: 180 }
+    typography:
+      content: '{{ page.title }}'
+      color: '#000000'
+      line: { amount: 1, height: 1.25 }
+      font: { family: Roboto, variant: Black, style: Italic }

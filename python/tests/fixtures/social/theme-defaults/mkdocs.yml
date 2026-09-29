@@ -1,0 +1,21 @@
+site_name: Theme defaults
+site_description: Theme-derived card settings.
+site_url: https://example.test/docs/
+site_dir: site
+theme:
+  name: material
+  logo: assets/logo.svg
+  palette:
+    - media: '(prefers-color-scheme: light)'
+      primary: amber
+      accent: deep orange
+    - media: '(prefers-color-scheme: dark)'
+      primary: indigo
+      accent: pink
+  font:
+    text: Roboto
+plugins:
+  - social:
+      cache: false
+      cache_dir: social-cache
+      cards_layout: default

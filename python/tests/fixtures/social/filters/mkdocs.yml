@@ -1,0 +1,10 @@
+site_name: Social filters
+site_url: https://example.test/docs/
+site_dir: site
+theme: { name: material }
+plugins:
+  - social:
+      cache: false
+      cards_layout: flat
+      cards_include: ['guides/**']
+      cards_exclude: ['guides/hidden.md']
