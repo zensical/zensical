@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import functools
 import hashlib
 import importlib
@@ -139,6 +140,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
         "shadow",
     ),
     "literate-nav": (),
+    "llmstxt": ("preprocess",),
     "macros": (),
     "markdown-exec": (),
     "meta": (),
@@ -1577,6 +1579,91 @@ def _validate_string_options(
             raise ConfigurationError(f"{label} {name} must be a string")
 
 
+def _normalize_llmstxt(
+    raw: dict[str, Any], config: dict, present: bool
+) -> dict[str, Any]:
+    """Validate LLM text output settings and preserve section order."""
+    defaults: dict[str, Any] = {
+        "enabled": present,
+        "autoclean": True,
+        "base_url": None,
+        "markdown_description": None,
+        "full_output": None,
+        "sections": {},
+    }
+    _reject_unknown_options("llmstxt", raw, set(defaults))
+    settings = {**defaults, **raw}
+    _validate_boolean_options("llmstxt", settings, ("enabled", "autoclean"))
+    for name in ("base_url", "markdown_description", "full_output"):
+        if settings[name] is not None and not isinstance(settings[name], str):
+            raise ConfigurationError(f"llmstxt {name} must be a string or null")
+    if settings["enabled"] and not config.get("site_url"):
+        raise ConfigurationError("llmstxt requires site_url")
+    if settings["full_output"] is not None:
+        filename = settings["full_output"]
+        invalid_character = any(
+            character in filename for character in ("\\", "\0", ":")
+        )
+        invalid_component = any(
+            part in ("", ".", "..") for part in filename.split("/")
+        )
+        if invalid_character or invalid_component:
+            raise ConfigurationError(
+                "llmstxt `full_output` must be a relative file path "
+                "within site_dir"
+            )
+        if filename == "llms.txt":
+            raise ConfigurationError(
+                "llmstxt full_output must differ from llms.txt"
+            )
+    if not isinstance(settings["sections"], dict):
+        raise ConfigurationError("llmstxt sections must be a mapping")
+    sections = []
+    for title, entries in settings["sections"].items():
+        if not isinstance(title, str) or not isinstance(entries, list):
+            raise ConfigurationError(
+                "llmstxt sections must map strings to lists"
+            )
+        inputs = []
+        for entry in entries:
+            if isinstance(entry, str):
+                pattern, description = entry, ""
+            elif isinstance(entry, dict) and len(entry) == 1:
+                pattern, description = next(iter(entry.items()))
+            else:
+                raise ConfigurationError(
+                    "llmstxt section entries must be paths "
+                    "or single-entry mappings"
+                )
+            if (
+                not isinstance(pattern, str)
+                or not pattern
+                or not isinstance(description, str)
+            ):
+                raise ConfigurationError(
+                    "llmstxt paths must be non-empty strings and descriptions "
+                    "must be strings"
+                )
+            expression = None
+            if "*" in pattern:
+                # Python uses match(); Rust needs an explicit start anchor.
+                expression = r"\A" + fnmatch.translate(pattern)
+                # Rust does not need Python's backtracking optimization.
+                expression = expression.replace("(?>", "(?:").replace(
+                    r"\Z", r"\z"
+                )
+            inputs.append(
+                {
+                    "pattern": pattern,
+                    "description": description,
+                    "expression": expression,
+                }
+            )
+        sections.append({"title": title, "inputs": inputs})
+    settings["sections"] = sections
+    return settings
+
+
 def _normalize_rss(raw: dict[str, Any]) -> dict[str, Any]:
     """Validate and fill the MkDocs RSS plugin's supported settings."""
     rss = dict(raw)
@@ -1807,6 +1894,9 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     plugins["rss"] = rss
     # Preserve ordered social instances for native validation and rendering.
     plugins["social"] = social
+    plugins["llmstxt"] = _normalize_llmstxt(
+        plugins.get("llmstxt", {}), config, "llmstxt" in plugins
+    )
     # Search is enabled by default, even when it isn't explicitly configured.
     search = plugins.pop("search", {})
     _reject_unknown_options("search", search, {"enabled", "separator"})

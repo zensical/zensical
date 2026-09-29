@@ -48,8 +48,8 @@ use crate::compat::mkdocs::plugin::autorefs::UnresolvedAutorefs;
 use crate::compat::mkdocs::{
     html,
     plugin::{
-        self, autorefs, awesome_nav, blog, exclude, literate_nav, meta, minify,
-        mkdocstrings, redirects, rss, search, social, tags,
+        self, autorefs, awesome_nav, blog, exclude, literate_nav, llmstxt,
+        meta, minify, mkdocstrings, redirects, rss, search, social, tags,
     },
     resource,
 };
@@ -113,6 +113,12 @@ pub struct Input {
 }
 
 impl Value for Input {}
+
+/// The initial documentation scan and its derived page work are complete.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourcesReady;
+
+impl Value for SourcesReady {}
 
 /// Immutable build configuration supplied through the workflow data plane.
 #[derive(Clone, Debug)]
@@ -262,6 +268,7 @@ impl Main {
     fn setup(&self, ctx: &mut Builder<Id>) {
         let files = self.exclude.sources(&ctx.input::<Input>());
         let configuration = ctx.input::<Configuration>();
+        let sources_ready = ctx.input::<SourcesReady>();
         let minify = minify::Minify::new(&self.config);
 
         // Set up workflow to process static assets and Markdown files.
@@ -387,6 +394,21 @@ impl Main {
             pages: &page,
             sources: &sources,
         });
+        let llmstxt_documents =
+            rendered_page.filter_map(|rendered: &RenderedPage| {
+                rendered.html.llmstxt.as_ref().map(|markdown| {
+                    llmstxt::Document {
+                        page: rendered.page.clone(),
+                        markdown: markdown.clone(),
+                    }
+                })
+            });
+        let llmstxt_artifacts = plugins.llmstxt.setup(
+            &llmstxt_documents,
+            &sources_ready,
+            self.strict,
+        );
+        let extra_artifacts = (rss_artifacts, llmstxt_artifacts).coalesce();
         let _ = render_templates(
             &self.config,
             &files,
@@ -404,7 +426,7 @@ impl Main {
             &assets,
             &minify,
             &mkdocstrings,
-            &rss_artifacts,
+            &extra_artifacts,
         );
         validate(&self.config, self.strict, &files, &page, &unresolved);
     }
@@ -719,7 +741,7 @@ fn process_markdown(
                     &config,
                     document.source.as_str(),
                     (
-                        6_u8,
+                        12_u8,
                         config.hash,
                         origin,
                         document.clone(),
@@ -838,14 +860,18 @@ fn generate_page(
                 markdown.title.clone(),
             ),
         };
-        page.apply_template_context(
-            markdown.properties.clone(),
-            markdown.variables.clone(),
-        );
-        RenderedPage {
+        let mut properties = markdown.properties.clone();
+        if markdown.html.llmstxt.is_some() {
+            properties.insert(
+                "markdown_url".into(),
+                Dynamic::String(llmstxt::markdown_url(page.destination())?),
+            );
+        }
+        page.apply_template_context(properties, markdown.variables.clone());
+        Ok::<_, anyhow::Error>(RenderedPage {
             page,
             html: markdown.html.clone(),
-        }
+        })
     })
 }
 

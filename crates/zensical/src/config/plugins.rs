@@ -32,6 +32,7 @@ use std::collections::BTreeMap;
 mod api_autonav;
 mod autoapi;
 mod blog;
+mod llmstxt;
 mod rss;
 mod social;
 mod tags;
@@ -39,6 +40,7 @@ mod tags;
 pub use api_autonav::{ApiAutonavConfig, ApiAutonavPlugin};
 pub use autoapi::AutoApiPlugin;
 pub use blog::{BlogPlugin, BlogPluginConfig, CategorySort, ExcerptPolicy};
+pub use llmstxt::{LlmstxtPlugin, LlmstxtPluginConfig};
 pub use rss::{RssDateConfig, RssPlugin, RssPluginConfig};
 pub use social::{SocialPlugin, SocialPluginConfig, SocialPluginInstance};
 pub use tags::{
@@ -92,6 +94,8 @@ pub struct Plugins {
     pub rss: RssPlugin,
     /// Material social plugin instances.
     pub social: SocialPlugin,
+    /// LLM text output plugin.
+    pub llmstxt: LlmstxtPlugin,
     /// Literate navigation plugin.
     pub literate_nav: LiterateNavPlugin,
     /// Awesome navigation plugin.
