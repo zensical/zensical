@@ -289,6 +289,33 @@ def test_paginated_blog_pages_are_generated_without_source_files(
     assert "|PREV=blog/2026/09/01/one/|NEXT=" in two
 
 
+def test_blog_entrypoint_template_applies_to_paginated_pages(
+    tmp_path: Path,
+) -> None:
+    config = _project(tmp_path, per_page=1, archive=True)
+    (tmp_path / "docs/blog/index.md").write_text(
+        "---\ntitle: Journal\ntemplate: landing.html\n---\n# Journal\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "overrides/landing.html").write_text(
+        "LANDING|{{ page.title }}|{{ page.url }}",
+        encoding="utf-8",
+    )
+    _post(tmp_path, "one.md", "One", "2026-09-01")
+    _post(tmp_path, "two.md", "Two", "2026-09-02")
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    site = tmp_path / "site/blog"
+    assert "LANDING|Journal|blog/" in (site / "index.html").read_text("utf-8")
+    assert "LANDING|Journal|blog/page/2/" in (
+        site / "page/2/index.html"
+    ).read_text("utf-8")
+    assert "BLOG|2026|" in (
+        site / "archive/2026/index.html"
+    ).read_text("utf-8")
+
+
 def test_single_page_keeps_empty_pagination_context(tmp_path: Path) -> None:
     config = _project(tmp_path)
     _post(tmp_path, "one.md", "One", "2026-09-01")
