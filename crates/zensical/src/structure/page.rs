@@ -530,11 +530,13 @@ impl Page {
         self.navigation_siblings = Some((previous, next));
     }
 
-    /// Applies a module-selected page template after view classification.
-    pub(crate) fn apply_template(&mut self, template: String) {
-        Arc::make_mut(&mut self.data)
-            .markdown
-            .insert_meta("template".into(), Dynamic::String(template));
+    /// Applies a view template only when page metadata does not choose one.
+    pub(crate) fn apply_default_template(&mut self, template: String) {
+        if !self.meta.contains_key("template") {
+            Arc::make_mut(&mut self.data)
+                .markdown
+                .insert_meta("template".into(), Dynamic::String(template));
+        }
     }
 
     /// Applies the title assigned to this page by navigation.

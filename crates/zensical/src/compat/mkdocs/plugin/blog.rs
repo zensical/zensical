@@ -103,7 +103,7 @@ pub struct Patch {
     pub navigation_url: Option<String>,
     /// Explicit hidden-page siblings, when the page isn't a visible item.
     pub siblings: Option<(Option<NavigationItem>, Option<NavigationItem>)>,
-    /// View template applied after revision-complete view classification.
+    /// Default view template used only when page metadata does not choose one.
     pub template: Option<String>,
     /// View table of contents after optional excerpt integration.
     pub toc: Option<Vec<Section>>,
@@ -1197,7 +1197,8 @@ impl Blog {
             }
             _ => BTreeMap::new(),
         };
-        meta.insert("template".into(), Dynamic::String("blog.html".into()));
+        meta.entry("template".into())
+            .or_insert_with(|| Dynamic::String("blog.html".into()));
         let document = DocumentHeader::new(source.clone(), body, meta);
         let route = PageRoute::from_source(&self.config, source)?;
         Ok(PageDescriptor::generated(
