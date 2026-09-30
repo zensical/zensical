@@ -1,5 +1,0 @@
----
-title: Before title
----
-
-# Home
