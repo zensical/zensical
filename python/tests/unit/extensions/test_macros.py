@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import os
 from io import StringIO
+from textwrap import dedent
 from typing import TYPE_CHECKING
 
 import pandas
@@ -38,7 +39,11 @@ from jinja2.exceptions import (
 from markdown import Markdown
 
 from tests.unit.extensions.conftest import soup
-from zensical.extensions.context import ContextPreprocessor
+from zensical.extensions.context import (
+    ContextExtension,
+    ContextPreprocessor,
+    Page,
+)
 from zensical.extensions.macros import (
     MacroEnv,
     MacrosExtension,
@@ -149,6 +154,23 @@ class TestMacroEnv:
         env = MacroEnv()
         assert env.conf == {}
 
+    def test_variables_support_nested_dot_access_after_updates(self) -> None:
+        env = MacroEnv()
+        source = {"nested": {"entries": [{"label": "first"}]}}
+
+        # Configured data is converted when the variable dictionary is updated.
+        env.variables.update(source)
+        entries = env.variables.nested.entries
+        entries.extend([{"label": "second"}])
+        combined = entries + [{"label": "third"}]  # noqa: RUF005
+
+        assert [entry.label for entry in combined] == [
+            "first",
+            "second",
+            "third",
+        ]
+        assert source == {"nested": {"entries": [{"label": "first"}]}}
+
     def test_registers_macros_and_filters(self) -> None:
         env = MacroEnv(conf={})
 
@@ -162,6 +184,295 @@ class TestMacroEnv:
 
         assert env.macros["twice"](4) == 8
         assert env.filters["rev"]("abc") == "cba"
+
+
+@pytest.mark.parametrize("on_error_fail", [False, True])
+@pytest.mark.parametrize("navigation_title", [None, "Short"])
+def test_title_errors_respect_on_error_fail(
+    on_error_fail: bool, navigation_title: str | None
+) -> None:
+    page = Page(
+        url="/",
+        path="index.md",
+        title=navigation_title,
+        meta={"title": "{{ missing_variable }}"},
+    )
+    md = Markdown(
+        extensions=[
+            ContextExtension(page=page, config={}),
+            MacrosExtension(
+                module_name="",
+                on_undefined="strict",
+                on_error_fail=on_error_fail,
+            ),
+        ]
+    )
+
+    # The body is valid; the error is raised only when the title is rendered.
+    if on_error_fail:
+        with pytest.raises(UndefinedError):
+            md.convert("Body")
+    else:
+        assert md.convert("Body") == "<p>Body</p>"
+        assert page.rendered_metadata_title is not None
+        assert "Macro Rendering Error" in page.rendered_metadata_title
+        assert "UndefinedError" in page.rendered_metadata_title
+        assert "index.md" in page.rendered_metadata_title
+        assert page.title == (navigation_title or page.rendered_metadata_title)
+
+    assert page.meta["title"] == "{{ missing_variable }}"
+
+
+@pytest.mark.parametrize("title", ["{# omitted #}", "{{ '' }}"])
+@pytest.mark.parametrize("navigation_title", [None, "Short"])
+def test_titles_can_render_to_an_empty_string(
+    title: str, navigation_title: str | None
+) -> None:
+    page = Page(
+        url="/", path="index.md", title=navigation_title, meta={"title": title}
+    )
+    md = Markdown(
+        extensions=[
+            ContextExtension(page=page, config={}),
+            MacrosExtension(module_name="", on_error_fail=True),
+        ]
+    )
+
+    md.convert("# Heading")
+
+    assert page.title == (navigation_title or "")
+    assert page.meta["title"] == title
+    assert page.rendered_metadata_title == ""
+
+
+def test_metadata_title_uses_configured_delimiters() -> None:
+    page = Page(
+        url="/",
+        path="index.md",
+        title="Short",
+        meta={"title": "Metadata [[ 2 + 3 ]]"},
+    )
+    md = Markdown(
+        extensions=[
+            ContextExtension(page=page, config={}),
+            MacrosExtension(
+                module_name="",
+                j2_variable_start_string="[[",
+                j2_variable_end_string="]]",
+                on_error_fail=True,
+            ),
+        ]
+    )
+
+    md.convert("Body")
+
+    # The configured delimiters are also applied
+    # to metadata with a separate navigation label.
+    assert page.title == "Short"
+    assert page.meta["title"] == "Metadata [[ 2 + 3 ]]"
+    assert page.rendered_metadata_title == "Metadata 5"
+
+
+@pytest.mark.parametrize(
+    "md",
+    [
+        {
+            "config": {
+                "extra": {"shared": "extra", "nested": {"value": "original"}},
+                "markdown_extensions": {
+                    "zensical.extensions.macros": {
+                        "include_yaml": ["vars.yaml"],
+                        "on_error_fail": True,
+                    },
+                },
+            },
+            "page": {"title": "Current page", "meta": {"shared": "metadata"}},
+        }
+    ],
+    indirect=True,
+)
+class TestMacroContext:
+    def test_context_is_available_during_registration_and_rendering(
+        self, md: Markdown, tmp_path: Path
+    ) -> None:
+        # Configuration and YAML values are read while the module is registered.
+        (tmp_path / "vars.yaml").write_text(
+            "included: yaml\n", encoding="utf-8"
+        )
+        (tmp_path / "main.py").write_text(
+            "from pathlib import Path\n"
+            "def define_env(env):\n"
+            "    env.variables.registered = env.variables.shared + '/' "
+            "+ env.variables.included\n"
+            "    env.variables.shared = 'module'\n"
+            "    @env.macro\n"
+            "    def describe():\n"
+            "        assert Path(env.project_dir)"
+            ".samefile(env.conf['root_dir'])\n"
+            "        assert env.config['on_error_fail'] is True\n"
+            "        assert env.variables.config['site_name'] == "
+            "env.conf['site_name']\n"
+            "        assert env.variables.page.title == env.page.title\n"
+            "        return env.page.title + '/' + env.variables.shared\n",
+            encoding="utf-8",
+        )
+
+        html = soup(
+            md.convert("{{ registered }}\n\n{{ describe() }}\n\n{{ shared }}")
+        )
+
+        # Metadata overrides are applied to templates,
+        # while module variables are retained.
+        assert [p.get_text() for p in html.select("p")] == [
+            "extra/yaml",
+            "Current page/module",
+            "metadata",
+        ]
+
+    def test_nested_variable_changes_are_local_to_the_page(
+        self, md: Markdown, tmp_path: Path
+    ) -> None:
+        (tmp_path / "vars.yaml").write_text("{}\n", encoding="utf-8")
+        (tmp_path / "main.py").write_text(
+            "def define_env(env):\n"
+            "    env.variables.previous = env.variables['nested']['value']\n"
+            "    env.variables.nested['value'] = 'changed'\n",
+            encoding="utf-8",
+        )
+
+        # A new environment is created for each conversion,
+        # without changing config.extra.
+        first = soup(
+            md.convert("{{ previous }} / {{ nested.value }}")
+        ).get_text()
+        second = soup(
+            md.convert("{{ previous }} / {{ nested.value }}")
+        ).get_text()
+
+        assert first == "original / changed"
+        assert second == "original / changed"
+
+    def test_configured_nested_variables_are_available_through_attributes(
+        self, md: Markdown, tmp_path: Path
+    ) -> None:
+        (tmp_path / "vars.yaml").write_text(
+            "included: yaml\n", encoding="utf-8"
+        )
+        (tmp_path / "main.py").write_text(
+            "def define_env(env):\n"
+            "    @env.macro\n"
+            "    def describe():\n"
+            "        return env.variables.nested.value + '/' "
+            "+ env.variables.included\n",
+            encoding="utf-8",
+        )
+
+        html = soup(md.convert("{{ describe() }}"))
+
+        assert html.get_text() == "original/yaml"
+
+    def test_template_page_is_a_shallow_copy(
+        self, md: Markdown, tmp_path: Path
+    ) -> None:
+        (tmp_path / "vars.yaml").write_text("{}\n", encoding="utf-8")
+        (tmp_path / "main.py").write_text(
+            "def define_env(env):\n"
+            "    @env.macro\n"
+            "    def update_page():\n"
+            "        env.page.title = 'Macro title'\n"
+            "        env.page.meta['note'] = 'shared'\n"
+            "        return env.page.title\n",
+            encoding="utf-8",
+        )
+
+        html = soup(
+            md.convert(
+                "{{ update_page() }} / {{ page.title }} / {{ page.meta.note }}"
+            )
+        )
+
+        # A direct attribute change is kept local,
+        # while the metadata dictionary is shared.
+        assert html.get_text() == "Macro title / Current page / shared"
+
+    def test_title_pass_respects_render_macros_changes(
+        self, md: Markdown, tmp_path: Path
+    ) -> None:
+        (tmp_path / "vars.yaml").write_text("{}\n", encoding="utf-8")
+        (tmp_path / "main.py").write_text(
+            "def define_env(env):\n"
+            "    @env.macro\n"
+            "    def stop_rendering():\n"
+            "        env.page.meta['render_macros'] = False\n"
+            "        return 'Body'\n",
+            encoding="utf-8",
+        )
+        context = ContextPreprocessor.from_markdown(md)
+        assert context is not None
+        context.page.meta = context.page.meta.copy()
+        context.page.title = "{{ missing_variable }}"
+        context.page.meta["title"] = "Metadata {{ missing_variable }}"
+
+        html = soup(md.convert("{{ stop_rendering() }}"))
+
+        # Rendering is disabled by the body before the title pass is reached.
+        assert html.get_text() == "Body"
+        assert context.page.title == "{{ missing_variable }}"
+        assert (
+            context.page.rendered_metadata_title
+            == "Metadata {{ missing_variable }}"
+        )
+
+    def test_nested_mutations_remain_visible_to_templates(
+        self, md: Markdown, tmp_path: Path
+    ) -> None:
+        (tmp_path / "vars.yaml").write_text("{}\n", encoding="utf-8")
+        (tmp_path / "main.py").write_text(
+            "def define_env(env):\n"
+            "    state = {'value': 'initial', 'alias': 'initial'}\n"
+            "    env.variables.state = state\n"
+            "    @env.macro\n"
+            "    def update():\n"
+            "        env.variables.state['value'] = 'changed'\n"
+            "        state['alias'] = 'changed'\n"
+            "        return ''\n",
+            encoding="utf-8",
+        )
+
+        # Both references are changed after the Jinja context has been created.
+        html = soup(
+            md.convert("{{ update() }}{{ state.value }} / {{ state.alias }}")
+        )
+
+        assert html.get_text() == "changed / changed"
+
+    def test_template_config_changes_do_not_mutate_project_config(
+        self, md: Markdown, tmp_path: Path
+    ) -> None:
+        (tmp_path / "vars.yaml").write_text("{}\n", encoding="utf-8")
+        (tmp_path / "main.py").write_text(
+            "def define_env(env):\n"
+            "    env.variables.config['site_name'] = 'Template name'\n"
+            "    @env.macro\n"
+            "    def site_name():\n"
+            "        return env.conf['site_name']\n",
+            encoding="utf-8",
+        )
+
+        html = soup(md.convert("{{ config.site_name }} / {{ site_name() }}"))
+
+        assert html.get_text() == "Template name / Demo"
+
+    def test_page_context_includes_the_effective_title(
+        self, md: Markdown
+    ) -> None:
+        # The computed property is included in the built-in context diagnostic.
+        html = md.convert("{{ context(page) | pretty }}")
+
+        assert "Current page" in html
+        assert "<strong>title</strong>" in html
+        assert "_fallback_title" not in html
+        assert "_title" not in html
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +585,269 @@ class TestLoadModule:
         assert env.variables == {}
         assert env.macros == {}
         assert env.filters == {}
+
+
+@pytest.mark.parametrize("module_name", ["", "main"])
+def test_installed_modules_are_loaded_in_order_before_the_local_module(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, module_name: str
+) -> None:
+    monkeypatch.syspath_prepend(str(tmp_path))
+    modules = [f"macros_first_{module_name}", f"macros_second_{module_name}"]
+
+    # The same variable, macro, and filter are registered by all three modules.
+    for name, label in [
+        *zip(modules, ["first", "second"], strict=True),
+        ("main", "local"),
+    ]:
+        (tmp_path / f"{name}.py").write_text(
+            dedent(f"""\
+            def define_env(env):
+                env.variables.setdefault('load_order', []).append('{label}')
+                env.variables.winner = '{label}'
+                env.macro(lambda: '{label}', 'winner_macro')
+                env.filter(lambda value: '{label}', 'winner_filter')
+        """),
+            encoding="utf-8",
+        )
+
+    md = Markdown(
+        extensions=[
+            ContextExtension(
+                page=Page(url="/", path="index.md"),
+                config={"root_dir": str(tmp_path)},
+            ),
+            MacrosExtension(
+                modules=modules, module_name=module_name, on_error_fail=True
+            ),
+        ]
+    )
+    html = soup(
+        md.convert(
+            '{{ load_order | join(",") }} / {{ winner }} / '
+            '{{ winner_macro() }} / {{ "" | winner_filter }}'
+        )
+    )
+
+    if module_name:
+        assert html.get_text() == "first,second,local / local / local / local"
+    else:
+        assert html.get_text() == "first,second / second / second / second"
+
+
+@pytest.mark.parametrize("on_error_fail", [False, True])
+@pytest.mark.parametrize(
+    ("module_source", "error_type", "message"),
+    [
+        (None, ModuleNotFoundError, "unavailable_macros_pluglet"),
+        (
+            "import unavailable_macros_dependency\n",
+            ModuleNotFoundError,
+            "unavailable_macros_dependency",
+        ),
+        (
+            "raise ImportError('broken macros import')\n",
+            ImportError,
+            "broken macros import",
+        ),
+    ],
+)
+def test_installed_module_import_errors_are_reported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    module_source: str | None,
+    error_type: type[Exception],
+    message: str,
+    on_error_fail: bool,
+) -> None:
+    monkeypatch.syspath_prepend(str(tmp_path))
+    if module_source is not None:
+        (tmp_path / "unavailable_macros_pluglet.py").write_text(
+            module_source, encoding="utf-8"
+        )
+    md = Markdown(
+        extensions=[
+            MacrosExtension(
+                module_name="",
+                modules=["unavailable_macros_pluglet"],
+                on_error_fail=on_error_fail,
+            )
+        ]
+    )
+
+    # Module imports are configuration errors,
+    # regardless of the rendering policy.
+    with pytest.raises(error_type, match=message):
+        md.convert("Body")
+
+
+def test_missing_default_local_module_is_optional(tmp_path: Path) -> None:
+    md = Markdown(
+        extensions=[
+            ContextExtension(
+                page=Page(url="/", path="index.md"),
+                config={"root_dir": str(tmp_path)},
+            ),
+            MacrosExtension(on_error_fail=True),
+        ]
+    )
+
+    assert md.convert("{{ 2 + 3 }}") == "<p>5</p>"
+
+
+def test_default_local_module_dependency_errors_are_reported(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "main.py").write_text(
+        "import unavailable_local_macros_dependency\n", encoding="utf-8"
+    )
+    md = Markdown(
+        extensions=[
+            ContextExtension(
+                page=Page(url="/", path="index.md"),
+                config={"root_dir": str(tmp_path)},
+            ),
+            MacrosExtension(),
+        ]
+    )
+
+    with pytest.raises(
+        ModuleNotFoundError, match="unavailable_local_macros_dependency"
+    ):
+        md.convert("Body")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "config",
+        "environment",
+        "files",
+        "filters",
+        "filters_builtin",
+        "git",
+        "macros",
+        "navigation",
+        "page",
+        "plugin",
+        "context",
+        "now",
+        "macros_info",
+        "read_csv",
+        "range",
+        "custom_macro",
+    ],
+)
+def test_metadata_overrides_variables_and_macros_in_body_and_title(
+    tmp_path: Path, name: str
+) -> None:
+    (tmp_path / "main.py").write_text(
+        f"def define_env(env):\n    env.variables[{name!r}] = 'module'\n    "
+        f"env.macro(lambda: 'macro', {name!r})\n",
+        encoding="utf-8",
+    )
+    template = "{{ " + name + " }}"
+    page = Page(
+        url="/", path="index.md", meta={name: "metadata", "title": template}
+    )
+    md = Markdown(
+        extensions=[
+            ContextExtension(
+                page=page,
+                config={"root_dir": str(tmp_path), "extra": {name: "extra"}},
+            ),
+            MacrosExtension(on_error_fail=True),
+        ]
+    )
+
+    html = md.convert(template)
+
+    # Metadata overrides are applied during both rendering passes.
+    assert html == "<p>metadata</p>"
+    assert page.title == "metadata"
+    assert page.rendered_metadata_title == "metadata"
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["context", "now", "macros_info", "read_csv", "range", "custom_macro"],
+)
+@pytest.mark.parametrize("source", ["yaml", "extra", "module"])
+def test_variables_override_registered_macros(
+    tmp_path: Path, name: str, source: str
+) -> None:
+    (tmp_path / "vars.yaml").write_text(f"{name}: yaml\n", encoding="utf-8")
+    module_source = (
+        f"def define_env(env):\n    env.macro(lambda: 'macro', {name!r})\n"
+    )
+    if source == "module":
+        module_source += f"    env.variables[{name!r}] = 'module'\n"
+    (tmp_path / "main.py").write_text(module_source, encoding="utf-8")
+    extra = {name: "extra"} if source in {"extra", "module"} else {}
+    md = Markdown(
+        extensions=[
+            ContextExtension(
+                page=Page(url="/", path="index.md"),
+                config={"root_dir": str(tmp_path), "extra": extra},
+            ),
+            MacrosExtension(include_yaml=["vars.yaml"], on_error_fail=True),
+        ]
+    )
+
+    html = md.convert("{{ " + name + " }}")
+
+    # YAML, extra, and module variables are each given precedence
+    # over macro globals.
+    assert html == f"<p>{source}</p>"
+
+
+@pytest.mark.parametrize("name", ["config", "environment", "git", "plugin"])
+@pytest.mark.parametrize("source", ["extra", "module"])
+def test_variables_override_standard_context(
+    tmp_path: Path, name: str, source: str
+) -> None:
+    (tmp_path / "main.py").write_text(
+        f"def define_env(env):\n    env.variables[{name!r}] = 'module'\n",
+        encoding="utf-8",
+    )
+    md = Markdown(
+        extensions=[
+            ContextExtension(
+                page=Page(url="/", path="index.md"),
+                config={"root_dir": str(tmp_path), "extra": {name: "extra"}},
+            ),
+            MacrosExtension(
+                module_name="main" if source == "module" else "",
+                on_error_fail=True,
+            ),
+        ]
+    )
+
+    html = md.convert("{{ " + name + " }}")
+
+    assert html == f"<p>{source}</p>"
+
+
+@pytest.mark.parametrize("name", ["context", "now", "macros_info", "read_csv"])
+def test_registered_macros_override_standard_macros(
+    tmp_path: Path, name: str
+) -> None:
+    (tmp_path / "main.py").write_text(
+        f"def define_env(env):\n    env.macro(lambda: 'custom', {name!r})\n",
+        encoding="utf-8",
+    )
+    md = Markdown(
+        extensions=[
+            ContextExtension(
+                page=Page(url="/", path="index.md"),
+                config={"root_dir": str(tmp_path)},
+            ),
+            MacrosExtension(on_error_fail=True),
+        ]
+    )
+
+    html = md.convert("{{ " + name + "() }}")
+
+    assert html == "<p>custom</p>"
 
 
 # ---------------------------------------------------------------------------
@@ -559,9 +1133,18 @@ class TestPreprocessor:
         ],
         indirect=["md"],
     )
-    def test_error_handling_keep_text_by_default(self, md: Markdown) -> None:
-        html = soup(md.convert("{{ not_closed"))
-        assert "{{ not_closed" in html.get_text()
+    def test_syntax_errors_are_displayed_by_default(self, md: Markdown) -> None:
+        html = soup(md.convert("Before\n\n{{ not_closed"))
+
+        assert html.h1 is not None
+        assert "Macro Syntax Error" in html.h1.get_text()
+        assert "index.md" in html.get_text()
+        assert "Line 3" in html.get_text()
+        assert "unexpected end of template" in html.get_text()
+        code = html.select_one("pre")
+        assert code is not None
+        assert code.get_text().strip() == "{{ not_closed"
+        assert "Before" not in html.get_text()
 
     @pytest.mark.parametrize(
         "md",
@@ -610,11 +1193,17 @@ class TestPreprocessor:
         ],
         indirect=["md"],
     )
-    def test_renders_jinja_in_title_meta(self, md: Markdown) -> None:
-        md.convert("# {{ title }}")
+    def test_renders_title_after_body_without_changing_metadata(
+        self, md: Markdown
+    ) -> None:
+        html = soup(md.convert("# {{ title }}"))
         context = ContextPreprocessor.from_markdown(md)
         assert context is not None
-        assert context.page.meta["title"] == "Doc 5"
+
+        assert html.h1 is not None
+        assert html.h1.get_text().startswith("Doc {{ 2 + 3 }}")
+        assert context.page.title == "Doc 5"
+        assert context.page.meta["title"] == "Doc {{ 2 + 3 }}"
 
     @pytest.mark.parametrize(
         "md",
@@ -679,6 +1268,229 @@ class TestPreprocessor:
         assert "python" not in code.get_text()
         # Source broken into syntax-highlighted spans
         assert code.select("span")
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    [
+        ("keep", "Before {{ missing }} after"),
+        ("silent", "Before  after"),
+        ("strict", None),
+        ("lax", "Before  after"),
+    ],
+)
+def test_undefined_variable_modes(mode: str, expected: str | None) -> None:
+    md = Markdown(
+        extensions=[
+            MacrosExtension(
+                module_name="", on_undefined=mode, on_error_fail=True
+            )
+        ]
+    )
+
+    if expected is None:
+        with pytest.raises(UndefinedError, match="missing"):
+            md.convert("Before {{ missing }} after")
+    else:
+        assert md.convert("Before {{ missing }} after") == f"<p>{expected}</p>"
+
+
+@pytest.mark.parametrize("mode", ["keep", "silent", "strict", "lax"])
+@pytest.mark.parametrize(
+    "expression",
+    ["missing.attribute", "missing['item']", "missing()", "missing + 1"],
+)
+def test_undefined_operations_follow_mkdocs_macros_behavior(
+    mode: str, expression: str
+) -> None:
+    md = Markdown(
+        extensions=[
+            MacrosExtension(
+                module_name="", on_undefined=mode, on_error_fail=True
+            )
+        ]
+    )
+    template = "Before {{ " + expression + " }} after"
+
+    # Attribute access is tolerated in lax mode; calls, indexing,
+    # and arithmetic still fail.
+    if mode == "lax" and expression == "missing.attribute":
+        assert md.convert(template) == "<p>Before  after</p>"
+    else:
+        with pytest.raises(UndefinedError, match="missing"):
+            md.convert(template)
+
+
+def test_undefined_variables_are_kept_by_default() -> None:
+    md = Markdown(
+        extensions=[MacrosExtension(module_name="", on_error_fail=True)]
+    )
+
+    assert md.convert("{{ missing }}") == "<p>{{ missing }}</p>"
+
+
+@pytest.mark.parametrize(
+    ("source", "error_type", "message"),
+    [
+        (
+            "Before {{ missing }} after",
+            "UndefinedError",
+            "'missing' is undefined",
+        ),
+        ("Before {{ 1 / 0 }} after", "ZeroDivisionError", "division by zero"),
+    ],
+)
+def test_rendering_errors_are_displayed_with_a_traceback(
+    source: str, error_type: str, message: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    md = Markdown(
+        extensions=[
+            ContextExtension(
+                page=Page(url="/guide/", path="guide.md"), config={}
+            ),
+            MacrosExtension(module_name="", on_undefined="strict"),
+        ]
+    )
+
+    html = soup(md.convert(source))
+
+    assert html.h1 is not None
+    assert html.h1.get_text() == "Macro Rendering Error"
+    assert "guide.md" in html.get_text()
+    assert error_type in html.get_text()
+    assert message in html.get_text()
+    assert "Before" not in html.get_text()
+    assert message in caplog.text
+
+    traceback_code = html.select_one("pre code")
+    assert traceback_code is not None
+    assert "Traceback (most recent call last)" in traceback_code.get_text()
+
+
+def test_macro_exceptions_are_displayed_as_text(tmp_path: Path) -> None:
+    (tmp_path / "main.py").write_text(
+        dedent("""\
+        def define_env(env):
+            @env.macro
+            def fail():
+                raise ValueError('<script>broken macro</script>')
+    """),
+        encoding="utf-8",
+    )
+    md = Markdown(
+        extensions=[
+            ContextExtension(
+                page=Page(url="/", path="index.md"),
+                config={"root_dir": str(tmp_path)},
+            ),
+            MacrosExtension(),
+        ]
+    )
+
+    html = soup(md.convert("{{ fail() }}"))
+
+    assert "Macro Rendering Error" in html.get_text()
+    assert "ValueError" in html.get_text()
+    assert "<script>broken macro</script>" in html.get_text()
+    assert html.select("script") == []
+
+
+@pytest.mark.parametrize("docs_path", ["default", "relative", "absolute"])
+@pytest.mark.parametrize("include_dir", ["", "snippets"])
+def test_includes_and_imports_default_to_docs_dir(
+    tmp_path: Path, docs_path: str, include_dir: str
+) -> None:
+    docs_dir = tmp_path / ("docs" if docs_path == "default" else "content")
+    docs_dir.mkdir()
+    include_root = tmp_path / include_dir if include_dir else docs_dir
+    (include_root / "nested").mkdir(parents=True)
+    (include_root / "nested" / "fragment.md").write_text(
+        "Included {{ who }}", encoding="utf-8"
+    )
+    (include_root / "helpers.j2").write_text(
+        "{% macro greet(name) %}Hello {{ name }}{% endmacro %}",
+        encoding="utf-8",
+    )
+
+    # A conflicting template in `docs_dir` is ignored
+    # when `include_dir` is configured.
+    if include_dir:
+        (docs_dir / "helpers.j2").write_text("Wrong template", encoding="utf-8")
+    config = {"root_dir": str(tmp_path), "extra": {"who": "Ada"}}
+    if docs_path != "default":
+        config["docs_dir"] = (
+            str(docs_dir) if docs_path == "absolute" else "content"
+        )
+    md = Markdown(
+        extensions=[
+            ContextExtension(
+                page=Page(url="/", path="index.md"), config=config
+            ),
+            MacrosExtension(
+                module_name="", include_dir=include_dir, on_error_fail=True
+            ),
+        ]
+    )
+
+    html = soup(
+        md.convert(
+            '{% include "nested/fragment.md" %}\n\n'
+            '{% import "helpers.j2" as helpers %}{{ helpers.greet(who) }}'
+        )
+    )
+
+    assert [p.get_text() for p in html.select("p")] == [
+        "Included Ada",
+        "Hello Ada",
+    ]
+
+
+@pytest.mark.parametrize("include_dir", ["", "missing"])
+def test_missing_include_directory_reports_template_not_found(
+    tmp_path: Path, include_dir: str
+) -> None:
+    md = Markdown(
+        extensions=[
+            ContextExtension(
+                page=Page(url="/", path="index.md"),
+                config={"root_dir": str(tmp_path)},
+            ),
+            MacrosExtension(
+                module_name="", include_dir=include_dir, on_error_fail=True
+            ),
+        ]
+    )
+
+    with pytest.raises(TemplateNotFound, match=r"missing\.md"):
+        md.convert('{% include "missing.md" %}')
+
+
+def test_syntax_errors_in_included_templates_report_the_correct_source(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "docs").mkdir()
+    fragment = tmp_path / "docs" / "invalid.md"
+    fragment.write_text("First\nSecond\nThird\n{% if %}", encoding="utf-8")
+    md = Markdown(
+        extensions=[
+            ContextExtension(
+                page=Page(url="/", path="index.md"),
+                config={"root_dir": str(tmp_path)},
+            ),
+            MacrosExtension(module_name=""),
+        ]
+    )
+
+    # The error line is beyond the length of the page
+    # that includes this template.
+    html = soup(md.convert('{% include "invalid.md" %}'))
+
+    assert "Macro Syntax Error" in html.get_text()
+    assert str(fragment) in html.get_text()
+    assert "Line 4" in html.get_text()
+    code = html.select_one("pre code")
+    assert code is not None
+    assert code.get_text().strip() == "{% if %}"
 
 
 @pytest.mark.parametrize(

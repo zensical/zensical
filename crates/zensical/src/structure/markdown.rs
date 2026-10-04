@@ -73,6 +73,8 @@ pub struct MarkdownData {
 struct RenderedMarkdown {
     /// Markdown metadata.
     meta: BTreeMap<String, Dynamic>,
+    /// An explicit title is retained separately from source metadata.
+    title: Option<String>,
     /// Markdown content.
     content: String,
     /// Table of contents.
@@ -88,24 +90,36 @@ impl Markdown {
     #[cfg_attr(feature = "tracing", tracing::instrument(skip_all))]
     pub fn new(
         source: &SourcePath, url: String, content: String,
-        meta: BTreeMap<String, Dynamic>,
+        meta: BTreeMap<String, Dynamic>, title: String,
+        navigation_title: Option<String>,
     ) -> Result<(Markdown, String)> {
         let meta = serde_json::to_string(&meta)?;
         let res = Python::attach(|py| {
             let module = py.import("zensical.markdown.render")?;
             module
-                .call_method1("render", (content, source.as_str(), url, meta))?
+                .call_method1(
+                    "render",
+                    (
+                        content,
+                        source.as_str(),
+                        url,
+                        meta,
+                        title,
+                        navigation_title,
+                    ),
+                )?
                 .extract::<RenderedMarkdown>()
         })
         .map_err(python_error);
 
         res.map(|data| {
+            let title = data.title;
             let data = MarkdownData {
                 meta: data.meta,
                 content: data.content,
                 toc: data.toc,
             };
-            let title = extract_title(source, &data);
+            let title = title.unwrap_or_else(|| extract_title(source, &data));
             (Markdown { data: Arc::new(data) }, title)
         })
     }

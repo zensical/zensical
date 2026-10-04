@@ -682,6 +682,53 @@ class TestPluginShimming:
         config = self._parse_yaml(tmp_path, plugins={"macros": {}})
         assert MacrosExtension.name in config["markdown_extensions"]
 
+    @pytest.mark.parametrize("enabled", [False, True])
+    def test_macros_watch_local_module_and_default_include_directory(
+        self, tmp_path: Path, enabled: bool
+    ) -> None:
+        config_file = _write_mkdocs_config(
+            tmp_path,
+            _minimal_yaml(
+                plugins={
+                    "macros": {
+                        "enabled": enabled,
+                        "module_name": "custom_macros",
+                    }
+                }
+            ),
+        )
+        template = tmp_path / "docs" / "fragment.j2"
+        template.write_text("Included text", encoding="utf-8")
+        module = tmp_path / "custom_macros.py"
+        module.write_text("def define_env(env):\n    pass\n", encoding="utf-8")
+
+        config = parse_config(str(config_file))
+
+        # Macro dependencies are watched only while the extension is enabled.
+        watched = {path for path, _ in config["watched_files"]}
+        assert watched == ({str(module), str(template)} if enabled else set())
+
+    @pytest.mark.parametrize("enabled", [False, True])
+    def test_macros_report_missing_installed_modules_during_configuration(
+        self, tmp_path: Path, enabled: bool
+    ) -> None:
+        options = {
+            "enabled": enabled,
+            "modules": ["unavailable_config_macros_pluglet"],
+            "render_by_default": False,
+        }
+
+        # Imports are checked even when pages must opt in to rendering.
+        if enabled:
+            with pytest.raises(
+                ModuleNotFoundError, match="unavailable_config_macros_pluglet"
+            ):
+                self._parse_yaml(tmp_path, plugins={"macros": options})
+        else:
+            config = self._parse_yaml(tmp_path, plugins={"macros": options})
+
+            assert MacrosExtension.name not in config["markdown_extensions"]
+
     @pytest.mark.parametrize(
         ("option", "value"),
         [("force_render_paths", "guides/\n!guides/drafts/"), ("verbose", True)],

@@ -222,8 +222,10 @@ struct RenderedMarkdown {
     variables: BTreeMap<String, Dynamic>,
     /// Rendered Markdown consumed by page construction.
     markdown: Markdown,
-    /// Page title derived from metadata, Markdown, or source name.
+    /// The effective page title is retained after Markdown and macro rendering.
     title: String,
+    /// The configured navigation title is retained after macro rendering.
+    navigation_title: Option<String>,
     /// Facts extracted by the shared MkDocs-compatible HTML pass.
     html: plugin::HtmlFacts,
 }
@@ -741,7 +743,7 @@ fn process_markdown(
                     &config,
                     document.source.as_str(),
                     (
-                        12_u8,
+                        15_u8,
                         config.hash,
                         origin,
                         document.clone(),
@@ -808,12 +810,24 @@ fn render_markdown(
     variables: BTreeMap<String, Dynamic>, plugins: plugin::Settings,
 ) -> anyhow::Result<RenderedMarkdown> {
     let mut properties = properties;
+    // Explicit titles are available before rendering unless nav is replaced.
+    let navigation_title = if config.project.plugins.awesome_nav.config.enabled
+        || config.project.plugins.literate_nav.config.enabled
+        || config.project.plugins.autoapi.config.enabled
+    {
+        None
+    } else {
+        Navigation::configured_title(&config.project.nav, &document.source)
+    };
     let (mut markdown, title) = Markdown::new(
         &document.source,
         route.url.clone(),
         document.body,
         document.meta,
+        document.title,
+        navigation_title.map(str::to_owned),
     )?;
+    let navigation_title = navigation_title.map(|_| title.clone());
     let source_route = PageRoute::from_source(config, document.source.clone())?;
     if let Some(content) =
         html::rebase_urls(&markdown.content, &source_route.url, &route.url)
@@ -834,6 +848,7 @@ fn render_markdown(
         variables,
         markdown,
         title,
+        navigation_title,
         html,
     })
 }
@@ -861,6 +876,7 @@ fn generate_page(
             ),
         };
         let mut properties = markdown.properties.clone();
+        page.set_rendered_navigation_title(markdown.navigation_title.clone());
         if markdown.html.llmstxt.is_some() {
             properties.insert(
                 "markdown_url".into(),

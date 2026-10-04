@@ -1219,21 +1219,21 @@ def _list_macros_files(config: dict, config_file: str) -> set[tuple[str, int]]:
     """List files referenced in macros plugin/extension."""
     root = Path(config_file).parent.resolve()
     macros_config = config["mdx_configs"].get(MacrosExtension.name, {})
+    if MacrosExtension.name not in config[
+        "markdown_extensions"
+    ] or not macros_config.get("enabled", True):
+        return set()
     macros_files = []
     files_with_mtime = set()
 
-    module = macros_config.get("module", "main")
+    module = macros_config.get("module_name", "main")
     if (module_path := root.joinpath(module + ".py").resolve()).is_file():
         macros_files.append(module_path)
 
     pluglets = macros_config.get("modules", [])
     for pluglet in pluglets:
-        try:
-            pluglet_module = importlib.import_module(pluglet)
-        except ImportError:  # noqa: PERF203
-            continue
-        else:
-            macros_files.append(pluglet_module.__file__)
+        pluglet_module = importlib.import_module(pluglet)
+        macros_files.append(pluglet_module.__file__)
 
     include_yaml: list[str] | dict[str, str] = macros_config.get(
         "include_yaml", []
@@ -1249,7 +1249,7 @@ def _list_macros_files(config: dict, config_file: str) -> set[tuple[str, int]]:
         mtime = int(os.path.getmtime(file_path))
         files_with_mtime.add((str(file_path), mtime))
 
-    include_dir = macros_config.get("include_dir", None)
+    include_dir = macros_config.get("include_dir") or config["docs_dir"]
     if include_dir:
         candidate_dir = root.joinpath(include_dir).resolve()
         if candidate_dir.is_dir():
@@ -2523,12 +2523,15 @@ def _convert_plugins(value: Any, config: dict) -> dict:
                     "macros include_yaml must be a list of strings or a "
                     "mapping of strings to strings"
                 )
-        if "on_undefined" in macros and macros["on_undefined"] not in {
+        if "on_undefined" in macros and macros["on_undefined"] not in (
             "keep",
+            "silent",
             "strict",
-        }:
+            "lax",
+        ):
             raise ConfigurationError(
-                "macros on_undefined must be 'keep' or 'strict'"
+                "macros on_undefined must be 'keep', 'silent', "
+                "'strict', or 'lax'"
             )
 
     if "table-reader" in plugins:

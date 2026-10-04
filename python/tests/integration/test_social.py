@@ -227,9 +227,7 @@ def test_unrelated_images_do_not_invalidate_cached_cards(
 ) -> None:
     """The invalidation signal does not become part of the card cache key."""
     config = _write_project(tmp_path)
-    config.write_text(
-        config.read_text().replace("      cache: false\n", "")
-    )
+    config.write_text(config.read_text().replace("      cache: false\n", ""))
 
     zensical.build(str(config), _BUILD_OPTIONS)
     cache = tmp_path / ".cache/plugin/social/cards"
@@ -265,8 +263,7 @@ def test_concurrent_identical_cards_do_not_share_temporary_files(
 
     directory = tmp_path / "site/assets/images/social"
     assert all(
-        (directory / f"page-{index}.png").is_file()
-        for index in range(8)
+        (directory / f"page-{index}.png").is_file() for index in range(8)
     )
 
 
@@ -287,8 +284,8 @@ def test_supports_bundled_image_only_layout(tmp_path: Path) -> None:
         )
         .replace(
             "      cards_layout_options:\n        label: measured\n",
-                "      cards_layout_options:\n"
-                "        background_image: docs/background.svg\n",
+            "      cards_layout_options:\n"
+            "        background_image: docs/background.svg\n",
         )
     )
 
@@ -339,17 +336,13 @@ def test_honors_documented_log_levels_and_strict_mode(tmp_path: Path) -> None:
     )
 
     zensical.build(str(config), _BUILD_OPTIONS)
-    assert not (
-        tmp_path / "site/assets/images/social/index.png"
-    ).exists()
+    assert not (tmp_path / "site/assets/images/social/index.png").exists()
 
     config.write_text(
         config.read_text().replace("log_level: ignore", "log_level: warn")
     )
     with pytest.raises(RuntimeError, match="strict flag"):
-        zensical.build(
-            str(config), {"clean": False, "strict": True}
-        )
+        zensical.build(str(config), {"clean": False, "strict": True})
 
 
 def test_rejects_unknown_social_configuration(tmp_path: Path) -> None:

@@ -579,6 +579,10 @@ def test_rejects_invalid_mkdocstrings_inventory_setting(value: Any) -> None:
         ("force_render_paths", "# Pages to render\nguides/\n!guides/drafts/"),
         ("verbose", True),
         ("verbose", False),
+        ("on_undefined", "keep"),
+        ("on_undefined", "silent"),
+        ("on_undefined", "strict"),
+        ("on_undefined", "lax"),
     ],
 )
 def test_preserves_macros_settings(
@@ -602,6 +606,9 @@ def test_preserves_macros_settings(
         ("verbose", 1),
         ("verbose", []),
         ("verbose", None),
+        ("on_undefined", "unknown"),
+        ("on_undefined", None),
+        ("on_undefined", []),
     ],
 )
 def test_rejects_invalid_macros_settings(option: str, value: Any) -> None:
@@ -732,7 +739,7 @@ def test_normalizes_null_autorefs_settings() -> None:
             "caption_position must be",
         ),
         ("macros", {"include_yaml": [42]}, "include_yaml must be a list"),
-        ("macros", {"on_undefined": "silent"}, "on_undefined must be"),
+        ("macros", {"on_undefined": "unknown"}, "on_undefined must be"),
         (
             "table-reader",
             {"enabled": "yes"},

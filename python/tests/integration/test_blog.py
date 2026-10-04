@@ -311,9 +311,7 @@ def test_blog_entrypoint_template_applies_to_paginated_pages(
     assert "LANDING|Journal|blog/page/2/" in (
         site / "page/2/index.html"
     ).read_text("utf-8")
-    assert "BLOG|2026|" in (
-        site / "archive/2026/index.html"
-    ).read_text("utf-8")
+    assert "BLOG|2026|" in (site / "archive/2026/index.html").read_text("utf-8")
 
 
 def test_single_page_keeps_empty_pagination_context(tmp_path: Path) -> None:

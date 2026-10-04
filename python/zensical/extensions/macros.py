@@ -29,9 +29,11 @@ import platform
 import subprocess
 import traceback
 from collections.abc import Callable, Iterable
+from copy import copy, deepcopy
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from functools import cache
+from html import escape
 from inspect import signature
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
@@ -47,7 +49,7 @@ from markdown.preprocessors import Preprocessor
 from pathspec import PathSpec
 from pathspec.patterns.gitignore.spec import GitIgnoreSpecPattern
 
-from zensical.extensions.context import ContextPreprocessor
+from zensical.extensions.context import ContextPreprocessor, Page
 from zensical.extensions.table_reader import (
     _add_indentation,
     _convert_to_md_table,
@@ -154,15 +156,81 @@ See also the [Jinja2 documentation on builtin filters](https://jinja.palletsproj
 # -----------------------------------------------------------------------------
 
 
+class _MacroVariables(dict[str, Any]):
+    """Macro variables are exposed through keys and attributes.
+
+    Nested dictionaries and lists are converted during construction and updates.
+    Values assigned directly are retained, as in MkDocs Macros.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        for key, value in self.items():
+            self[key] = _macro_value(value)
+
+    def update(self, *args: Any, **kwargs: Any) -> None:
+        if (
+            len(args) == 1
+            and isinstance(args[0], _MacroVariables)
+            and not kwargs
+        ):
+            super().update(args[0])
+        else:
+            super().update(_MacroVariables(*args, **kwargs))
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError as error:
+            raise AttributeError(name) from error
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        self[name] = value
+
+    def __delattr__(self, name: str) -> None:
+        try:
+            del self[name]
+        except KeyError as error:
+            raise AttributeError(name) from error
+
+
+class _MacroList(list[Any]):
+    """Dot access is provided for dictionaries nested inside variable lists."""
+
+    def __init__(self, values: Iterable[Any] = ()) -> None:
+        super().__init__(_macro_value(value) for value in values)
+
+    def extend(self, values: Iterable[Any]) -> None:
+        super().extend(_MacroList(values))
+
+    def __add__(self, values: list[Any]) -> _MacroList:
+        return _MacroList(super().__add__(_MacroList(values)))
+
+
+class _LaxUndefined(jinja2.Undefined):
+    """Missing attributes are rendered as empty strings, as in MkDocs Macros."""
+
+    def _fail_with_undefined_error(self, *_args: Any, **_kwargs: Any) -> str:  # ty:ignore[invalid-method-override]
+        return ""
+
+
 class MacroEnv:
     """Minimal env object for compatibility with MkDocs Macros."""
 
     def __init__(
-        self, conf: dict[str, Any] | None = None, *, verbose: bool = False
+        self,
+        conf: dict[str, Any] | None = None,
+        *,
+        config: dict[str, Any] | None = None,
+        page: Page | None = None,
+        verbose: bool = False,
     ) -> None:
         self.conf = conf if conf is not None else {}
+        self.config = config if config is not None else {}
+        self.page = page
+        self.project_dir = str(Path(self.conf.get("root_dir", ".")).resolve())
         self._verbose = verbose
-        self.variables: VariablesType = {}
+        self.variables = _MacroVariables()
         self.macros: MacrosType = {}
         self.filters: FiltersType = {}
 
@@ -220,7 +288,7 @@ class MacrosConfig:
     render_by_default: bool = True
     force_render_paths: str = ""
     on_error_fail: bool = False
-    on_undefined: Literal["keep", "strict"] = "keep"
+    on_undefined: Literal["keep", "silent", "strict", "lax"] = "keep"
     verbose: bool = False
     j2_block_start_string: str = "{%"
     j2_block_end_string: str = "%}"
@@ -248,6 +316,17 @@ class MacrosPreprocessor(Preprocessor):
             GitIgnoreSpecPattern, config.force_render_paths.splitlines()
         )
 
+    def _should_render(self, page: Page | None) -> bool:
+        """Page metadata and path selection apply before each rendering pass."""
+        render_macros = page.meta.get("render_macros") if page else None
+        if render_macros is False:
+            return False
+        return bool(
+            self.config.render_by_default
+            or render_macros
+            or (page and self._render_paths.match_file(page.path))
+        )
+
     def run(self, lines: list[str]) -> list[str]:
         """Render body as Jinja2 template with built context."""
         # Fetch rendering context from our context preprocessor
@@ -255,24 +334,25 @@ class MacrosPreprocessor(Preprocessor):
         page = context.page if context else None
         project_config = context.config if context else {}
         project_root = Path(project_config.get("root_dir", ".")).resolve()
-        macros_env = MacroEnv(conf=project_config, verbose=self.config.verbose)
+        macros_env = MacroEnv(
+            conf=project_config,
+            config=asdict(self.config),
+            page=page,
+            verbose=self.config.verbose,
+        )
         chatter = macros_env.start_chatting("render")
         page_path = page.path if page else "<string>"
 
         # Page metadata takes precedence over the default and path selection.
-        render_macros = page.meta.get("render_macros") if page else None
-        if render_macros is False or (
-            not self.config.render_by_default
-            and not render_macros
-            and not (page and self._render_paths.match_file(page.path))
-        ):
+        if not self._should_render(page):
             chatter("Skipping page:", page_path)
             return lines
         chatter("Rendering page:", page_path)
 
         text = "\n".join(lines)
-        variables = {}
-        macros = {}
+        variables: VariablesType = {}
+        macro_variables = macros_env.variables
+        macros: dict[str, Any] = macros_env.macros
         filters: dict[str, Callable] = {
             "pretty": _pretty,
             "fix_url": _fix_url,
@@ -280,16 +360,16 @@ class MacrosPreprocessor(Preprocessor):
             "convert_to_md_table": _convert_to_md_table,
         }
 
-        # Merge extra into variables
-        if extra := project_config.get("extra"):
-            variables["extra"] = extra
-            variables.update(extra)
+        # Mutable values are isolated from the configuration and other pages.
+        extra = deepcopy(project_config.get("extra") or {})
+        macro_variables["extra"] = extra
+        macro_variables["config"] = project_config.copy()
 
         # Load YAML from configuration
         _merge_include_yaml(
             self.config.include_yaml,
             project_root,
-            variables,
+            macro_variables,
         )
 
         # Load YAML data from page metadata
@@ -297,27 +377,8 @@ class MacrosPreprocessor(Preprocessor):
             _merge_include_yaml(
                 page.meta.get("include_yaml", []),
                 project_root,
-                variables,
+                macro_variables,
             )
-
-        # Load module.
-        # Relative path (without extension) or importable module name
-        if self.config.module_name:
-            _load_module(macros_env, self.config.module_name, project_root)
-
-        # Load pluglets (preinstalled modules)
-        # Importable module names only
-        for plug in self.config.modules:
-            _load_module(macros_env, plug)
-
-        # Store declared variables, macros and filters.
-        variables.update(macros_env.variables)
-        macros.update(macros_env.macros)
-        filters.update(macros_env.filters)
-
-        # Merge page metadata
-        if page:
-            variables.update(page.meta)
 
         # Build Jinja2 environment
         env_kw: dict[str, Any] = {
@@ -325,37 +386,27 @@ class MacrosPreprocessor(Preprocessor):
             "block_end_string": self.config.j2_block_end_string,
             "variable_start_string": self.config.j2_variable_start_string,
             "variable_end_string": self.config.j2_variable_end_string,
+            "undefined": _UNDEFINED_TYPES[self.config.on_undefined],
         }
         if self.config.j2_comment_start_string is not None:
             env_kw["comment_start_string"] = self.config.j2_comment_start_string
         if self.config.j2_comment_end_string is not None:
             env_kw["comment_end_string"] = self.config.j2_comment_end_string
-        if self.config.on_undefined == "strict":
-            env_kw["undefined"] = jinja2.StrictUndefined
         if self.config.j2_extensions:
             env_kw["extensions"] = self.config.j2_extensions
 
-        if (
-            self.config.include_dir
-            and (
-                include_dir_path := project_root / self.config.include_dir
-            ).exists()
-        ):
-            env_kw["loader"] = _make_include_loader(include_dir_path)
+        include_dir = self.config.include_dir or project_config.get(
+            "docs_dir", "docs"
+        )
+        env_kw["loader"] = _make_include_loader(project_root / include_dir)
 
         env = jinja2.Environment(**env_kw)  # noqa: S701
 
         # Store builtin Jinja filters before adding our own
         builtin_filters = env.filters.copy()
 
-        # Add user macros and filters to the environment
-        env.filters.update(filters)
-        env.globals.update(macros)
-
-        # Add our own macros and variables to the environment
-        env_globals: dict[str, Any] = {
-            "config": project_config,
-            "context": _context_closure(variables),
+        # Standard variables are defined before extra and module overrides.
+        standard_variables: dict[str, Any] = {
             "environment": _get_env_info(),
             "files": [],
             "filters": filters,
@@ -363,11 +414,10 @@ class MacrosPreprocessor(Preprocessor):
             "git": _get_git_info(),
             "macros": macros,
             "navigation": [],
-            "now": _now,
-            "plugin": asdict(self.config),
+            "plugin": macros_env.config,
         }
-        if page:
-            env_globals["page"] = page
+        template_page = copy(page) if page else None
+        macros.update({"context": _context_closure(variables), "now": _now})
 
         table_reader = (
             project_config.get("plugins", {})
@@ -376,7 +426,7 @@ class MacrosPreprocessor(Preprocessor):
         )
         if not table_reader or not table_reader.get("enabled", True):
             table_reader = {}
-        env_globals.update(
+        macros.update(
             _get_table_readers(
                 project_root,
                 docs_dir=project_config.get("docs_dir", "docs"),
@@ -388,39 +438,85 @@ class MacrosPreprocessor(Preprocessor):
             )
         )
 
-        env.globals.update(env_globals)
+        # Configured variables and context are available
+        # during module registration.
+        for name, value in standard_variables.items():
+            macro_variables[name] = value
+        macro_variables.update(extra)
+        if template_page:
+            macro_variables["page"] = template_page
 
-        # This copies the environment filters and globals
-        # into a new environment so this call must be last
-        env.globals["macros_info"] = _macros_info_closure(env)  # ty:ignore[invalid-assignment]
+        # Installed modules are loaded in order,
+        # with the local module loaded last.
+        for plug in self.config.modules:
+            _load_module(macros_env, plug)
+        if self.config.module_name:
+            _load_module(macros_env, self.config.module_name, project_root)
 
-        # Make global variables accessible to `context()` macro
-        variables.update(env.globals)
+        filters.update(macros_env.filters)
+        env.filters.update(filters)
 
-        # Render title if it contains Jinja2 syntax
-        title = variables.get("title")
-        if isinstance(title, str) and (
-            self.config.j2_variable_start_string in title
-            or self.config.j2_block_start_string in title
-        ):
+        # Diagnostics are created after all custom filters have been registered.
+        macros.setdefault("macros_info", _macros_info_closure(env, variables))
+        env.globals.update(macros)
+
+        macro_variables["macros"] = macros.copy()
+        macro_variables["filters"] = filters.copy()
+        macro_variables["filters_builtin"] = builtin_filters
+        if template_page:
+            macro_variables["page"] = template_page
+
+        def render_template(source: str) -> str:
+            if not self._should_render(template_page):
+                return source
+
+            # Variables changed by body macros are read again
+            # when the title is rendered.
+            variables.clear()
+            variables.update(env.globals)
+            variables.update(macro_variables)
+            if template_page:
+                variables.update(template_page.meta)
             try:
-                title_template = env.from_string(title)
-                new_title = title_template.render(**variables)
-            except Exception:  # noqa: BLE001
-                pass
-            else:
-                variables["title"] = new_title
-                if page:
-                    page.meta["title"] = new_title
+                return env.from_string(source).render(**variables)
+            except Exception as error:
+                if self.config.on_error_fail:
+                    raise
+                _LOGGER.warning(
+                    "Macro rendering failed in %s: %s", page_path, error
+                )
+                return _format_rendering_error(error, source, page_path)
 
-        # Render body and return it
-        try:
-            template = env.from_string(text)
-            rendered = template.render(**variables)
-        except Exception:
-            if self.config.on_error_fail:
-                raise
-            rendered = text
+        rendered = render_template(text)
+
+        # The effective title is rendered after the body;
+        # source metadata is retained.
+        delimiters = (
+            env.variable_start_string,
+            env.block_start_string,
+            env.comment_start_string,
+        )
+        title = page.title if page else None
+        if (
+            page
+            and isinstance(title, str)
+            and any(delimiter in title for delimiter in delimiters)
+        ):
+            page.title = render_template(title)
+
+        # A rendered metadata title is supplied to the theme
+        # without changing macro context.
+        metadata_title = page.meta.get("title") if page else None
+        if (
+            page
+            and isinstance(metadata_title, str)
+            and any(delimiter in metadata_title for delimiter in delimiters)
+        ):
+            page.rendered_metadata_title = (
+                page.title
+                if metadata_title == title
+                else render_template(metadata_title)
+            )
         return rendered.split("\n")
 
 
@@ -446,9 +542,27 @@ class MacrosExtension(Extension):
         md.preprocessors.register(preprocessor, preprocessor.name, 35)
 
 
+_UNDEFINED_TYPES = {
+    "keep": jinja2.DebugUndefined,
+    "silent": jinja2.Undefined,
+    "strict": jinja2.StrictUndefined,
+    "lax": _LaxUndefined,
+}
+
+
 # -----------------------------------------------------------------------------
 # Functions
 # -----------------------------------------------------------------------------
+
+
+def _macro_value(value: Any) -> Any:
+    if isinstance(value, (_MacroVariables, _MacroList)):
+        return value
+    if isinstance(value, dict):
+        return _MacroVariables(value)
+    if isinstance(value, list):
+        return _MacroList(value)
+    return value
 
 
 def makeExtension(**kwargs: Any) -> MacrosExtension:
@@ -499,16 +613,47 @@ def _now() -> datetime:
 # -----------------------------------------------------------------------------
 
 
-def _macros_info_closure(env: Environment) -> Callable[[], str]:
+def _macros_info_closure(
+    env: Environment, variables: VariablesType
+) -> Callable[[], str]:
     new_env = jinja2.Environment()  # noqa: S701
     new_env.filters.update(env.filters)
     new_env.globals.update(env.globals)
 
     def macros_info() -> str:
         """Display info about the macros environment, for debugging purposes."""
-        return new_env.from_string(_MACROS_INFO).render()
+        return new_env.from_string(_MACROS_INFO).render(**variables)
 
     return macros_info
+
+
+# -----------------------------------------------------------------------------
+
+
+def _format_rendering_error(
+    error: Exception, source: str, page_path: str
+) -> str:
+    """A rendering diagnostic is returned as Markdown for the affected page."""
+    if isinstance(error, jinja2.TemplateSyntaxError):
+        lines = (
+            error.source if error.source is not None else source
+        ).splitlines()
+        line = lines[error.lineno - 1] if 0 < error.lineno <= len(lines) else ""
+        location = f"_File_: `{page_path}`"
+        if error.filename:
+            location += f"\n\n_Template_: `{error.filename}`"
+
+        return (
+            f"# _Macro Syntax Error_\n\n{location}\n\n_Line {error.lineno}_: "
+            f"**{escape(error.message or str(error))}**\n\n"
+            f"{_add_indentation(line, spaces=4)}"
+        )
+
+    return (
+        f"# _Macro Rendering Error_\n\n_File_: `{page_path}`\n\n"
+        f"_{type(error).__name__}_: {escape(str(error))}\n\n"
+        f"{_add_indentation(traceback.format_exc(), spaces=4)}"
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -525,6 +670,14 @@ def _fix_url(url: str) -> str:
 
 
 def _list_items(obj: Any) -> Iterable[tuple[str | int, Any]]:
+    if isinstance(obj, Page):
+        attributes = {
+            key: value
+            for key, value in vars(obj).items()
+            if not key.startswith("_")
+        }
+        attributes["title"] = obj.title
+        return sorted(attributes.items())
     try:
         return sorted(obj.items())
     except AttributeError:
@@ -648,7 +801,14 @@ def _load_module(
     chatter("Importing module:", module_name)
     try:
         mod = importlib.import_module(module_name)
-    except ImportError:
+    except ModuleNotFoundError as error:
+        # Only an absent default local module is optional.
+        if (
+            project_root is None
+            or module_name != "main"
+            or error.name != module_name
+        ):
+            raise
         chatter("Module unavailable:", module_name)
     else:
         if hasattr(mod, "define_env"):
@@ -691,7 +851,10 @@ def _merge_include_yaml(
     else:
         for path in include_yaml:
             if data := _load_one_yaml(path, project_root):
-                variables.update(data)
+                # Nested YAML values are retained,
+                # as with upstream's direct assignments.
+                for key, value in data.items():
+                    variables[key] = value
 
 
 @cache

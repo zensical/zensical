@@ -46,11 +46,41 @@ class Page:
         path: str,
         title: str | None = None,
         meta: dict | None = None,
+        *,
+        fallback_title: str | None = None,
     ):
         self.url = url
         self.path = path
-        self.title: str | None = title
+        self._title = title
+        self._fallback_title = fallback_title
         self.meta: dict = meta if meta is not None else {}
+        self._rendered_metadata_title: str | None = None
+
+    @property
+    def title(self) -> str | None:
+        """The explicit title, current metadata title, or source fallback."""
+        if self._title is not None:
+            return self._title
+        title = self.meta.get("title")
+        return str(title) if title is not None else self._fallback_title
+
+    @title.setter
+    def title(self, title: str | None) -> None:
+        self._title = title
+
+    @property
+    def title_override(self) -> str | None:
+        """The title assigned by navigation or macros."""
+        return self._title
+
+    @property
+    def rendered_metadata_title(self) -> str | None:
+        """The rendered metadata title is returned for theme templates."""
+        return self._rendered_metadata_title
+
+    @rendered_metadata_title.setter
+    def rendered_metadata_title(self, title: str | None) -> None:
+        self._rendered_metadata_title = title
 
 
 # This processor doesn't follow the usual pattern

@@ -581,12 +581,16 @@ def test_empty_site_emits_indexes_without_warnings(
     # The initial scan is completed even when no documentation pages are found.
     (tmp_path / "docs").mkdir()
 
-    site = build(tmp_path, dedent("""\
+    site = build(
+        tmp_path,
+        dedent("""\
         plugins:
           - llmstxt:
               full_output: llms-full.txt
               sections: {Pages: ["*.md"]}
-    """), strict=True)
+    """),
+        strict=True,
+    )
 
     index = (site / "llms.txt").read_text(encoding="utf-8")
     full = (site / "llms-full.txt").read_text(encoding="utf-8")
