@@ -891,7 +891,7 @@ def _get_git_info() -> dict[str, Any]:
                 text=True,
                 stderr=subprocess.DEVNULL,
             ).strip()
-        except FileNotFoundError as error:  # noqa: PERF203
+        except FileNotFoundError as error:
             # Git executable not found, abort early.
             return {
                 "status": False,
@@ -912,9 +912,7 @@ def _get_git_info() -> dict[str, Any]:
         else:
             result[field_name] = output
             if field_name == "date_ISO":
-                result["date"] = datetime.fromisoformat(
-                    output.replace("Z", "+00:00")
-                )
+                result["date"] = datetime.fromisoformat(output)
             result["status"] = True
 
     return result

@@ -67,8 +67,11 @@ jobs:
         run: cargo test
 
   python:
-    name: Python
+    name: Python (${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -78,7 +81,7 @@ jobs:
       - name: Set up Python
         uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Prepare UI
         run: python scripts/prepare.py

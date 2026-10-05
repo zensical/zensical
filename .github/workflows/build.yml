@@ -82,7 +82,7 @@ jobs:
           # Temporary fix for https://github.com/zensical/zensical/issues/425
           args: >-
             --release --out artifacts
-            --interpreter python3.10
+            --interpreter python3.11
           # args: --release --out artifacts
           sccache: >
             ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
