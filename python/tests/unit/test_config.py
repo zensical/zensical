@@ -41,6 +41,7 @@ from zensical.config import (
 from zensical.extensions.autorefs import AutorefsExtension
 from zensical.extensions.glightbox import GlightboxExtension
 from zensical.extensions.macros import MacrosExtension
+from zensical.extensions.media import MediaExtension
 from zensical.extensions.mkdocstrings import MkdocstringsExtension
 from zensical.extensions.table_reader import TableReaderExtension
 
@@ -616,6 +617,77 @@ class TestPluginShimming:
         assert GlightboxExtension.name in config["markdown_extensions"]
         assert config["mdx_configs"][GlightboxExtension.name] == {
             "width": "80%"
+        }
+
+    @pytest.mark.parametrize(
+        ("plugin", "section", "other"),
+        [
+            ("mkdocs-video", "video", "audio"),
+            ("mkdocs-audio", "audio", "video"),
+        ],
+    )
+    def test_media_plugin_enables_only_its_section(
+        self, tmp_path: Path, plugin: str, section: str, other: str
+    ) -> None:
+        config = self._parse_yaml(
+            tmp_path, plugins={plugin: {"mark": "custom"}}
+        )
+
+        assert config["markdown_extensions"].count(MediaExtension.name) == 1
+        media = config["mdx_configs"][MediaExtension.name]
+        assert media[section] == {"enabled": True, "mark": "custom"}
+        assert media[other] == {"enabled": False}
+
+    def test_both_media_plugins_share_one_extension(
+        self, tmp_path: Path
+    ) -> None:
+        config = self._parse_yaml(
+            tmp_path,
+            plugins=[
+                {"mkdocs-video": {"is_video": True}},
+                {"mkdocs-audio": {"audio_loop": True}},
+            ],
+        )
+
+        assert config["markdown_extensions"].count(MediaExtension.name) == 1
+        media = config["mdx_configs"][MediaExtension.name]
+        assert media["order"] == ["video", "audio"]
+        assert media["video"] == {"enabled": True, "is_video": True}
+        assert media["audio"] == {"enabled": True, "audio_loop": True}
+
+    def test_media_extension_settings_override_plugin_defaults(
+        self, tmp_path: Path
+    ) -> None:
+        config = self._parse_yaml(
+            tmp_path,
+            markdown_extensions={
+                MediaExtension.name: {
+                    "video": {"enabled": False, "mark": "direct"},
+                    "audio": {"enabled": True},
+                }
+            },
+            plugins={"mkdocs-video": {"mark": "plugin", "video_loop": True}},
+        )
+
+        assert config["markdown_extensions"].count(MediaExtension.name) == 1
+        media = config["mdx_configs"][MediaExtension.name]
+        assert media["video"] == {
+            "enabled": False,
+            "mark": "direct",
+            "video_loop": True,
+        }
+        assert media["audio"] == {"enabled": True}
+
+    def test_disabled_media_plugin_does_not_enable_other_section(
+        self, tmp_path: Path
+    ) -> None:
+        config = self._parse_yaml(
+            tmp_path, plugins={"mkdocs-video": {"enabled": False}}
+        )
+        media = config["mdx_configs"][MediaExtension.name]
+        assert media == {
+            "video": {"enabled": False},
+            "audio": {"enabled": False},
         }
 
     @pytest.mark.parametrize(
