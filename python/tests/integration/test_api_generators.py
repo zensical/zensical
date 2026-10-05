@@ -482,8 +482,12 @@ def test_serve_discovers_added_renamed_and_removed_modules(
         def wait_for(condition: Callable[[], bool]) -> None:
             deadline = time.monotonic() + 15
             while time.monotonic() < deadline:
-                if condition():
-                    return
+                try:
+                    if condition():
+                        return
+                except FileNotFoundError:
+                    # A rebuild can remove output between checking and reading.
+                    pass
                 if process.poll() is not None:
                     break
                 time.sleep(0.02)
