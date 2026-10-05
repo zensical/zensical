@@ -36,7 +36,14 @@ from zensical.extensions.context import ContextExtension, Page
 from zensical.extensions.links import LinksExtension
 
 
-def render(content: str, path: str, url: str, metadata: str = "{}") -> dict:
+def render(
+    content: str,
+    path: str,
+    url: str,
+    metadata: str = "{}",
+    title: str | None = None,
+    navigation_title: str | None = None,
+) -> dict:
     """Render Markdown and return HTML.
 
     This function returns rendered HTML as well as the table of contents and
@@ -51,7 +58,13 @@ def render(content: str, path: str, url: str, metadata: str = "{}") -> dict:
 
     # Create page context and set it for autorefs.
     # We can stop setting the page if/when we vendor mkdocstrings.
-    page = Page(url=url, path=path, meta=meta)
+    page = Page(
+        url=url,
+        path=path,
+        title=navigation_title,
+        fallback_title=title,
+        meta=meta,
+    )
     set_autorefs_page(page)
 
     # Update configuration to include context extension.
@@ -104,11 +117,13 @@ def render(content: str, path: str, url: str, metadata: str = "{}") -> dict:
 
     # Sanitize metadata before passing it to Rust
     meta = {k: _sanitize(v) for k, v in meta.items()}
+    if page.rendered_metadata_title is not None:
+        meta["title"] = page.rendered_metadata_title
 
     # Return Markdown with metadata
     return {
         "meta": meta,
-        "title": "",
+        "title": page.title_override,
         "content": content,
         "toc": [_convert_toc(item) for item in getattr(md, "toc_tokens", [])],
     }

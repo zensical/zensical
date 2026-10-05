@@ -129,6 +129,9 @@ pub struct PageData {
     pub path: String,
     /// Effective page title, including an explicit navigation title.
     pub title: String,
+    /// The configured navigation title is retained after macro rendering.
+    #[serde(skip)]
+    rendered_navigation_title: Option<String>,
     /// Module-owned template-facing page fields.
     #[serde(flatten)]
     properties: BTreeMap<String, Dynamic>,
@@ -360,6 +363,7 @@ impl Page {
                     .expect("configured output path is valid UTF-8")
                     .into(),
                 title,
+                rendered_navigation_title: None,
                 properties: BTreeMap::new(),
                 markdown,
             }),
@@ -545,6 +549,18 @@ impl Page {
             title.clone_into(&mut Arc::make_mut(&mut self.data).title);
         }
     }
+
+    /// The configured navigation title is stored after macro rendering.
+    pub(crate) fn set_rendered_navigation_title(
+        &mut self, title: Option<String>,
+    ) {
+        Arc::make_mut(&mut self.data).rendered_navigation_title = title;
+    }
+
+    /// The configured navigation title is returned after macro rendering.
+    pub(crate) fn rendered_navigation_title(&self) -> Option<&str> {
+        self.rendered_navigation_title.as_deref()
+    }
 }
 
 fn merge_properties(
@@ -579,6 +595,7 @@ impl PartialEq for PageData {
             && self.canonical_url == other.canonical_url
             && self.edit_url == other.edit_url
             && self.title == other.title
+            && self.rendered_navigation_title == other.rendered_navigation_title
             && self.properties == other.properties
             && self.meta == other.meta
             && self.path == other.path
@@ -693,6 +710,7 @@ mod tests {
                 edit_url: None,
                 path: String::from("site/index.html"),
                 title: String::from("Home"),
+                rendered_navigation_title: None,
                 properties: BTreeMap::new(),
                 markdown,
             }),

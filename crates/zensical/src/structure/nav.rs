@@ -99,6 +99,15 @@ pub struct NavigationContribution {
 // ----------------------------------------------------------------------------
 
 impl Navigation {
+    /// The title from the first configured source reference is returned.
+    pub(crate) fn configured_title<'a>(
+        items: &'a [NavigationItem], source: &SourcePath,
+    ) -> Option<&'a str> {
+        Iter::new(items)
+            .find(|item| item.url.as_deref() == Some(source.as_str()))
+            .and_then(|item| item.title.as_deref())
+    }
+
     /// Creates a navigation from the given items.
     pub fn new(items: Vec<NavigationItem>, pages: Vec<Page>) -> Self {
         Self::resolve(items, pages).navigation
@@ -405,8 +414,11 @@ fn resolve_items(
         {
             let source = page.source().clone();
             if seen.insert(source.clone())
-                && let Some(title) = &item.title
+                && let Some(title) = &mut item.title
             {
+                if let Some(rendered) = page.rendered_navigation_title() {
+                    rendered.clone_into(title);
+                }
                 title_overrides.insert(source, title.clone());
             }
 
