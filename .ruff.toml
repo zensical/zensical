@@ -21,7 +21,7 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 # IN THE SOFTWARE.
 
-target-version = "py310"
+target-version = "py311"
 line-length = 80
 fix = true
 output-format = "concise"
