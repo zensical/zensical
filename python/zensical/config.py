@@ -143,6 +143,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
     "literate-nav": (),
     "llmstxt": ("preprocess",),
     "macros": (),
+    "mkdocs-nav-weight": (),
     "markdown-exec": (),
     "meta": (),
     "mike": (
@@ -2291,6 +2292,39 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             )
     awesome_nav["logs"] = logs
     plugins["awesome_nav"] = awesome_nav
+
+    # Navigation weights are applied after the navigation tree is resolved.
+    present = "mkdocs-nav-weight" in plugins
+    nav_weight = plugins.pop("mkdocs-nav-weight", {})
+    defaults = {
+        "enabled": present,
+        "section_renamed": False,
+        "index_weight": -10,
+        "warning": True,
+        "reverse": False,
+        "headless_included": False,
+        "default_page_weight": 0,
+    }
+    _reject_unknown_options("mkdocs-nav-weight", nav_weight, set(defaults))
+    for option, default in defaults.items():
+        set_default(nav_weight, option, default)
+    _validate_boolean_options(
+        "mkdocs-nav-weight",
+        nav_weight,
+        (
+            "enabled",
+            "section_renamed",
+            "warning",
+            "reverse",
+            "headless_included",
+        ),
+    )
+    for option in ("index_weight", "default_page_weight"):
+        if not isinstance(nav_weight[option], (int, float)):
+            raise ConfigurationError(
+                f"mkdocs-nav-weight {option} must be a number"
+            )
+    plugins["nav_weight"] = nav_weight
 
     # Offline is always materialized for Rust and enabled by plugin presence.
     present = "offline" in plugins

@@ -49,7 +49,8 @@ use crate::compat::mkdocs::{
     html,
     plugin::{
         self, autorefs, awesome_nav, blog, exclude, literate_nav, llmstxt,
-        meta, minify, mkdocstrings, redirects, rss, search, social, tags,
+        meta, minify, mkdocstrings, nav_weight, redirects, rss, search, social,
+        tags,
     },
     resource,
 };
@@ -554,7 +555,8 @@ fn resolve_navigation(
             },
         )
     };
-    blogs.navigation(&resolution, all_pages, view_pages)
+    let resolution = blogs.navigation(&resolution, all_pages, view_pages);
+    nav_weight::NavWeight::new(config, strict).setup(&resolution)
 }
 
 /// Retains the lightweight autorefs facts needed for ordinary link resolution.

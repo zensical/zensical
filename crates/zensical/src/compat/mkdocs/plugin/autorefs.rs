@@ -1317,9 +1317,7 @@ mod tests {
             .data
             .get()
             .is_none());
-        assert!(resolver
-            .get_backlinks(&["target".into()], "api/")
-            .is_empty());
+        assert_eq!(resolver.get_backlinks(&["target".into()], "api/"), []);
         assert!(resolver
             .backlink_index
             .as_ref()
