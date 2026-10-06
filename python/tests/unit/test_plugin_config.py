@@ -49,6 +49,7 @@ PYTHON_PLUGINS = (
     "mkdocstrings",
     "glightbox",
     "macros",
+    "markdownextradata",
     "table-reader",
 )
 
@@ -60,6 +61,7 @@ SHIM_PLUGINS = (
     "mkdocstrings",
     "glightbox",
     "macros",
+    "markdownextradata",
     "table-reader",
 )
 
