@@ -50,6 +50,11 @@ from zensical.extensions.autorefs import AutorefsExtension
 from zensical.extensions.emoji import to_svg, twemoji
 from zensical.extensions.glightbox import GlightboxExtension
 from zensical.extensions.macros import MacrosExtension
+from zensical.extensions.markdownextradata import (
+    MarkdownExtraDataExtension,
+    iter_data_files,
+    load_extra_data,
+)
 from zensical.extensions.media import MediaExtension
 from zensical.extensions.mkdocstrings import MkdocstringsExtension
 from zensical.extensions.table_reader import TABLE_READERS, TableReaderExtension
@@ -144,6 +149,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
     "llmstxt": ("preprocess",),
     "macros": (),
     "markdown-exec": (),
+    "markdownextradata": (),
     "meta": (),
     "mike": (
         "css_dir",
@@ -818,6 +824,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     _shim_glightbox(config)
     _shim_media(config)
     _shim_macros(config)
+    _shim_markdownextradata(config)
     _shim_table_reader(config)
 
     # List files along with their hashes, so we can rebuild when they change
@@ -825,6 +832,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
         _list_sources(config, path)  # mkdocstrings
         | _list_snippet_files(config, path)  # pymdownx.snippets
         | _list_macros_files(config, path)  # macros
+        | _list_markdownextradata_files(config)  # markdownextradata
         | _list_watch_files(config, path)  # watch
     )
 
@@ -1146,6 +1154,24 @@ def _shim_macros(config: dict[str, Any]) -> None:
             config["mdx_configs"][MacrosExtension.name] = plugin
 
 
+def _shim_markdownextradata(config: dict[str, Any]) -> None:
+    """Map markdownextradata configuration to its compatibility extension."""
+    name = MarkdownExtraDataExtension.name
+    if name not in config["markdown_extensions"]:
+        plugin = config["plugins"].get("markdownextradata", {}).get("config")
+        if plugin is None or not plugin.get("enabled", True):
+            return
+        config["markdown_extensions"].append(name)
+        config["mdx_configs"][name] = plugin
+
+    options = config["mdx_configs"].get(name, {})
+    if options.get("enabled", True):
+        # External data is also made available to theme templates and macros.
+        config["extra"] = load_extra_data(
+            config, options.get("data"), for_templates=True
+        )
+
+
 def _shim_table_reader(config: dict[str, Any]) -> None:
     """Map table-reader configuration to its compatibility extension."""
     if "table-reader" not in config["plugins"]:
@@ -1298,6 +1324,20 @@ def _list_macros_files(config: dict, config_file: str) -> set[tuple[str, int]]:
                     files_with_mtime.add((file_path, mtime))
 
     return files_with_mtime
+
+
+def _list_markdownextradata_files(config: dict) -> set[tuple[str, int]]:
+    """List files referenced in markdownextradata plugin/extension."""
+    name = MarkdownExtraDataExtension.name
+    options = config["mdx_configs"].get(name, {})
+    if name not in config["markdown_extensions"] or not options.get(
+        "enabled", True
+    ):
+        return set()
+    return {
+        (str(path), int(path.stat().st_mtime))
+        for path, _ in iter_data_files(config, options.get("data"))
+    }
 
 
 def _list_watch_files(config: dict, config_file: str) -> set[tuple[str, int]]:
@@ -2602,6 +2642,30 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             raise ConfigurationError(
                 "macros on_undefined must be 'keep', 'silent', "
                 "'strict', or 'lax'"
+            )
+
+    if "markdownextradata" in plugins:
+        markdownextradata = plugins["markdownextradata"]
+        _reject_unknown_options(
+            "markdownextradata",
+            markdownextradata,
+            {"enabled", "data", "jinja_options"},
+        )
+        _validate_boolean_options(
+            "markdownextradata", markdownextradata, ("enabled",)
+        )
+        if (
+            "data" in markdownextradata
+            and markdownextradata["data"] is not None
+        ):
+            _validate_string_options(
+                "markdownextradata", markdownextradata, ("data",)
+            )
+        if "jinja_options" in markdownextradata and not isinstance(
+            markdownextradata["jinja_options"], dict
+        ):
+            raise ConfigurationError(
+                "markdownextradata jinja_options must be a mapping"
             )
 
     if "table-reader" in plugins:
