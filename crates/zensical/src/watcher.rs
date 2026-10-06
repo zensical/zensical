@@ -158,7 +158,8 @@ impl Watcher {
         }
         sources.push(SourceMount::new(path, String::from(".")));
 
-        // Track seen files to restart on config or template change
+        // Original paths are tracked so discovery of a symlink and its target
+        // is not mistaken for a change to an already discovered file.
         let mut seen = BTreeSet::new();
 
         // Normalize watched paths once, so path comparisons stay stable across
@@ -235,9 +236,7 @@ impl Watcher {
                     }
                     // Check if the config file reloaded, and terminate agent,
                     // as we need to kick off the entire pipeline again
-                    if event_path == config_path
-                        && !seen.insert(config_path.clone())
-                    {
+                    if event_path == config_path && !seen.insert(event.path()) {
                         return Err(Error::Disconnected);
                     }
 
@@ -245,7 +244,7 @@ impl Watcher {
                     // and restart the build if we've already seen the file
                     for dir in &theme_dirs {
                         if event_path.starts_with(dir)
-                            && !seen.insert(event_path.clone())
+                            && !seen.insert(event.path())
                         {
                             return Err(Error::Disconnected);
                         }
@@ -254,7 +253,7 @@ impl Watcher {
                     // Check if one of the source files managed by mkdocstrings
                     // changed, and restart the build
                     if watched_files.contains(&event_path)
-                        && !seen.insert(event_path.clone())
+                        && !seen.insert(event.path())
                     {
                         return Err(Error::Disconnected);
                     }
@@ -298,11 +297,19 @@ impl Watcher {
                         continue;
                     }
 
-                    // Compute an identifier from the path and known contexts.
+                    // Rebuilds can be triggered by external watched dependencies.
+                    // Only paths with a source mount are admitted to the workflow.
+                    let mounted = |path: &Path| {
+                        sources
+                            .iter()
+                            .any(|source| path.starts_with(&source.root))
+                    };
                     match event {
                         // File was created or modified
                         Event::Create { path, .. }
-                        | Event::Modify { path, .. } => {
+                        | Event::Modify { path, .. }
+                            if mounted(&path) =>
+                        {
                             batch.push(Change::Insert(
                                 to_id(&path, &sources)?.into(),
                                 Source::from(path),
@@ -311,21 +318,26 @@ impl Watcher {
 
                         // File was renamed
                         Event::Rename { from, to, .. } => {
-                            batch.push(Change::Remove(
-                                to_id(&from, &sources)?.into(),
-                            ));
-                            batch.push(Change::Insert(
-                                to_id(&to, &sources)?.into(),
-                                Source::from(to),
-                            ));
+                            if mounted(&from) {
+                                batch.push(Change::Remove(
+                                    to_id(&from, &sources)?.into(),
+                                ));
+                            }
+                            if mounted(&to) {
+                                batch.push(Change::Insert(
+                                    to_id(&to, &sources)?.into(),
+                                    Source::from(to),
+                                ));
+                            }
                         }
 
                         // File was removed
-                        Event::Remove { path, .. } => {
+                        Event::Remove { path, .. } if mounted(&path) => {
                             batch.push(Change::Remove(
                                 to_id(&path, &sources)?.into(),
                             ));
                         }
+                        _ => {}
                     }
                 }
 

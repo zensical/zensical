@@ -1320,6 +1320,8 @@ def _list_macros_files(config: dict, config_file: str) -> set[tuple[str, int]]:
             for root, _, files in os.walk(candidate_dir):
                 for file in files:
                     file_path = os.path.join(root, file)
+                    if not os.path.isfile(file_path):
+                        continue
                     mtime = int(os.path.getmtime(file_path))
                     files_with_mtime.add((file_path, mtime))
 
@@ -1353,6 +1355,8 @@ def _list_watch_files(config: dict, config_file: str) -> set[tuple[str, int]]:
             for dirpath, _, files in os.walk(path):
                 for file in files:
                     file_path = os.path.join(dirpath, file)
+                    if not os.path.isfile(file_path):
+                        continue
                     mtime = int(os.path.getmtime(file_path))
                     files_with_mtime.add((file_path, mtime))
     return files_with_mtime

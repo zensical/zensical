@@ -29,6 +29,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from textwrap import dedent
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlsplit
@@ -72,6 +73,99 @@ def _write_config(
         )
     config.write_text(content, encoding="utf-8")
     return config
+
+
+@pytest.mark.parametrize("toml", [False, True], ids=["yaml", "toml"])
+@pytest.mark.parametrize("target_location", ["docs", "project", "external"])
+def test_default_include_directory_builds_symlinked_pages(
+    tmp_path: Path, toml: bool, target_location: str
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    config = _write_config(project, {"on_error_fail": True}, toml=toml)
+    docs = project / "content"
+    target_dir = {"docs": docs, "project": project, "external": tmp_path}
+    target = target_dir[target_location] / "page.md"
+    target.write_text("# Hello\n\nValue: {{ 1 + 1 }}\n", encoding="utf-8")
+
+    # Two aliases are discovered alongside the target without ending the build.
+    for name in ["index.md", "alias.md"]:
+        try:
+            (docs / name).symlink_to(target)
+        except OSError as error:
+            pytest.skip(f"symbolic links unavailable: {error}")
+
+    zensical.build(str(config), {"clean": True, "strict": False})
+
+    for output in ["index.html", "alias/index.html"]:
+        html = (project / "site" / output).read_text(encoding="utf-8")
+        assert "Value: 2" in html
+
+
+@pytest.mark.parametrize("dependency", ["page", "include"])
+def test_serve_rebuilds_after_symlinked_macro_dependency_changes(
+    tmp_path: Path, dependency: str
+) -> None:
+    config = _write_config(tmp_path, {"on_error_fail": True})
+    with config.open("a", encoding="utf-8") as stream:
+        stream.write("dev_addr: 127.0.0.1:0\n")
+
+    docs = tmp_path / "content"
+    target = tmp_path / ("page.md" if dependency == "page" else "fragment.j2")
+    target.write_text("First value: {{ 1 + 1 }}\n", encoding="utf-8")
+    alias = docs / ("index.md" if dependency == "page" else "fragment.j2")
+    try:
+        alias.symlink_to(target)
+    except OSError as error:
+        pytest.skip(f"symbolic links unavailable: {error}")
+
+    if dependency == "include":
+        (docs / "index.md").write_text(
+            '{% include "fragment.j2" %}\n', encoding="utf-8"
+        )
+
+    output = tmp_path / "site" / "index.html"
+    with (tmp_path / "serve.log").open("w+", encoding="utf-8") as log:
+        process = subprocess.Popen(  # noqa: S603
+            [sys.executable, "-m", "zensical", "serve", "-f", str(config)],
+            cwd=tmp_path,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+
+        def wait_for(text: str) -> None:
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                try:
+                    content = output.read_text(encoding="utf-8")
+                except FileNotFoundError:
+                    content = ""
+                if text in content:
+                    return
+                if process.poll() is not None:
+                    break
+                time.sleep(0.02)
+
+            log.seek(0)
+            pytest.fail(f"serve did not rebuild: {log.read()}")
+
+        try:
+            wait_for("First value: 2")
+
+            # Canonical targets are still watched after alias discovery.
+            target.write_text("Updated value: {{ 1 + 1 }}\n", encoding="utf-8")
+            timestamp = target.stat().st_mtime + 2
+            os.utime(target, (timestamp, timestamp))
+
+            wait_for("Updated value: 2")
+            assert process.poll() is None
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
 
 
 @pytest.mark.parametrize("toml", [False, True], ids=["yaml", "toml"])

@@ -158,6 +158,73 @@ def test_build_with_config_in_watch(
     assert (tmp_path / "site" / "index.html").is_file()
 
 
+@pytest.mark.parametrize("toml", [False, True], ids=["yaml", "toml"])
+@pytest.mark.parametrize(
+    "watch_path", ["extras/page.md", "extras", "docs/index.md", "."]
+)
+@pytest.mark.parametrize("external_target", [False, True])
+def test_build_with_symlinked_page_in_watch(
+    tmp_path: Path, toml: bool, watch_path: str, external_target: bool
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    if external_target and watch_path.startswith("extras"):
+        watch_path = "../" + watch_path
+
+    config = (
+        _make_toml_project(project, toml_extra=f'watch = ["{watch_path}"]')
+        if toml
+        else _make_yml_project(project, yml_extra=f'watch: ["{watch_path}"]')
+    )
+    extras = (tmp_path if external_target else project) / "extras"
+    extras.mkdir()
+    target = extras / "page.md"
+    target.write_text("# Symlinked page\n", encoding="utf-8")
+
+    # The watched target is exposed through two independent docs paths.
+    (project / "docs" / "index.md").unlink()
+    for name in ["index.md", "alias.md"]:
+        try:
+            (project / "docs" / name).symlink_to(target)
+        except OSError as error:
+            pytest.skip(f"symbolic links unavailable: {error}")
+
+    _build(config)
+
+    for output in ["index.html", "alias/index.html"]:
+        html = (project / "site" / output).read_text(encoding="utf-8")
+        assert "Symlinked page" in html
+
+
+@pytest.mark.parametrize("toml", [False, True], ids=["yaml", "toml"])
+@pytest.mark.parametrize("dependencies", ["macros", "watch", "both"])
+def test_build_ignores_dangling_symlinks_in_watched_directories(
+    tmp_path: Path, toml: bool, dependencies: str
+) -> None:
+    if toml:
+        options = 'watch = ["docs"]\n' if dependencies != "macros" else ""
+        if dependencies != "watch":
+            options += "[project.plugins.macros]\n"
+        config = _make_toml_project(tmp_path, toml_extra=options)
+    else:
+        options = "watch: [docs]\n" if dependencies != "macros" else ""
+        if dependencies != "watch":
+            options += "plugins: [macros]\n"
+        config = _make_yml_project(tmp_path, yml_extra=options)
+
+    # A dangling link is ignored while the existing page is still rendered.
+    try:
+        (tmp_path / "docs" / "broken.md").symlink_to("missing.md")
+    except OSError as error:
+        pytest.skip(f"symbolic links unavailable: {error}")
+
+    _build(config)
+
+    html = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    assert "Hello" in html
+    assert not (tmp_path / "site" / "broken").exists()
+
+
 @pytest.mark.parametrize("config_format", ["yaml", "toml"])
 @pytest.mark.parametrize(
     ("enabled", "version_selector", "expected"),
