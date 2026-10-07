@@ -827,7 +827,7 @@ mod tests {
         let output = scan(html, &mut [&mut parser]).expect("search edit");
 
         assert_eq!(output, "<p>Drop</p>");
-        assert!(parser.finish().is_empty());
+        assert_eq!(parser.finish(), []);
     }
 
     #[test]

@@ -45,6 +45,7 @@ pub mod llmstxt;
 pub mod meta;
 pub mod minify;
 pub mod mkdocstrings;
+pub mod nav_weight;
 pub mod redirects;
 pub mod rss;
 pub mod search;

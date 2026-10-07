@@ -304,7 +304,7 @@ mod tests {
         ];
         let mut metadata = admission(docs);
 
-        assert!(metadata.prepare(&changes).unwrap().dependents.is_empty());
+        assert_eq!(metadata.prepare(&changes).unwrap().dependents, []);
     }
 
     #[test]

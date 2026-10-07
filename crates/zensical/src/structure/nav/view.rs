@@ -35,7 +35,7 @@ use super::{Navigation, NavigationItem};
 // ----------------------------------------------------------------------------
 
 /// Navigation fields visible to templates.
-const NAVIGATION_FIELDS: &[&str] = &["items", "homepage", "hash"];
+const NAVIGATION_FIELDS: &[&str] = &["items", "pages", "homepage", "hash"];
 
 /// Navigation item fields visible to templates.
 const ITEM_FIELDS: &[&str] = &[
@@ -131,6 +131,9 @@ impl NavigationView {
     fn field(&self, field: &str) -> Option<Value> {
         match field {
             "items" => Some(items(&self.overlay, &[])),
+            "pages" => {
+                Some(Value::from_serialize(self.overlay.navigation.pages()))
+            }
             "homepage" => {
                 Some(Value::from_serialize(&self.overlay.navigation.homepage))
             }
@@ -265,6 +268,10 @@ mod tests {
             homepage: None,
             hash: 42,
             generation: 0,
+            omitted: Arc::default(),
+            headless_included: false,
+            ancestry: Arc::default(),
+            page_only_connections: false,
         }
     }
 

@@ -148,7 +148,9 @@ mod tests {
 
     #[test]
     fn ignores_legal_comment_markers_inside_strings() {
-        assert!(legal_comments(r#".a { content: \"/*! not legal */\" }"#)
-            .is_empty());
+        assert_eq!(
+            legal_comments(r#".a { content: \"/*! not legal */\" }"#),
+            [] as [&str; 0]
+        );
     }
 }

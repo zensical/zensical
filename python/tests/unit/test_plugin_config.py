@@ -40,6 +40,7 @@ PYTHON_PLUGINS = (
     "minify",
     "literate-nav",
     "awesome-nav",
+    "mkdocs-nav-weight",
     "offline",
     "mike",
     "autorefs",
@@ -120,6 +121,7 @@ def test_preserves_plugin_presence_semantics() -> None:
         "minify",
         "literate_nav",
         "awesome_nav",
+        "nav_weight",
         "offline",
     ):
         assert plugins[name]["config"]["enabled"] is False
@@ -861,3 +863,59 @@ def test_api_autonav_preserves_module_option_order() -> None:
         "pkg.*",
         ".*",
     ]
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "mkdocs-nav-weight",
+        {"mkdocs-nav-weight": None},
+        {"mkdocs-nav-weight": {}},
+    ],
+)
+def test_nav_weight_defaults(entry: Any) -> None:
+    plugins = _convert_plugins([entry])
+
+    assert plugins["nav_weight"]["config"] == {
+        "enabled": True,
+        "section_renamed": False,
+        "index_weight": -10,
+        "warning": True,
+        "reverse": False,
+        "headless_included": False,
+        "default_page_weight": 0,
+    }
+
+
+@pytest.mark.parametrize("option", ["index_weight", "default_page_weight"])
+@pytest.mark.parametrize("value", [-3, 1.25, True])
+def test_nav_weight_accepts_numeric_options(option: str, value: Any) -> None:
+    plugins = _convert_plugins({"mkdocs-nav-weight": {option: value}})
+
+    assert plugins["nav_weight"]["config"][option] == value
+
+
+@pytest.mark.parametrize("option", ["index_weight", "default_page_weight"])
+@pytest.mark.parametrize("value", ["1", [], {}])
+def test_nav_weight_rejects_invalid_numeric_options(
+    option: str, value: Any
+) -> None:
+    with pytest.raises(
+        ConfigurationError, match=f"mkdocs-nav-weight {option} must be a number"
+    ):
+        _convert_plugins({"mkdocs-nav-weight": {option: value}})
+
+
+@pytest.mark.parametrize(
+    "option",
+    ["enabled", "section_renamed", "warning", "reverse", "headless_included"],
+)
+@pytest.mark.parametrize("value", [1, "true", [], {}])
+def test_nav_weight_rejects_invalid_boolean_options(
+    option: str, value: Any
+) -> None:
+    with pytest.raises(
+        ConfigurationError,
+        match=f"mkdocs-nav-weight {option} must be a boolean",
+    ):
+        _convert_plugins({"mkdocs-nav-weight": {option: value}})

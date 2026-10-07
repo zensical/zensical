@@ -70,6 +70,22 @@ pub struct Navigation {
     /// Site snapshot generation this navigation was created from.
     #[serde(skip)]
     pub generation: u64,
+    /// Hidden items are retained for isolated section traversal.
+    #[pyo3(default, from_py_with = extract_shared_items)]
+    #[serde(skip)]
+    pub(crate) omitted: Arc<Vec<NavigationItem>>,
+    /// Whether hidden pages are included in the template-facing page list.
+    #[pyo3(default)]
+    #[serde(skip)]
+    pub(crate) headless_included: bool,
+    /// Navigation ancestry before entries are hidden or removed.
+    #[pyo3(default, from_py_with = extract_shared_items)]
+    #[serde(skip)]
+    pub(crate) ancestry: Arc<Vec<NavigationItem>>,
+    /// Whether previous and next connections are limited to resolved pages.
+    #[pyo3(default)]
+    #[serde(skip)]
+    pub(crate) page_only_connections: bool,
 }
 
 // ----------------------------------------------------------------------------
@@ -179,6 +195,10 @@ impl Navigation {
                 homepage,
                 hash,
                 generation: 0,
+                omitted: Arc::default(),
+                headless_included: false,
+                ancestry: Arc::default(),
+                page_only_connections: false,
             },
             title_overrides: Arc::new(title_overrides),
         }
@@ -222,13 +242,32 @@ impl Navigation {
         // Clone the ancestors into owned items and reverse them, so we start
         // at the ancestor closest to the page, not the root itself
         let mut items: Vec<&NavigationItem> = Vec::new();
-        let _ = recurse(&self.items, url, &mut items);
+        let ancestry = if self.ancestry.is_empty() {
+            &self.items
+        } else {
+            &self.ancestry
+        };
+        let _ = recurse(ancestry, url, &mut items);
         items.into_iter().rev().cloned().collect()
     }
 
     /// Returns an iterator over all navigation items in pre-order.
     pub fn iter(&self) -> Iter<'_> {
         Iter::new(&self.items)
+    }
+
+    /// The flat page list is returned in navigation order.
+    pub fn pages(&self) -> Vec<&NavigationItem> {
+        let mut pages = self
+            .iter()
+            .filter(|item| item.meta.is_some())
+            .collect::<Vec<_>>();
+        if self.headless_included {
+            pages.extend(
+                Iter::new(&self.omitted).filter(|item| item.meta.is_some()),
+            );
+        }
+        pages
     }
 
     /// Return the next page for the given page in pre-order, if any.
@@ -238,16 +277,20 @@ impl Navigation {
 
     /// Returns the next page after a URL in pre-order, if any.
     pub fn next_page_for_url(&self, url: &str) -> Option<NavigationItem> {
-        let mut found = false;
-        for item in self {
-            if found {
-                if item.url.is_some() {
-                    return Some(item.clone());
+        for group in self.connected_groups() {
+            let mut found = false;
+            for item in Iter::new(group).filter(|item| {
+                !self.page_only_connections || item.meta.is_some()
+            }) {
+                if found {
+                    if item.url.is_some() {
+                        return Some(item.clone());
+                    }
+                    continue;
                 }
-                continue;
-            }
-            if item.url.as_deref() == Some(url) {
-                found = true;
+                if item.url.as_deref() == Some(url) {
+                    found = true;
+                }
             }
         }
         None
@@ -260,16 +303,30 @@ impl Navigation {
 
     /// Returns the previous page before a URL in pre-order, if any.
     pub fn previous_page_for_url(&self, url: &str) -> Option<NavigationItem> {
-        let mut prev: Option<NavigationItem> = None;
-        for item in self {
-            if item.url.as_deref() == Some(url) {
-                return prev;
-            }
-            if item.url.is_some() {
-                prev = Some(item.clone());
+        for group in self.connected_groups() {
+            let mut prev: Option<NavigationItem> = None;
+            for item in Iter::new(group).filter(|item| {
+                !self.page_only_connections || item.meta.is_some()
+            }) {
+                if item.url.as_deref() == Some(url) {
+                    return prev;
+                }
+                if item.url.is_some() {
+                    prev = Some(item.clone());
+                }
             }
         }
         None
+    }
+
+    /// Visible navigation and hidden sections are traversed independently.
+    fn connected_groups(&self) -> impl Iterator<Item = &[NavigationItem]> {
+        std::iter::once(self.items.as_slice()).chain(
+            self.omitted
+                .iter()
+                .filter(|item| item.url.is_none())
+                .map(|item| item.children.as_slice()),
+        )
     }
 }
 
@@ -380,6 +437,10 @@ impl From<Vec<Page>> for Navigation {
             items: Arc::new(items),
             hash,
             generation: 0,
+            omitted: Arc::default(),
+            headless_included: false,
+            ancestry: Arc::default(),
+            page_only_connections: false,
         }
     }
 }
@@ -534,6 +595,10 @@ mod tests {
             homepage: None,
             hash: 0,
             generation: 0,
+            omitted: Arc::default(),
+            headless_included: false,
+            ancestry: Arc::default(),
+            page_only_connections: false,
         };
 
         let clone = nav.clone();
@@ -548,6 +613,10 @@ mod tests {
             homepage: None,
             hash: navigation_hash(&[]),
             generation: 0,
+            omitted: Arc::default(),
+            headless_included: false,
+            ancestry: Arc::default(),
+            page_only_connections: false,
         };
 
         let value = serde_json::to_value(nav).expect("invariant");
@@ -601,6 +670,10 @@ mod tests {
                 homepage: None,
                 hash: 0,
                 generation: 0,
+                omitted: Arc::default(),
+                headless_included: false,
+                ancestry: Arc::default(),
+                page_only_connections: false,
             },
             title_overrides: Arc::new(HashMap::default()),
         };

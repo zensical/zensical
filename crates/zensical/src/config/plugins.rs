@@ -33,6 +33,7 @@ mod api_autonav;
 mod autoapi;
 mod blog;
 mod llmstxt;
+mod nav_weight;
 mod rss;
 mod social;
 mod tags;
@@ -41,6 +42,7 @@ pub use api_autonav::{ApiAutonavConfig, ApiAutonavPlugin};
 pub use autoapi::AutoApiPlugin;
 pub use blog::{BlogPlugin, BlogPluginConfig, CategorySort, ExcerptPolicy};
 pub use llmstxt::{LlmstxtPlugin, LlmstxtPluginConfig};
+pub use nav_weight::{NavWeightPlugin, NavWeightPluginConfig};
 pub use rss::{RssDateConfig, RssPlugin, RssPluginConfig};
 pub use social::{SocialPlugin, SocialPluginConfig, SocialPluginInstance};
 pub use tags::{
@@ -100,6 +102,8 @@ pub struct Plugins {
     pub literate_nav: LiterateNavPlugin,
     /// Awesome navigation plugin.
     pub awesome_nav: AwesomeNavPlugin,
+    /// Navigation weight plugin.
+    pub nav_weight: NavWeightPlugin,
     /// Offline plugin.
     pub offline: OfflinePlugin,
 }
