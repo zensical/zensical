@@ -32,8 +32,8 @@ use std::ops::Range;
 use crate::compat::mkdocs::plugin::minify::{script, style};
 
 use super::syntax::{
-    is_css, is_javascript, is_module, source_name, Attribute, InlineKind,
-    StartTag, Value,
+    is_css, is_javascript, is_module, source_name, source_value, Attribute,
+    InlineKind, StartTag, Value,
 };
 
 // ----------------------------------------------------------------------------
@@ -120,7 +120,7 @@ impl<'a> InlineEditor<'a> {
         {
             attribute.value = Some(Value {
                 decoded: String::from_utf8_lossy(value).into_owned(),
-                raw: self.input[span.start..span.end].into(),
+                raw: source_value(self.input, span),
             });
         }
     }

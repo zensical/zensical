@@ -131,6 +131,18 @@ pub fn source_name(
     input.get(start..end).unwrap_or_default().into()
 }
 
+/// An attribute value is extracted with its source spelling.
+pub fn source_value(input: &str, span: Span<usize>) -> String {
+    // The opening quote or first unquoted byte is excluded from html5gum's
+    // attribute-value spans. The first byte must be restored for unquoted
+    // values.
+    let mut start = span.start - 1;
+    if matches!(input.as_bytes()[start], b'\'' | b'"') {
+        start += 1;
+    }
+    input[start..span.end].into()
+}
+
 /// Returns whether a character is HTML whitespace.
 pub fn is_html_whitespace(character: char) -> bool {
     matches!(character, '\t' | '\n' | '\u{c}' | '\r' | ' ')

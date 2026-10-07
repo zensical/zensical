@@ -34,8 +34,8 @@ use crate::config::plugins::HtmlMinOptions;
 use super::syntax::{
     closes_on_start, collapse_whitespace, escape_text, is_boolean_attribute,
     is_css, is_html_whitespace, is_javascript, is_module, is_void,
-    serialize_attribute_value, source_name, Attribute, Element, Inline,
-    InlineKind, StartTag, Value,
+    serialize_attribute_value, source_name, source_value, Attribute, Element,
+    Inline, InlineKind, StartTag, Value,
 };
 
 // ----------------------------------------------------------------------------
@@ -151,7 +151,7 @@ impl<'a> Serializer<'a> {
         };
         attribute.value = Some(Value {
             decoded: String::from_utf8_lossy(value).into_owned(),
-            raw: self.input[span.start..span.end].into(),
+            raw: source_value(self.input, span),
         });
     }
 
