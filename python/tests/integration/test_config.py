@@ -197,6 +197,42 @@ def test_build_with_symlinked_page_in_watch(
 
 
 @pytest.mark.parametrize("toml", [False, True], ids=["yaml", "toml"])
+@pytest.mark.parametrize("watch_path", ["extras", "extras/guide"])
+def test_build_with_symlinked_directory_in_watch(
+    tmp_path: Path, toml: bool, watch_path: str
+) -> None:
+    config = (
+        _make_toml_project(tmp_path, toml_extra=f'watch = ["{watch_path}"]')
+        if toml
+        else _make_yml_project(tmp_path, yml_extra=f'watch: ["{watch_path}"]')
+    )
+    target = tmp_path / "extras" / "guide"
+    target.mkdir(parents=True)
+    pages = [("detail.md", "Detail page"), ("index.md", "Guide page")]
+    for name, title in pages:
+        (target / name).write_text(f"# {title}\n", encoding="utf-8")
+
+    try:
+        (tmp_path / "docs" / "guide").symlink_to(
+            target, target_is_directory=True
+        )
+    except OSError as error:
+        pytest.skip(f"symbolic links unavailable: {error}")
+
+    _build(config)
+
+    assert (tmp_path / "site" / "index.html").is_file()
+    for name, title in pages:
+        output = (
+            "guide/index.html"
+            if name == "index.md"
+            else "guide/detail/index.html"
+        )
+        html = (tmp_path / "site" / output).read_text(encoding="utf-8")
+        assert title in html
+
+
+@pytest.mark.parametrize("toml", [False, True], ids=["yaml", "toml"])
 @pytest.mark.parametrize("dependencies", ["macros", "watch", "both"])
 def test_build_ignores_dangling_symlinks_in_watched_directories(
     tmp_path: Path, toml: bool, dependencies: str

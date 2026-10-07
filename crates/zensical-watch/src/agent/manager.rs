@@ -577,15 +577,16 @@ impl Manager {
             paths.contains(&root).then_some(Arc::clone(path))
         });
 
-        // Now, enumerate all paths that start with the path of the given event,
-        // filtering out the starting path, since it's the symbolic link itself
+        // Enumerate paths below the link target. The target itself may not be
+        // registered, so filter it out explicitly instead of skipping an entry.
         let iter = target.into_iter().flat_map(|head| {
-            let iter = self.paths.range(Arc::clone(&head)..).skip(1);
+            let iter = self.paths.range(Arc::clone(&head)..);
             iter.scan((), move |(), (path, (_, kind))| {
                 path.strip_prefix(head.as_path())
                     .ok()
                     .map(|tail| (*kind, tail))
             })
+            .filter(|(_, tail)| !tail.as_os_str().is_empty())
         });
 
         // Check if the next link target is broken, which means that the link
