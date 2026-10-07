@@ -178,6 +178,60 @@ mod tests {
     }
 
     #[test]
+    fn preserves_utf8_attribute_values() {
+        // Two-, three-, and four-byte characters are retained in quoted and
+        // unquoted values, including the mismatched quotes from issue #1013.
+        let cases = [
+            (
+                r#"<div class=“foo">x</div>"#,
+                r#"<div class='“foo"'>x</div>"#,
+            ),
+            ("<div title=é>x</div>", "<div title=é>x</div>"),
+            ("<div title=中文>x</div>", "<div title=中文>x</div>"),
+            ("<div title=😀>x</div>", "<div title=😀>x</div>"),
+            ("<div title=a“b>x</div>", "<div title=a“b>x</div>"),
+            ("<div title=foo“>x</div>", "<div title=foo“>x</div>"),
+            (r#"<div title="“foo">x</div>"#, "<div title=“foo>x</div>"),
+            ("<div title='😀'>x</div>", "<div title=😀>x</div>"),
+        ];
+
+        for convert_charrefs in [true, false] {
+            let mut options = options();
+            options.convert_charrefs = convert_charrefs;
+
+            for (input, expected) in cases {
+                let output = minify(input, &options, false, false);
+
+                assert_eq!(output, expected, "input: {input}");
+            }
+        }
+    }
+
+    #[test]
+    fn preserves_unquoted_attribute_source_spelling() {
+        // Source spelling is retained when character-reference conversion is
+        // disabled or an attribute is protected with the configured prefix.
+        let mut options = options();
+        options.convert_charrefs = false;
+        let input =
+            "<div class=foo id=x title=&quot;é&amp;😀 data-value=é>x</div>";
+
+        let output = minify(input, &options, false, false);
+
+        assert_eq!(output, input);
+
+        options.convert_charrefs = true;
+        let input = "<div pre-class=foo pre-id=x pre-title=&quot;é&amp;😀 pre-data-value=é>x</div>";
+
+        let output = minify(input, &options, false, false);
+
+        assert_eq!(
+            output,
+            "<div class=foo id=x title=&quot;é&amp;😀 data-value=é>x</div>"
+        );
+    }
+
+    #[test]
     fn supports_custom_preservation_markers() {
         let mut options = options();
         options.pre_attr = "custom".into();
@@ -291,6 +345,28 @@ mod tests {
         let output = minify_inline(input.into(), true, false);
         assert!(output.starts_with("<div  class=\"x\">  A  </div>"));
         assert!(output.ends_with("<script>const x=1;</script>"));
+    }
+
+    #[test]
+    fn inline_only_retains_utf8_attribute_values() {
+        // Surrounding HTML is preserved while inline languages are minified,
+        // even when an unquoted attribute starts with a multi-byte character.
+        let input = concat!(
+            r#"<div class=“foo" title=é data-value=😀>x</div>"#,
+            "<script data-value=中文> const x = 1; </script>",
+            "<style data-value=😀> .a { color: red; } </style>",
+        );
+
+        let output = minify_inline(input.into(), true, true);
+
+        assert_eq!(
+            output,
+            concat!(
+                r#"<div class=“foo" title=é data-value=😀>x</div>"#,
+                "<script data-value=中文>const x=1;</script>",
+                "<style data-value=😀>.a{color:red}</style>",
+            )
+        );
     }
 
     #[test]

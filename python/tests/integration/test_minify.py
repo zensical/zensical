@@ -117,6 +117,31 @@ def test_inline_minification_does_not_require_html_minification(
     assert "screen and (min-width:45em)" in output
 
 
+@pytest.mark.parametrize(
+    ("minify_html", "expected"),
+    [
+        (True, """<div class='“foo"'>x</div>"""),
+        (False, '<div class=“foo">x</div>'),
+    ],
+)
+def test_minification_preserves_utf8_attribute_values(
+    tmp_path: Path,
+    minify_html: bool,
+    expected: str,
+) -> None:
+    """Preserve UTF-8 attribute values during HTML and inline minification."""
+    config = _project(tmp_path, minify_html=minify_html)
+
+    # The mismatched quotes from issue #1013 are included in the rendered page.
+    with (tmp_path / "docs" / "index.md").open("a", encoding="utf-8") as stream:
+        stream.write('\n<div class=“foo">x</div>\n')
+
+    zensical.build(str(config), {"clean": False, "strict": False})
+    output = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+
+    assert expected in output
+
+
 def _asset_project(root: Path, *, minify: bool, cache_safe: bool) -> Path:
     """Create a project covering exact, glob, and configured assets."""
     docs = root / "docs"
