@@ -105,6 +105,20 @@ impl Parser {
     }
 
     fn open(&mut self, mut element: Element, self_closing: bool) {
+        if self.autoclean
+            && element.has_class("twemoji")
+            && !element.attr("alt").is_empty()
+        {
+            // Emoji text is retained while the image or SVG markup is skipped.
+            self.text(element.attr("alt"));
+            element.mode = Mode::Skip;
+            let void = is_void(&element.tag);
+            self.stack.push(element);
+            if void || self_closing {
+                self.close();
+            }
+            return;
+        }
         let parent = self.stack.last().expect("document root");
         let in_table = parent.html_body.is_some();
         let footnote_decoration = element.has_class("footnote-backref")
@@ -1253,6 +1267,68 @@ mod tests {
         let markdown = convert(html, true);
 
         assert_eq!(markdown, "Text\n\n```\nx\ny\n```\n");
+    }
+
+    #[test]
+    fn keeps_emoji_alt_text_when_autoclean_is_enabled() {
+        let html = concat!(
+            "<p>Status: <img class='twemoji' alt='🟢' title='Supported' src='green.svg'> supported.</p>",
+            "<p><a href='#status'><img class='extra twemoji' alt='&#x1F534;' src='red.svg'> Offline</a></p>",
+            "<p><span class='twemoji' alt='👩‍💻'><svg><path></path></svg></span></p>",
+            "<p><img class='twemoji' alt='&amp; [status]' src='status.svg'></p>",
+        );
+
+        let markdown = convert(html, true);
+
+        // Emoji text is retained without image URLs or tooltip titles.
+        assert_eq!(
+            markdown,
+            concat!(
+                "Status: 🟢 supported.\n\n",
+                "[🔴 Offline](<#status>)\n\n",
+                "👩‍💻\n\n",
+                "&amp; \\[status\\]\n",
+            )
+        );
+    }
+
+    #[test]
+    fn keeps_emoji_alt_text_in_markdown_and_html_tables() {
+        let html = concat!(
+            "<table><tr><th>Feature</th><th>Status</th></tr>",
+            "<tr><td>Search</td><td align='center'><img class='twemoji' alt='🟢' title='Supported' src='green.svg'></td></tr>",
+            "<tr><td>Offline</td><td><img class='twemoji' alt='🔴' src='red.svg'></td></tr></table>",
+            "<table><tr><td colspan='2'><img class='twemoji' alt='🟢' src='green.svg'></td></tr></table>",
+        );
+
+        let markdown = convert(html, true);
+
+        // Emoji-only cells are retained in both table formats.
+        assert_eq!(
+            markdown,
+            concat!(
+                "| Feature | Status |\n| --- | :---: |\n",
+                "| Search | 🟢 |\n| Offline | 🔴 |\n\n",
+                "<table><tr><td colspan=\"2\">🟢</td></tr></table>\n",
+            )
+        );
+    }
+
+    #[test]
+    fn omits_icons_without_emoji_alt_text_and_emojis_in_skipped_content() {
+        let html = concat!(
+            "<p>Text<img class='twemoji' title='Supported' src='green.svg'>",
+            "<img class='twemoji' alt='' src='empty.svg'>",
+            "<span class='twemoji'><svg><title>Icon</title></svg></span>",
+            "<img alt='Ordinary image' src='image.png'><svg>Icon</svg></p>",
+            "<div class='doc-labels'><img class='twemoji' alt='🟢' src='green.svg'></div>",
+            "<a href='#heading' class='headerlink'><img class='twemoji' alt='🔗' src='link.svg'></a>",
+        );
+
+        let markdown = convert(html, true);
+
+        // Missing emoji text cannot be recovered, and skipped content stays omitted.
+        assert_eq!(markdown, "Text\n");
     }
 
     #[test]
