@@ -533,6 +533,12 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(config, "copyright", None, str)
     set_default(config, "watch", [], list)
 
+    # Keep file patterns as text for native configuration and template access.
+    for setting in ("exclude_docs", "draft_docs", "not_in_nav"):
+        value = config.setdefault(setting, None)
+        if value is not None and not isinstance(value, str):
+            raise ConfigurationError(f"'{setting}' must be a multiline string.")
+
     # Validate watch setting
     if not all(isinstance(path, str) for path in config["watch"]):
         raise ConfigurationError("'watch' entries must be strings.")

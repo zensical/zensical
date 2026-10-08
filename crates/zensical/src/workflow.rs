@@ -276,11 +276,24 @@ impl Main {
 
         // Set up workflow to process static assets and Markdown files.
         let sources = files.map(|input: &Input| input.source.clone());
-        let resources = resource::Resources::new(&self.config, &self.meta)
-            .setup(resource::Dependencies { sources: &sources });
+        let resources =
+            resource::Resources::new(&self.config, &self.meta, self.serve)
+                .setup(resource::Dependencies { sources: &sources });
         let resources = self.exclude.resources(&resources);
         let assets =
             minify.setup(minify::Dependencies { resources: &resources });
+        let inclusion = self.config.inclusion.clone();
+        let docs = self.config.project.docs_dir.clone();
+        let serve = self.serve;
+        // Control files are retained in sources for navigation and metadata.
+        // Only published files are passed to Markdown and extra templates.
+        let files = files.filter_map(move |id: &Id, input: &Input| {
+            Ok::<_, anyhow::Error>(
+                (id.context() != docs
+                    || inclusion.is_included(&id.location(), serve)?)
+                .then(|| input.clone()),
+            )
+        });
         let documents = read_documents(&self.config, &files);
         let plugins = plugin::Settings::new(&self.config, self.serve);
         let blogs = plugins.blog.clone();
@@ -689,9 +702,6 @@ fn read_documents(
             return Ok(None);
         }
         let source = id.location().parse::<SourcePath>()?;
-        if source.is_hidden() {
-            return Ok(None);
-        }
         let data = input.source.read_to_string()?;
         let (body, page_meta) = meta::front_matter(&source, &data)?;
         let resolved = input.metadata.resolve(&source, page_meta)?;
@@ -1013,6 +1023,13 @@ fn render_pages(
     let config = config.clone();
     let rendered = pages.map(move |input: &PageRender| {
         let mut page = input.input.page.clone();
+        if config.inclusion.is_draft(page.source().as_str())? {
+            let content = format!(
+                "<div class=\"mkdocs-draft-marker zensical-draft-marker\" title=\"This page will not be included in the built site.\">DRAFT</div>{}",
+                page.content,
+            );
+            page.apply_derived(Some(content), None, BTreeMap::new());
+        }
         let references = &input.input.autorefs;
         let id = page.url.clone();
 

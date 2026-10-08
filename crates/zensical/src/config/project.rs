@@ -58,6 +58,12 @@ pub struct Project {
     pub site_author: Option<String>,
     /// Docs directory (sources).
     pub docs_dir: String,
+    /// Files to be excluded, expressed as gitignore patterns.
+    pub exclude_docs: Option<String>,
+    /// Files to be included only during preview, expressed as gitignore patterns.
+    pub draft_docs: Option<String>,
+    /// Pages to be omitted from inferred navigation, expressed as gitignore patterns.
+    pub not_in_nav: Option<String>,
     /// Site directory (outputs).
     pub site_dir: String,
     /// Whether to use directory URLs.
