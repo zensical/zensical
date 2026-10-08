@@ -51,6 +51,7 @@ mod resolver;
 pub struct LiterateNav {
     settings: Arc<Settings>,
     api: Arc<crate::compat::mkdocs::apidocs::Snapshot>,
+    inclusion: crate::config::inclusion::Inclusion,
 }
 
 /// Inputs required to derive revision-complete navigation.
@@ -115,6 +116,7 @@ impl LiterateNav {
         let plugin = &config.project.plugins.literate_nav.config;
         Self {
             api: config.api.clone(),
+            inclusion: config.inclusion.clone(),
             settings: Arc::new(Settings {
                 enabled: plugin.enabled
                     || config.project.plugins.autoapi.config.enabled,
@@ -178,6 +180,7 @@ impl LiterateNav {
         );
 
         let api = self.api.clone();
+        let inclusion = self.inclusion.clone();
         let navigation = pages.product(&documents).map(
             move |pages: &Pages, docs: &Documents| {
                 let mut settings = settings.as_ref().clone();
@@ -186,10 +189,17 @@ impl LiterateNav {
                 if settings.enabled {
                     resolver::resolve(&settings, &docs.0, pages.0.as_ref())
                 } else {
-                    Ok(Navigation::resolve(
-                        settings.configured.clone(),
-                        pages.0.as_ref().clone(),
-                    ))
+                    let mut pages = pages.0.as_ref().clone();
+                    if settings.configured.is_empty() {
+                        let mut included = Vec::new();
+                        for page in pages {
+                            if inclusion.is_in_nav(page.source().as_str())? {
+                                included.push(page);
+                            }
+                        }
+                        pages = included;
+                    }
+                    Ok(Navigation::resolve(settings.configured.clone(), pages))
                 }
             },
         );
