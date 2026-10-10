@@ -236,14 +236,18 @@ impl Watcher {
                     }
                     // Check if the config file reloaded, and terminate agent,
                     // as we need to kick off the entire pipeline again
-                    if event_path == config_path && !seen.insert(event.path()) {
+                    if serve
+                        && event_path == config_path
+                        && !seen.insert(event.path())
+                    {
                         return Err(Error::Disconnected);
                     }
 
                     // Check if the event is in any of the theme directories
                     // and restart the build if we've already seen the file
                     for dir in &theme_dirs {
-                        if event_path.starts_with(dir)
+                        if serve
+                            && event_path.starts_with(dir)
                             && !seen.insert(event.path())
                         {
                             return Err(Error::Disconnected);
@@ -252,7 +256,8 @@ impl Watcher {
 
                     // Check if one of the source files managed by mkdocstrings
                     // changed, and restart the build
-                    if watched_files.contains(&event_path)
+                    if serve
+                        && watched_files.contains(&event_path)
                         && !seen.insert(event.path())
                     {
                         return Err(Error::Disconnected);
