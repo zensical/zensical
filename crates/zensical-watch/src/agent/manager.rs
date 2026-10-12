@@ -94,6 +94,8 @@ pub struct Manager {
     links: BTreeMap<Arc<PathBuf>, Vec<Arc<PathBuf>>>,
     /// File identifiers map.
     ids: HashMap<FileId, Arc<PathBuf>>,
+    /// Roots beneath which hidden directories are discovered.
+    hidden_roots: Vec<PathBuf>,
 }
 
 // ----------------------------------------------------------------------------
@@ -101,6 +103,13 @@ pub struct Manager {
 // ----------------------------------------------------------------------------
 
 impl Manager {
+    /// Hidden directories beneath the given absolute root are included.
+    #[must_use]
+    pub fn include_hidden(mut self, root: PathBuf) -> Self {
+        self.hidden_roots.push(root);
+        self
+    }
+
     /// Creates a file manager.
     ///
     /// # Examples
@@ -294,7 +303,7 @@ impl Manager {
 
     /// Handles a creation event.
     fn handle_create(&mut self, root: &PathBuf) -> Vec<Result<Event>> {
-        let iter = walk(root).filter_map(|item| {
+        let iter = walk(root, &self.hidden_roots).filter_map(|item| {
             item.and_then(|entry| {
                 let kind = entry.file_type();
                 let path = entry.into_path();
@@ -355,7 +364,7 @@ impl Manager {
 
     /// Handles a rename event.
     fn handle_rename(&mut self, root: &PathBuf) -> Vec<Result<Event>> {
-        let iter = walk(root).filter_map(|item| {
+        let iter = walk(root, &self.hidden_roots).filter_map(|item| {
             item.and_then(|entry| {
                 let path = entry.path();
 
@@ -759,7 +768,9 @@ impl Manager {
 /// defined. Although it's possible to sort the files inside of a folder before
 /// yielding, it would be a significant performance hit for a merely cosmetic
 /// benefit, as the order of files inside of a folder is not relevant for us.
-fn walk<P>(path: P) -> impl Iterator<Item = Result<DirEntry>>
+fn walk<P>(
+    path: P, hidden_roots: &[PathBuf],
+) -> impl Iterator<Item = Result<DirEntry>>
 where
     P: AsRef<Path>,
 {
@@ -767,13 +778,14 @@ where
         .follow_root_links(false)
         .follow_links(false)
         .into_iter()
-        // For now we skip hidden directories to speed up the build, since we
-        // do not need to watch icons, but in general we need to find a better
-        // method in the future when we integrate large asset directories and
-        // libraries that include thousands of icons.
-        .filter_entry(|item| {
+        // Hidden directories are skipped outside explicitly selected roots,
+        // so theme icons and project caches are not recursively discovered.
+        .filter_entry(move |item| {
             !(item.file_type().is_dir()
-                && item.file_name().to_str().unwrap_or("").starts_with('.'))
+                && item.file_name().to_str().unwrap_or("").starts_with('.')
+                && !hidden_roots
+                    .iter()
+                    .any(|root| item.path().starts_with(root)))
         })
         .map(|item| item.map_err(Into::into))
 }

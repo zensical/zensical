@@ -40,6 +40,7 @@ use crate::path::{OutputRoot, SourceRoot};
 
 mod error;
 pub mod extra;
+pub mod inclusion;
 pub mod mdx;
 pub mod plugins;
 mod project;
@@ -61,6 +62,8 @@ pub use project::Project;
 /// so we can move them out one by one once we start refactoring configuration.
 #[derive(Clone, Debug)]
 pub struct Config {
+    /// Compiled rules by which documentation files are included.
+    pub inclusion: inclusion::Inclusion,
     /// API sources and navigation generated for this build.
     pub api: Arc<crate::compat::mkdocs::apidocs::Snapshot>,
     /// Path to configuration file.
@@ -180,6 +183,7 @@ impl Config {
 
         // Return configuration
         Ok(Config {
+            inclusion: inclusion::Inclusion::new(&project)?,
             api: Arc::default(),
             path,
             project: Arc::new(project),

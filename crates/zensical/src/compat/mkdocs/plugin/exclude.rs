@@ -33,6 +33,7 @@ use zrx::id::Id;
 use zrx::stream::{Stream, Value};
 
 use crate::compat::mkdocs::resource::Resource;
+use crate::config::inclusion::Inclusion;
 use crate::config::Config;
 use crate::path::SourcePath;
 
@@ -50,6 +51,7 @@ pub struct Exclude {
 struct Settings {
     enabled: bool,
     docs: String,
+    inclusion: Inclusion,
     globs: Vec<Pattern>,
     regexes: Vec<Py<PyAny>>,
 }
@@ -61,6 +63,7 @@ impl Exclude {
         let mut settings = Settings {
             enabled: plugin.enabled,
             docs: config.project.docs_dir.clone(),
+            inclusion: config.inclusion.clone(),
             globs: Vec::new(),
             regexes: Vec::new(),
         };
@@ -100,9 +103,12 @@ impl Exclude {
         sources.filter_map(move |id: &Id, value: &T| {
             if id.context() == settings.docs {
                 let path = id.location().parse::<SourcePath>()?;
-                // Hidden files can configure other plugins, but MkDocs does
-                // not include them in the Files collection being filtered.
-                if !path.is_hidden() && !settings.includes(path.as_str())? {
+                // Hidden control files are retained unless they are explicitly
+                // included in the site by the core exclusion settings.
+                if (!path.is_hidden()
+                    || settings.inclusion.is_included(path.as_str(), true)?)
+                    && !settings.includes(path.as_str())?
+                {
                     return Ok(None);
                 }
             }

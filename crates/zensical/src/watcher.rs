@@ -35,6 +35,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use zensical_watch::agent::Manager;
 use zensical_watch::event::{Event, Kind};
 use zensical_watch::{Agent, Error, Result};
 use zrx::id::Id;
@@ -179,7 +180,9 @@ impl Watcher {
             .collect::<BTreeSet<_>>();
         // Initialize file agent - we use a debounce interval of 20ms, which
         // should be sufficient to correctly determine rename events
-        let agent = Agent::new(Duration::from_millis(20), serve, {
+        let manager = Manager::new()
+            .include_hidden(config.docs_root().as_path().to_owned());
+        let handler = {
             let config = config.clone();
             let mut discovered = false;
             move |results| {
@@ -358,7 +361,13 @@ impl Watcher {
                 }
                 Ok(())
             }
-        });
+        };
+        let agent = Agent::with_manager(
+            Duration::from_millis(20),
+            serve,
+            manager,
+            handler,
+        );
 
         // Watch docs and template directories
         agent.watch(&config.path)?;
@@ -475,7 +484,31 @@ mod tests {
     use std::{fs, io};
     use tempfile::tempdir;
 
-    use super::{to_id, SourceMount};
+    use super::{to_id, Manager, SourceMount};
+
+    #[test]
+    fn hidden_directory_discovery_is_limited_to_documentation() {
+        let directory = tempdir().unwrap();
+        let root = directory.path().join("project");
+        let docs = root.join("docs");
+        let page = docs.join(".private/page.md");
+        let icon = root.join("theme/.icons/icon.svg");
+        for file in [&page, &icon] {
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, "content").unwrap();
+        }
+
+        // Hidden docs files are discovered while theme icons remain skipped.
+        let mut manager = Manager::new().include_hidden(docs);
+        let paths = manager
+            .handle([root])
+            .into_iter()
+            .map(|event| event.unwrap().path())
+            .collect::<Vec<_>>();
+
+        assert!(paths.iter().any(|path| path.as_ref() == &page));
+        assert!(!paths.iter().any(|path| path.as_ref() == &icon));
+    }
 
     #[test]
     fn output_identifiers_do_not_contain_the_physical_root() {

@@ -31,6 +31,7 @@ use zrx::id::Id;
 use zrx::stream::function::Collection;
 use zrx::stream::{Key, Stream, Value};
 
+use crate::config::inclusion::Inclusion;
 use crate::config::Config;
 use crate::path::SitePath;
 use crate::watcher::Source;
@@ -46,6 +47,8 @@ use super::plugin::meta;
 pub struct Resources {
     /// Immutable classification rules for one workflow lifetime.
     classifier: Classifier,
+    inclusion: Inclusion,
+    serve: bool,
 }
 
 /// Inputs required to derive effective resources.
@@ -86,9 +89,11 @@ struct Classifier {
 
 impl Resources {
     /// Resolves the private settings owned by this module instance.
-    pub fn new(config: &Config, meta: &meta::Meta) -> Self {
+    pub fn new(config: &Config, meta: &meta::Meta, serve: bool) -> Self {
         Self {
             classifier: Classifier::new(config, meta),
+            inclusion: config.inclusion.clone(),
+            serve,
         }
     }
 
@@ -107,14 +112,26 @@ impl Resources {
         // Settle precedence before consumers transform or write a resource.
         // Removing a docs override therefore reveals its theme fallback in
         // the same revision without transiently deleting the logical output.
-        resources.reduce_by_key(
+        let resources = resources.reduce_by_key(
             |resource: &Resource| resource_key(&resource.path),
             |resources: &dyn Collection<Key<Id>, Resource>| {
                 Ok::<_, anyhow::Error>(preferred(
                     resources.iter().map(|(_, resource)| resource),
                 ))
             },
-        )
+        );
+        let inclusion = self.inclusion.clone();
+        let serve = self.serve;
+        // Exclusion is applied after precedence so an excluded docs override
+        // cannot be replaced by the theme's version of the same asset.
+        resources.filter_map(move |resource: &Resource| {
+            Ok::<_, anyhow::Error>(
+                (resource.priority != 0
+                    || inclusion
+                        .is_included(resource.source_path.as_str(), serve)?)
+                .then(|| resource.clone()),
+            )
+        })
     }
 }
 
@@ -168,7 +185,7 @@ impl Classifier {
                 .unwrap_or(usize::MAX)
         };
         let mut path = id.location().parse::<SitePath>()?;
-        if path.is_hidden() {
+        if !is_docs && path.is_hidden() {
             return Ok(None);
         }
         let source_path = path.clone();
@@ -334,11 +351,9 @@ mod tests {
     }
 
     #[test]
-    fn excludes_hidden_resources() {
+    fn excludes_hidden_theme_resources() {
         let classifier = classifier();
         for (context, path) in [
-            ("docs", ".private.yml"),
-            ("docs", "section/.nav.yml"),
             ("templates/0", ".icons/logo.svg"),
             ("templates/0", "assets/.private.css"),
         ] {
@@ -350,6 +365,12 @@ mod tests {
                 "{path}"
             );
         }
+
+        // Hidden docs assets are retained until configured exclusions are applied.
+        assert!(classifier
+            .classify(&id("docs", ".assets/logo.svg"), &source("logo.svg"))
+            .unwrap()
+            .is_some());
 
         assert!(classifier
             .classify(

@@ -86,12 +86,27 @@ impl Agent {
     where
         F: FnMut(Vec<Result<Event>>) -> Result + Send + 'static,
     {
+        Self::with_manager(timeout, mode, Manager::new(), f)
+    }
+
+    /// A file agent is created with the supplied discovery settings.
+    ///
+    /// # Panics
+    ///
+    /// A panic is raised if thread creation fails.
+    pub fn with_manager<F>(
+        timeout: Duration, mode: bool, manager: Manager, f: F,
+    ) -> Self
+    where
+        F: FnMut(Vec<Result<Event>>) -> Result + Send + 'static,
+    {
         let (sender, receiver) = unbounded();
         let h = move || -> Result<()> {
             let mut handler = Handler::builder()
                 .receiver(receiver)
                 .handler(f)
                 .monitor(Monitor::default())
+                .manager(manager)
                 .build()?;
 
             // Start event loop, which will automatically exit when the file

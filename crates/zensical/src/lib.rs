@@ -329,7 +329,9 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
                             && let Ok(path) =
                                 key[0].location().parse::<SourcePath>()
                             && path.extension() == Some("md")
-                            && !path.is_hidden()
+                            && config
+                                .inclusion
+                                .is_included(path.as_str(), serve)?
                             && has_snippets(&source.read_to_string()?)
                         {
                             snippets.insert(key.clone(), source.clone());
