@@ -61,9 +61,7 @@ use config::Config;
 use path::SourcePath;
 use server::{create_server, ServeOptions};
 use watcher::{Batch, Watcher};
-use workflow::{
-    create_workflow, has_snippets, Configuration, Input, SourcesReady,
-};
+use workflow::{create_workflow, Configuration, Input, SourcesReady};
 
 // ----------------------------------------------------------------------------
 // Enums
@@ -312,8 +310,8 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
                     })?;
                 let mut dependents = BTreeMap::from_iter(dependents);
 
-                // Until snippet dependencies are tracked, rebuild every page
-                // containing a marker whenever a source changes in serve mode
+                // Until snippet dependencies are tracked, pages with Snippets
+                // markers or include tags are rebuilt when a source changes.
                 if serve {
                     dependents.extend(snippets.clone());
                     for change in &changes {
@@ -332,7 +330,7 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
                             && config
                                 .inclusion
                                 .is_included(path.as_str(), serve)?
-                            && has_snippets(&source.read_to_string()?)
+                            && config.has_snippets(&source.read_to_string()?)
                         {
                             snippets.insert(key.clone(), source.clone());
                         }

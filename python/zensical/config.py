@@ -49,6 +49,10 @@ from zensical.compat.mkdocstrings import _python_handler_has_backlinks
 from zensical.extensions.autorefs import AutorefsExtension
 from zensical.extensions.emoji import to_svg, twemoji
 from zensical.extensions.glightbox import GlightboxExtension
+from zensical.extensions.include_markdown import (
+    IncludeMarkdownConfig,
+    IncludeMarkdownExtension,
+)
 from zensical.extensions.macros import MacrosExtension
 from zensical.extensions.markdownextradata import (
     MarkdownExtraDataExtension,
@@ -144,6 +148,19 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
         "draggable",
         "background",
         "shadow",
+    ),
+    "include-markdown": (
+        "trailing_newlines",
+        "comments",
+        "rewrite_relative_urls",
+        "heading_offset",
+        "order",
+        "start",
+        "end",
+        "exclude",
+        "cache",
+        "cache_dir",
+        "recursive",
     ),
     "literate-nav": (),
     "llmstxt": ("preprocess",),
@@ -833,6 +850,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     _shim_macros(config)
     _shim_markdownextradata(config)
     _shim_table_reader(config)
+    _shim_include_markdown(config)
 
     # List files along with their hashes, so we can rebuild when they change
     watched_files = (
@@ -1205,6 +1223,49 @@ def _shim_table_reader(config: dict[str, Any]) -> None:
 
 
 # ----------------------------------------------------------------------------
+
+
+def _shim_include_markdown(config: dict[str, Any]) -> None:
+    """Map include-markdown 7.3.0 configuration to Snippets."""
+    name = IncludeMarkdownExtension.name
+    extensions = config["markdown_extensions"]
+    if name not in extensions:
+        plugin = config["plugins"].get("include-markdown", {}).get("config")
+        if plugin is None or not plugin.get("enabled", True):
+            return
+        extensions.append(name)
+        config["mdx_configs"][name] = plugin
+
+    options = config["mdx_configs"].get(name, {})
+    if not options.get("enabled", True):
+        return
+
+    # Direct extension options are validated before the Rust detector is built.
+    try:
+        IncludeMarkdownConfig(
+            **{key: value for key, value in options.items() if key != "enabled"}
+        )
+    except (TypeError, ValueError) as error:
+        raise ConfigurationError(str(error)) from error
+
+    snippets = "pymdownx.snippets"
+    if snippets not in extensions:
+        extensions.append(snippets)
+    settings = config["mdx_configs"].setdefault(snippets, {})
+    defaults = {
+        "base_path": [str(Path(config["root_dir"]) / config["docs_dir"])],
+        "restrict_base_path": False,
+        "check_paths": True,
+        "encoding": options.get("encoding", "utf-8"),
+        "url_download": options.get("include_from_url", True),
+        "dedent_subsections": options.get("dedent", False),
+    }
+    for key, value in defaults.items():
+        settings.setdefault(key, value)
+
+    # The adapter is registered after Snippets so its configuration is reused.
+    extensions.remove(name)
+    extensions.append(name)
 
 
 def _ignore_directory(dirpath: str) -> bool:
@@ -2711,6 +2772,64 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             raise ConfigurationError(
                 "markdownextradata jinja_options must be a mapping"
             )
+
+    if "include-markdown" in plugins:
+        include_markdown = plugins["include-markdown"]
+        _reject_unknown_options(
+            "include-markdown",
+            include_markdown,
+            {
+                "enabled",
+                "opening_tag",
+                "closing_tag",
+                "encoding",
+                "preserve_includer_indent",
+                "dedent",
+                "directives",
+                "include_from_url",
+            },
+        )
+        _validate_boolean_options(
+            "include-markdown",
+            include_markdown,
+            (
+                "enabled",
+                "preserve_includer_indent",
+                "dedent",
+                "include_from_url",
+            ),
+        )
+        _validate_string_options(
+            "include-markdown",
+            include_markdown,
+            ("opening_tag", "closing_tag", "encoding"),
+        )
+        for option in ("opening_tag", "closing_tag", "encoding"):
+            if option in include_markdown and not include_markdown[option]:
+                raise ConfigurationError(
+                    f"include-markdown {option} must not be empty"
+                )
+        if "directives" in include_markdown:
+            directives = include_markdown["directives"]
+            if not isinstance(directives, dict):
+                raise ConfigurationError(
+                    "include-markdown directives must be a mapping"
+                )
+            _reject_unknown_options(
+                "include-markdown directives",
+                directives,
+                {"include", "include-markdown"},
+            )
+            if any(
+                not isinstance(value, str)
+                or not value
+                or any(character.isspace() for character in value)
+                for value in directives.values()
+            ):
+                raise ConfigurationError(
+                    "include-markdown directives must contain "
+                    "nonempty names without whitespace"
+                )
 
     if "table-reader" in plugins:
         table_reader = plugins["table-reader"]

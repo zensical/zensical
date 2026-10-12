@@ -26,14 +26,13 @@
 //! Workflow definitions.
 
 use percent_encoding::percent_decode_str;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Deref;
 use std::str::FromStr;
-use std::sync::{Arc, LazyLock, OnceLock};
+use std::sync::{Arc, OnceLock};
 
 use zrx::id::matcher::Matcher;
 use zrx::id::Id;
@@ -69,14 +68,6 @@ mod cached;
 pub(crate) mod output;
 
 use cached::cached;
-
-// ----------------------------------------------------------------------------
-// Constants
-// ----------------------------------------------------------------------------
-
-/// Regular expression to detect use of snippets
-static SNIPPET_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?m)^[ \t]*-+8<-+").expect("invariant"));
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -713,11 +704,6 @@ fn read_documents(
     })
 }
 
-/// Returns whether Markdown contains a snippet marker.
-pub fn has_snippets(data: &str) -> bool {
-    SNIPPET_RE.is_match(data.strip_prefix('\u{FEFF}').unwrap_or(data))
-}
-
 /// Create a stream to process routed Markdown files.
 fn process_markdown(
     config: &Config, plugins: &plugin::Settings,
@@ -737,10 +723,9 @@ fn process_markdown(
             let document = routed.document.clone();
             let properties = routed.properties.clone();
             let variables = routed.variables.clone();
-            // Don't cache page if it inserts (pymdownx) snippets.
-            // This is a hack while waiting for CommonMark (AST) and components,
-            // as well as topic-based authoring functionality.
-            if has_snippets(&document.body) {
+            // Pages with Snippets markers or include tags are rendered without
+            // caching until their file dependencies are tracked.
+            if config.has_snippets(&document.body) {
                 render_markdown(
                     &config,
                     origin,

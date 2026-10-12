@@ -26,8 +26,10 @@
 //! Configuration.
 
 use fluent_uri::Uri;
-use pyo3::types::PyAnyMethods;
+use pyo3::exceptions::PyValueError;
+use pyo3::types::{PyAnyMethods, PyDict};
 use pyo3::{PyErr, Python};
+use regex::Regex;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -78,6 +80,8 @@ pub struct Config {
     output_root: OutputRoot,
     /// Resolved Python Markdown extensions after compatibility shims.
     markdown_extensions: Arc<[String]>,
+    /// Compiled detector for Snippets markers and configured include tags.
+    snippet_pattern: Regex,
     /// Whether auto-references should be collected as backlinks.
     record_backlinks: bool,
     /// Configuration hash.
@@ -93,6 +97,7 @@ impl Config {
     ///
     /// This method supports `mkdocs.yml`, as well as `zensical.toml` files.
     /// Right now, parsing is done in Python for compatibility with MkDocs.
+    #[allow(clippy::too_many_lines)]
     pub fn new<P>(path: P) -> Result<Self>
     where
         P: AsRef<Path>,
@@ -107,7 +112,7 @@ impl Config {
                 "configuration path must be valid UTF-8",
             )
         })?;
-        let (project, markdown_extensions, record_backlinks) =
+        let (project, markdown_extensions, record_backlinks, include_syntax) =
             Python::attach(|py| {
                 // Reset global data in compatibility modules
                 py.import("zensical.extensions.autorefs")?
@@ -138,6 +143,37 @@ impl Config {
                         .extract::<bool>()?
                 };
 
+                // The resolved extension settings are used so plugin shims and
+                // direct extension configuration are handled identically.
+                let name = "zensical.extensions.include_markdown";
+                let include = config
+                    .get_item("mdx_configs")?
+                    .call_method1("get", (name, PyDict::new(py)))?;
+                let include_syntax = if markdown_extensions
+                    .iter()
+                    .any(|extension| extension == name)
+                    && include
+                        .call_method1("get", ("enabled", true))?
+                        .extract::<bool>()?
+                {
+                    let opening = include
+                        .call_method1("get", ("opening_tag", "{%"))?
+                        .extract::<String>()?;
+                    let directives = include
+                        .call_method1("get", ("directives", PyDict::new(py)))?;
+                    let plain = directives
+                        .call_method1("get", ("include", "include"))?
+                        .extract::<String>()?;
+                    let markdown = directives
+                        .call_method1(
+                            "get", ("include-markdown", "include-markdown"),
+                        )?
+                        .extract::<String>()?;
+                    Some((opening, plain, markdown))
+                } else {
+                    None
+                };
+
                 // Validate raw native plugin configuration before derived project
                 // extraction can replace its precise diagnostic with generic
                 // nested-field context from PyO3.
@@ -156,8 +192,21 @@ impl Config {
                 let project = config.extract::<Project>()?;
 
                 // Return configuration and theme directory
-                Ok::<_, PyErr>((project, markdown_extensions, record_backlinks))
+                Ok::<_, PyErr>((
+                    project, markdown_extensions, record_backlinks,
+                    include_syntax,
+                ))
             })?;
+
+        let snippet_pattern = snippet_pattern(
+            include_syntax.as_ref().map(|(opening, plain, markdown)| {
+                (opening.as_str(), plain.as_str(), markdown.as_str())
+            }),
+        ).map_err(|error| {
+            PyValueError::new_err(format!(
+                "invalid include-markdown detector: {error}"
+            ))
+        })?;
 
         // Merge theme directories, giving precedence to custom directory over
         // the main theme directory to allow for overrides.
@@ -191,6 +240,7 @@ impl Config {
             docs_root,
             output_root,
             markdown_extensions: markdown_extensions.into(),
+            snippet_pattern,
             record_backlinks,
             hash,
         })
@@ -201,6 +251,12 @@ impl Config {
         self.markdown_extensions
             .iter()
             .any(|extension| extension == name)
+    }
+
+    /// Returns whether Snippets markers or configured include tags are present.
+    pub fn has_snippets(&self, data: &str) -> bool {
+        self.snippet_pattern
+            .is_match(data.strip_prefix('\u{FEFF}').unwrap_or(data))
     }
 
     /// Returns whether resolved auto-references should become backlinks.
@@ -285,6 +341,27 @@ where
 }
 
 // ----------------------------------------------------------------------------
+// Snippet detection
+// ----------------------------------------------------------------------------
+
+/// A detector is compiled from the effective include syntax, when enabled.
+fn snippet_pattern(
+    syntax: Option<(&str, &str, &str)>,
+) -> std::result::Result<Regex, regex::Error> {
+    let include = syntax
+        .map(|(opening, plain, markdown)| {
+            format!(
+                r"|{}\s*(?:{}|{})\s",
+                regex::escape(opening),
+                regex::escape(plain),
+                regex::escape(markdown),
+            )
+        })
+        .unwrap_or_default();
+    Regex::new(&format!(r"(?m)^[ \t]*(?:-+8<-+{include})"))
+}
+
+// ----------------------------------------------------------------------------
 // Trait implementations
 // ----------------------------------------------------------------------------
 
@@ -297,4 +374,76 @@ impl Hash for Config {
     {
         state.write_u64(self.hash);
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::snippet_pattern;
+
+    #[test]
+    fn custom_syntax_is_matched_literally() {
+        let pattern = snippet_pattern(Some(("[(", "read+file", "read.md")))
+            .unwrap();
+
+        for markdown in [
+            "[( read+file \"shared.txt\" )]",
+            "[(\n  read.md\n  \"shared.md\"\n)]",
+            "--8<-- \"shared.md\"",
+        ] {
+            assert!(pattern.is_match(markdown), "{markdown:?}");
+        }
+
+        for markdown in [
+            "{% include-markdown \"shared.md\" %}",
+            "[( readXmd \"shared.md\" )]",
+            "[( readfile \"shared.txt\" )]",
+            "[( read.md-more \"shared.md\" )]",
+            "# Ordinary page",
+        ] {
+            assert!(!pattern.is_match(markdown), "{markdown:?}");
+        }
+    }
+
+    #[test]
+    fn disabled_includes_do_not_disable_caching() {
+        let pattern = snippet_pattern(None).unwrap();
+
+        assert!(pattern.is_match("--8<-- \"shared.md\""));
+        assert!(!pattern.is_match("{% include \"shared.md\" %}"));
+        assert!(!pattern.is_match("[( read.md \"shared.md\" )]"));
+    }
+
+    #[test]
+    fn detects_snippet_markers_and_default_include_tags() {
+        let pattern = snippet_pattern(Some(("{%", "include", "include-markdown"))).unwrap();
+
+        for markdown in [
+            "--8<-- \"shared.md\"",
+            "  --8<--\nshared.md\n--8<--",
+            "{% include \"shared.txt\" %}",
+            "\t{% include-markdown 'shared.md' %}",
+            "{%\n  include-markdown\n  \"shared.md\"\n%}",
+            "```text\n{% include \"shared.txt\" %}\n```",
+            "\u{FEFF}{% include-markdown \"shared.md\" %}",
+        ] {
+            assert!(pattern.is_match(markdown.strip_prefix('\u{FEFF}').unwrap_or(markdown)), "{markdown:?}");
+        }
+    }
+
+    #[test]
+    fn keeps_pages_without_include_markers_cacheable() {
+        let pattern = snippet_pattern(Some(("{%", "include", "include-markdown"))).unwrap();
+
+        for markdown in [
+            "# Ordinary page\n\nContent.",
+            ";--8<-- \"shared.md\"",
+            "{% if enabled %}\nContent\n{% endif %}",
+            "{% include-other \"shared.md\" %}",
+            "{! include \"shared.md\" !}",
+            "The include-markdown plugin is enabled.",
+        ] {
+            assert!(!pattern.is_match(markdown.strip_prefix('\u{FEFF}').unwrap_or(markdown)), "{markdown:?}");
+        }
+    }
+
 }
