@@ -52,6 +52,7 @@ PYTHON_PLUGINS = (
     "macros",
     "markdownextradata",
     "table-reader",
+    "include-markdown",
 )
 
 SHIM_PLUGINS = (
@@ -64,6 +65,7 @@ SHIM_PLUGINS = (
     "macros",
     "markdownextradata",
     "table-reader",
+    "include-markdown",
 )
 
 
