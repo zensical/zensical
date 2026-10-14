@@ -158,7 +158,7 @@ impl Search {
                     navigation,
                     search.config.clone(),
                     &search.language,
-                );
+                )?;
                 search.write(&index)
             },
         );
@@ -233,8 +233,13 @@ impl SearchIndex {
     fn new(
         documents: Vec<Document>, nav: &Navigation, config: SearchPluginConfig,
         language: &str,
-    ) -> Self {
-        let mut items: Vec<SearchItem> = Vec::new();
+    ) -> anyhow::Result<Self> {
+        let count = documents
+            .iter()
+            .map(|document| document.facts.sections.len())
+            .sum();
+        let limit = Self::field_limit(count)?;
+        let mut items: Vec<SearchItem> = Vec::with_capacity(count);
 
         // Provider order is not stable, so establish MkDocs-compatible source
         // order before emitting the site-wide index.
@@ -269,22 +274,62 @@ impl SearchIndex {
                 } else {
                     section.title.clone()
                 };
-                items.push(SearchItem {
+                let item = SearchItem {
                     location: Some(location),
                     level: section.level,
                     title,
                     text: section.text.clone(),
                     path: path.clone(),
                     tags: document.tags.clone(),
-                });
+                };
+                Self::validate_item(&item, count, limit)?;
+                items.push(item);
             }
         }
 
-        // Return search
-        Self {
+        Ok(Self {
             config: SearchConfig::new(config, language),
             items,
+        })
+    }
+
+    /// Computes a conservative field byte limit for the final item count.
+    fn field_limit(count: usize) -> anyhow::Result<usize> {
+        // Disco indexes title, text and path, reserving two field bits. Its
+        // current tokenizer emits at most one token per source code unit, so
+        // UTF-8 byte lengths conservatively bound UTF-16 token positions.
+        let document_bits =
+            (usize::BITS - count.saturating_sub(1).leading_zeros()).max(1);
+        30_u32
+            .checked_sub(document_bits)
+            .and_then(|bits| 1_usize.checked_shl(bits))
+            .ok_or_else(|| {
+                anyhow::anyhow!("Search index has too many items: {count}")
+            })
+    }
+
+    /// Checks each item as it is constructed, before adding it to the index.
+    fn validate_item(
+        item: &SearchItem, count: usize, limit: usize,
+    ) -> anyhow::Result<()> {
+        for (field, length) in [
+            ("title", item.title.len()),
+            ("text", item.text.len()),
+            ("path", item.path.iter().map(String::len).sum()),
+        ] {
+            anyhow::ensure!(
+                length <= limit,
+                "Search field '{field}' at '{}' exceeds the search index \
+                 limit ({length} bytes; maximum {limit} bytes for {count} \
+                 items). Shorten this field, split the page into smaller \
+                 sections, or exclude it from search.",
+                item.location
+                    .as_deref()
+                    .filter(|path| !path.is_empty())
+                    .unwrap_or("/")
+            );
         }
+        Ok(())
     }
 }
 
@@ -348,7 +393,69 @@ mod tests {
 
     use super::{
         collect_documents, is_search_excluded, Document, Documents, Facts,
+        SearchIndex, SearchItem,
     };
+
+    fn search_item() -> SearchItem {
+        SearchItem {
+            location: Some(String::from("guide/#section")),
+            level: 1,
+            title: String::new(),
+            text: String::new(),
+            path: Vec::new(),
+            tags: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn search_fields_respect_position_capacity_at_item_count_boundaries() {
+        assert_eq!(SearchIndex::field_limit(0).unwrap(), 1 << 29);
+        assert_eq!(SearchIndex::field_limit(1).unwrap(), 1 << 29);
+        assert!(SearchIndex::field_limit(usize::MAX).is_err());
+
+        for (count, limit, field) in [
+            (16_384, 65_536, "text"),
+            (32_768, 32_768, "title"),
+            (32_769, 16_384, "text"),
+            (65_536, 16_384, "text"),
+            (65_537, 8_192, "text"),
+        ] {
+            assert_eq!(SearchIndex::field_limit(count).unwrap(), limit);
+            let mut item = search_item();
+            if field == "title" {
+                item.title = "a".repeat(limit);
+            } else {
+                item.text = "a".repeat(limit);
+            }
+            SearchIndex::validate_item(&item, count, limit).unwrap();
+
+            if field == "title" {
+                item.title.push('a');
+            } else {
+                item.text.push('a');
+            }
+            let error = SearchIndex::validate_item(&item, count, limit)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(&format!("Search field '{field}'")));
+            assert!(error.contains("guide/#section"));
+            assert!(error.contains(&format!("maximum {limit} bytes")));
+        }
+    }
+
+    #[test]
+    fn search_path_limit_combines_components_and_counts_utf8_bytes() {
+        let mut item = search_item();
+        item.path = vec!["é".repeat(4_096), "a".repeat(8_192)];
+        SearchIndex::validate_item(&item, 32_769, 16_384).unwrap();
+
+        item.path.push(String::from("a"));
+        let error = SearchIndex::validate_item(&item, 32_769, 16_384)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("Search field 'path'"));
+        assert!(error.contains("16385 bytes; maximum 16384 bytes"));
+    }
 
     fn document(source: &str, title: &str) -> Document {
         Document {
