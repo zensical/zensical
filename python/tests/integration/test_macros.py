@@ -45,17 +45,21 @@ if TYPE_CHECKING:
 
 
 def _write_config(
-    root: Path, options: dict[str, str | bool], *, toml: bool = False
+    root: Path,
+    options: dict[str, str | bool],
+    *,
+    toml: bool = False,
+    custom_dir: str = "overrides",
 ) -> Path:
     (root / "content").mkdir(exist_ok=True)
-    overrides = root / "overrides"
+    overrides = root / custom_dir
     overrides.mkdir(exist_ok=True)
     (overrides / "main.html").write_text("{{ page.content }}", encoding="utf-8")
     if toml:
         config = root / "zensical.toml"
         content = (
             '[project]\nsite_name = "Macros"\ndocs_dir = "content"\n'
-            '[project.theme]\ncustom_dir = "overrides"\n'
+            f'[project.theme]\ncustom_dir = "{custom_dir}"\n'
             "[project.plugins.macros]\n"
         )
         content += "\n".join(
@@ -67,12 +71,158 @@ def _write_config(
             {
                 "site_name": "Macros",
                 "docs_dir": "content",
-                "theme": {"custom_dir": "overrides"},
+                "theme": {"custom_dir": custom_dir},
                 "plugins": {"macros": options},
             }
         )
     config.write_text(content, encoding="utf-8")
     return config
+
+
+@pytest.mark.parametrize("toml", [False, True], ids=["yaml", "toml"])
+def test_default_include_directory_builds_with_watched_theme_icons(
+    tmp_path: Path,
+    toml: bool,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        {"on_error_fail": True},
+        toml=toml,
+        custom_dir="content/.overrides",
+    )
+    icons = tmp_path / "content/.overrides/.icons"
+    icons.mkdir()
+    (icons / "custom.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg"/>',
+        encoding="utf-8",
+    )
+    (tmp_path / "content/index.md").write_text(
+        "Value: {{ 1 + 1 }}\n",
+        encoding="utf-8",
+    )
+
+    # The icon is discovered as both a theme file and a macro dependency.
+    zensical.build(str(config), {"clean": True, "strict": True})
+
+    # The rendered page must be produced after discovery completes.
+    html = (tmp_path / "site/index.html").read_text(encoding="utf-8")
+    assert "Value: 2" in html
+
+
+@pytest.mark.parametrize(
+    "dependency",
+    ["icon", "template", "config", "include"],
+)
+def test_serve_reloads_after_watched_theme_discovery(
+    tmp_path: Path,
+    dependency: str,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        {"on_error_fail": True},
+        custom_dir="content/.overrides",
+    )
+    with config.open("a", encoding="utf-8") as stream:
+        stream.write("dev_addr: 127.0.0.1:0\n")
+
+    docs = tmp_path / "content"
+    template = docs / ".overrides/main.html"
+    template.write_text(
+        "{{ config.site_name }}: {{ page.content }}",
+        encoding="utf-8",
+    )
+    icon = docs / ".overrides/.icons/custom.svg"
+    icon.parent.mkdir()
+    icon.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg"/>',
+        encoding="utf-8",
+    )
+    include = docs / "fragment.j2"
+    include.write_text("First value: {{ 1 + 1 }}\n", encoding="utf-8")
+    (docs / "index.md").write_text(
+        '{% include "fragment.j2" %}\n',
+        encoding="utf-8",
+    )
+
+    output = tmp_path / "site/index.html"
+    with (tmp_path / "serve.log").open("w+", encoding="utf-8") as log:
+        process = subprocess.Popen(  # noqa: S603
+            [sys.executable, "-m", "zensical", "serve", "-f", str(config)],
+            cwd=tmp_path,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+
+        def wait_for(text: str, reloads: int) -> None:
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                log.seek(0)
+                messages = log.read()
+                try:
+                    content = output.read_text(encoding="utf-8")
+                except FileNotFoundError:
+                    content = ""
+                if (
+                    text in content
+                    and messages.count("Reloading...") == reloads
+                    and messages.count("No issues found") == reloads + 1
+                ):
+                    return
+                if process.poll() is not None:
+                    break
+                time.sleep(0.02)
+
+            log.seek(0)
+            pytest.fail(
+                f"serve did not complete the expected build: {log.read()}",
+            )
+
+        try:
+            # The initial build must be completed without restarting serve.
+            wait_for("First value: 2", reloads=0)
+
+            changes = {
+                "icon": (
+                    icon,
+                    '<svg xmlns="http://www.w3.org/2000/svg">'
+                    "<title>Updated</title></svg>",
+                    "First value: 2",
+                ),
+                "template": (
+                    template,
+                    "Updated template: {{ page.content }}",
+                    "Updated template:",
+                ),
+                "config": (
+                    config,
+                    config.read_text(encoding="utf-8").replace(
+                        "site_name: Macros",
+                        "site_name: Updated site",
+                    ),
+                    "Updated site:",
+                ),
+                "include": (
+                    include,
+                    "Updated value: {{ 1 + 1 }}\n",
+                    "Updated value: 2",
+                ),
+            }
+            target, content, expected = changes[dependency]
+
+            # A restart must be triggered by a subsequent dependency edit.
+            target.write_text(content, encoding="utf-8")
+            timestamp = target.stat().st_mtime + 2
+            os.utime(target, (timestamp, timestamp))
+
+            wait_for(expected, reloads=1)
+            assert process.poll() is None
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
 
 
 @pytest.mark.parametrize("toml", [False, True], ids=["yaml", "toml"])
