@@ -46,15 +46,18 @@ permissions:
 jobs:
   linux:
     name: Wheel (Linux, ${{ matrix.platform.name }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform.os }}
     strategy:
       matrix:
         platform:
           - name: x64
+            os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
           - name: arm64
+            os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
           - name: armv7
+            os: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
 
     steps:
@@ -76,9 +79,6 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           manylinux: auto
-          before-script-linux: |
-            # The manylinux2014 AArch64 cross compiler omits this ACLE macro.
-            export CFLAGS_aarch64_unknown_linux_gnu="${CFLAGS_aarch64_unknown_linux_gnu:-} -D__ARM_ARCH=8"
           # Temporary fix for https://github.com/zensical/zensical/issues/425
           args: >-
             --release --out artifacts
