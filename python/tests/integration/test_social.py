@@ -109,6 +109,61 @@ def test_generates_custom_card_and_injects_metadata(tmp_path: Path) -> None:
     ).exists()
 
 
+@pytest.mark.parametrize(
+    ("primary", "accent"),
+    [(None, None), ("green", "amber")],
+)
+def test_palette_colors_render_in_site_and_custom_social_layout(
+    tmp_path: Path, primary: str | None, accent: str | None
+) -> None:
+    """Palette defaults and explicit colors reach both template contexts."""
+    config = _write_project(tmp_path)
+    colors = ""
+    if primary:
+        colors += f"    primary: {primary}\n"
+    if accent:
+        colors += f"    accent: {accent}\n"
+    config.write_text(
+        config.read_text().replace(
+            "theme:\n  name: material\n",
+            "theme:\n  name: material\n  palette:\n"
+            f"    scheme: default\n{colors}",
+        ),
+        encoding="utf-8",
+    )
+    layout = tmp_path / "layouts/plain.yml"
+    layout.write_text(
+        layout.read_text().replace(
+            '  x:layout: "{{ layout.label }}"\n',
+            """\
+  x:palette-primary: >-
+    {{ (config.theme.palette | first).get('primary', 'indigo')
+       | replace(' ', '-') }}
+  x:palette-accent: >-
+    {{ (config.theme.palette | first).get('accent', 'indigo')
+       | replace(' ', '-') }}
+  x:layout: "{{ layout.label }}"
+""",
+        ),
+        encoding="utf-8",
+    )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    html = (tmp_path / "site/index.html").read_text()
+    body = html.split("<body", 1)[1].split(">", 1)[0]
+    option = html.split('<input class="md-option"', 1)[1].split(">", 1)[0]
+    for rendered in (body, option):
+        assert f'data-md-color-primary="{primary or "indigo"}"' in rendered
+        assert f'data-md-color-accent="{accent or "indigo"}"' in rendered
+    assert (
+        f'<meta property="x:palette-primary" content="{primary or "indigo"}" />'
+    ) in html
+    assert (
+        f'<meta property="x:palette-accent" content="{accent or "indigo"}" />'
+    ) in html
+
+
 def test_material_namespace_and_multiple_instances_are_preserved(
     tmp_path: Path,
 ) -> None:

@@ -166,8 +166,10 @@ pub struct Palette {
     /// Palette scheme.
     pub scheme: Option<String>,
     /// Palette primary color.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub primary: Option<String>,
     /// Palette accent color.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub accent: Option<String>,
     /// Palette toggle.
     pub toggle: Option<PaletteToggle>,
