@@ -863,13 +863,18 @@ fn xml_attribute(value: &str) -> String {
 mod tests {
     use base64::Engine as _;
     use minijinja::Value;
+    use serde_json::json;
 
-    use crate::compat::mkdocs::plugin::social::layout::Size;
+    use crate::compat::mkdocs::plugin::social::{
+        builtin_layout,
+        layout::{parse, Size},
+    };
+    use crate::config::theme::Palette;
 
     use super::{
         balance_two_lines, colorize_icon, debug_svg, environment,
-        font_attributes, layer_svg, offset, render_svg, render_template,
-        vertical, Font, Layer, Layout,
+        font_attributes, layer_svg, offset, parse_color, render_svg,
+        render_template, vertical, Font, Layer, Layout,
     };
     #[test]
     fn balances_two_lines_by_moving_one_word() {
@@ -927,6 +932,78 @@ mod tests {
             render_template(&environment(), "A &amp; B", &Value::UNDEFINED)
                 .unwrap();
         assert_eq!(rendered, "A & B");
+    }
+
+    #[test]
+    fn social_layouts_default_missing_palette_colors() {
+        let environment = environment();
+        let unspecified = Palette {
+            media: None,
+            scheme: Some("default".into()),
+            primary: None,
+            accent: None,
+            toggle: None,
+        };
+        let configured = Palette {
+            media: None,
+            scheme: Some("slate".into()),
+            primary: Some("green".into()),
+            accent: Some("green".into()),
+            toggle: None,
+        };
+        let serialized = json!(unspecified);
+        assert!(serialized.get("primary").is_none());
+        assert!(serialized.get("accent").is_none());
+        let palette = Value::from_serialize(json!({
+            "config": { "theme": { "palette": [unspecified.clone()] } },
+            "layout": {}
+        }));
+        let colored_palette = Value::from_serialize(json!({
+            "config": { "theme": { "palette": [unspecified, configured] } },
+            "layout": {}
+        }));
+        for color in ["primary", "accent"] {
+            let source = format!(
+                "{{{{ config.theme.palette[0].get('{color}', 'indigo').replace(' ', '-') }}}}"
+            );
+            assert_eq!(
+                render_template(&environment, &source, &palette).unwrap(),
+                "indigo"
+            );
+        }
+        for name in [
+            "default",
+            "default/invert",
+            "default/variant",
+            "default/accent",
+        ] {
+            let source = builtin_layout(name).unwrap();
+            let layout = parse(name, source).unwrap();
+            let expressions = layout.layers.iter().flat_map(|layer| {
+                [
+                    &layer.background.color,
+                    &layer.icon.color,
+                    &layer.typography.color,
+                ]
+                .into_iter()
+                .filter(|source| !source.is_empty())
+            });
+            let mut count = 0;
+            let mut changed = false;
+            for expression in expressions {
+                let color = render_template(&environment, expression, &palette)
+                    .unwrap();
+                parse_color(&color, name).unwrap();
+                let configured =
+                    render_template(&environment, expression, &colored_palette)
+                        .unwrap();
+                parse_color(&configured, name).unwrap();
+                changed |= configured != color;
+                count += 1;
+            }
+            assert!(count > 0, "{name}");
+            assert!(changed, "{name}");
+        }
     }
 
     #[test]
