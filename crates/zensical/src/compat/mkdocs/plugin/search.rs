@@ -49,6 +49,9 @@ mod parser;
 use item::{SearchItem, SearchSection};
 use parser::Parser;
 
+/// Default separator used by the browser search worker.
+const DEFAULT_SEPARATOR: &str = r#"[\s\-_,:!=\[\]()\\"`/]+|\.(?!\d)"#;
+
 // ----------------------------------------------------------------------------
 // Structs
 // ----------------------------------------------------------------------------
@@ -282,7 +285,7 @@ impl SearchIndex {
                     path: path.clone(),
                     tags: document.tags.clone(),
                 };
-                Self::validate_item(&item, count, limit)?;
+                Self::validate_item(&item, count, limit, &config.separator)?;
                 items.push(item);
             }
         }
@@ -310,27 +313,118 @@ impl SearchIndex {
 
     /// Checks each item as it is constructed, before adding it to the index.
     fn validate_item(
-        item: &SearchItem, count: usize, limit: usize,
+        item: &SearchItem, count: usize, limit: usize, separator: &str,
     ) -> anyhow::Result<()> {
-        for (field, length) in [
-            ("title", item.title.len()),
-            ("text", item.text.len()),
-            ("path", item.path.iter().map(String::len).sum()),
+        for (field, input, length) in [
+            ("title", Some(item.title.as_str()), item.title.len()),
+            ("text", Some(item.text.as_str()), item.text.len()),
+            ("path", None, item.path.iter().map(String::len).sum()),
         ] {
-            anyhow::ensure!(
-                length <= limit,
-                "Search field '{field}' at '{}' exceeds the search index \
+            if length <= limit {
+                continue;
+            }
+
+            let location = item
+                .location
+                .as_deref()
+                .filter(|path| !path.is_empty())
+                .unwrap_or("/");
+
+            // The byte length is a safe upper bound for token positions. For
+            // the default separator, count actual positions only when that
+            // bound is exceeded. Custom JavaScript regexes keep the bound.
+            if separator == DEFAULT_SEPARATOR {
+                let positions = input.map_or_else(
+                    || item.path.iter().map(|part| count_tokens(part)).sum(),
+                    count_tokens,
+                );
+                anyhow::ensure!(
+                    positions <= limit,
+                    "Search field '{field}' at '{location}' exceeds the search \
+                     index limit ({positions} token positions; maximum {limit} \
+                     for {count} items). Shorten this field, split the page \
+                     into smaller sections, or exclude it from search."
+                );
+            } else {
+                anyhow::bail!(
+                    "Search field '{field}' at '{location}' exceeds the search index \
                  limit ({length} bytes; maximum {limit} bytes for {count} \
                  items). Shorten this field, split the page into smaller \
-                 sections, or exclude it from search.",
-                item.location
-                    .as_deref()
-                    .filter(|path| !path.is_empty())
-                    .unwrap_or("/")
-            );
+                 sections, or exclude it from search."
+                );
+            }
         }
         Ok(())
     }
+}
+
+/// Counts Disco token positions for the default separator without allocating.
+fn count_tokens(input: &str) -> usize {
+    // Disco emits text between angle brackets as separate blocks. This also
+    // preserves its behavior for incomplete or nested markup.
+    let mut count = 0;
+    let mut start = 0;
+    for (index, character) in input.char_indices() {
+        match character {
+            '<' => {
+                if index > start {
+                    count += count_tokens_in_block(&input[start..index]);
+                    start = index;
+                }
+            }
+            '>' => start = index + 1,
+            _ => {}
+        }
+    }
+    if start < input.len() {
+        count += count_tokens_in_block(&input[start..]);
+    }
+    count
+}
+
+/// Counts runs between separators in a Disco text block.
+fn count_tokens_in_block(input: &str) -> usize {
+    let mut count = 0;
+    let mut token = false;
+    let mut characters = input.chars().peekable();
+    while let Some(character) = characters.next() {
+        let separator = matches!(
+            character,
+            '\t'..='\r'
+                | ' '
+                | '\u{a0}'
+                | '\u{1680}'
+                | '\u{2000}'..='\u{200a}'
+                | '\u{2028}'
+                | '\u{2029}'
+                | '\u{202f}'
+                | '\u{205f}'
+                | '\u{3000}'
+                | '\u{feff}'
+                | '-'
+                | '_'
+                | ','
+                | ':'
+                | '!'
+                | '='
+                | '['
+                | ']'
+                | '('
+                | ')'
+                | '\\'
+                | '"'
+                | '`'
+                | '/'
+        ) || character == '.'
+            && !matches!(characters.peek(), Some('0'..='9'));
+        if separator {
+            token = false;
+        } else if !token {
+            count += 1;
+            token = true;
+        }
+    }
+    count
 }
 
 // ----------------------------------------------------------------------------
@@ -392,8 +486,8 @@ mod tests {
     use crate::structure::dynamic::Dynamic;
 
     use super::{
-        collect_documents, is_search_excluded, Document, Documents, Facts,
-        SearchIndex, SearchItem,
+        collect_documents, count_tokens, is_search_excluded, Document,
+        Documents, Facts, SearchIndex, SearchItem, DEFAULT_SEPARATOR,
     };
 
     fn search_item() -> SearchItem {
@@ -423,38 +517,95 @@ mod tests {
             assert_eq!(SearchIndex::field_limit(count).unwrap(), limit);
             let mut item = search_item();
             if field == "title" {
-                item.title = "a".repeat(limit);
+                item.title = "a ".repeat(limit);
             } else {
-                item.text = "a".repeat(limit);
+                item.text = "a ".repeat(limit);
             }
-            SearchIndex::validate_item(&item, count, limit).unwrap();
+            SearchIndex::validate_item(&item, count, limit, DEFAULT_SEPARATOR)
+                .unwrap();
 
             if field == "title" {
                 item.title.push('a');
             } else {
                 item.text.push('a');
             }
-            let error = SearchIndex::validate_item(&item, count, limit)
-                .unwrap_err()
-                .to_string();
+            let error = SearchIndex::validate_item(
+                &item,
+                count,
+                limit,
+                DEFAULT_SEPARATOR,
+            )
+            .unwrap_err()
+            .to_string();
             assert!(error.contains(&format!("Search field '{field}'")));
             assert!(error.contains("guide/#section"));
-            assert!(error.contains(&format!("maximum {limit} bytes")));
+            assert!(error.contains(&format!("maximum {limit} for")));
         }
     }
 
     #[test]
-    fn search_path_limit_combines_components_and_counts_utf8_bytes() {
+    fn search_path_limit_combines_components_for_custom_separator() {
         let mut item = search_item();
         item.path = vec!["é".repeat(4_096), "a".repeat(8_192)];
-        SearchIndex::validate_item(&item, 32_769, 16_384).unwrap();
+        let separator = r"[\s-]+";
+        SearchIndex::validate_item(&item, 32_769, 16_384, separator).unwrap();
 
         item.path.push(String::from("a"));
-        let error = SearchIndex::validate_item(&item, 32_769, 16_384)
-            .unwrap_err()
-            .to_string();
+        let error =
+            SearchIndex::validate_item(&item, 32_769, 16_384, separator)
+                .unwrap_err()
+                .to_string();
         assert!(error.contains("Search field 'path'"));
         assert!(error.contains("16385 bytes; maximum 16384 bytes"));
+    }
+
+    #[test]
+    fn default_search_path_counts_tokens_across_components() {
+        let mut item = search_item();
+        item.path = vec!["word ".repeat(16_384), "word ".repeat(16_384)];
+        SearchIndex::validate_item(&item, 22_449, 32_768, DEFAULT_SEPARATOR)
+            .unwrap();
+
+        item.path[1].push_str("word");
+        let error = SearchIndex::validate_item(
+            &item,
+            22_449,
+            32_768,
+            DEFAULT_SEPARATOR,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("Search field 'path'"));
+        assert!(error.contains("32769 token positions; maximum 32768"));
+    }
+
+    #[test]
+    fn long_default_search_field_uses_token_positions() {
+        let mut item = search_item();
+        item.text =
+            format!("<pre><code>{}</code></pre>", "word ".repeat(7_500));
+        assert!(item.text.len() > 32_768);
+        assert_eq!(count_tokens(&item.text), 7_500);
+        SearchIndex::validate_item(&item, 22_449, 32_768, DEFAULT_SEPARATOR)
+            .unwrap();
+
+        let error =
+            SearchIndex::validate_item(&item, 22_449, 32_768, r"[\s-]+")
+                .unwrap_err()
+                .to_string();
+        assert!(error.contains("bytes; maximum 32768 bytes"));
+    }
+
+    #[test]
+    fn default_search_tokenizer_matches_markup_and_separator_edges() {
+        assert_eq!(count_tokens("one<span>two</span>three"), 3);
+        assert_eq!(count_tokens("3.14 foo.bar .5"), 4);
+        assert_eq!(count_tokens("one\u{a0}two\u{feff}three"), 3);
+        assert_eq!(count_tokens("<unfinished"), 1);
+        assert_eq!(count_tokens("one>two"), 1);
+        assert_eq!(count_tokens("a<b<c>d"), 3);
+        assert_eq!(count_tokens("a..2 b.3"), 3);
+        assert_eq!(count_tokens("x\u{2028}y\u{85}z"), 2);
     }
 
     fn document(source: &str, title: &str) -> Document {
