@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
+from markdown import Markdown
 
 import zensical.config as cfg_module
 from zensical.config import (
@@ -194,6 +195,42 @@ def test_watch_excludes_config_file(tmp_path: Path, watch_path: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("value", [None, [], {}, ["abbr"], {"abbr": {}}])
+@pytest.mark.parametrize(
+    "source",
+    ["```\n<tag>\n```", "- Example\n\n    ```\n    <tag>\n    ```"],
+)
+def test_superfences_is_always_enabled(value: Any, source: str) -> None:
+    # Fenced code is supported with empty or unrelated extension settings.
+    extensions, configs = cfg_module._convert_markdown_extensions(value)
+
+    markdown = Markdown(extensions=extensions, extension_configs=configs)
+    rendered = markdown.convert(source)
+
+    # Both top-level and nested fences are rendered as escaped code blocks.
+    assert extensions.count("pymdownx.superfences") == 1
+    assert configs["pymdownx.superfences"] == {}
+    assert "<pre>" in rendered
+    assert "&lt;tag&gt;" in rendered
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        [{"pymdownx.superfences": {"preserve_tabs": True}}],
+        {"pymdownx.superfences": {"preserve_tabs": True}},
+        {"pymdownx": {"superfences": {"preserve_tabs": True}}},
+    ],
+)
+def test_explicit_superfences_configuration_is_preserved(value: Any) -> None:
+    # SuperFences options can be supplied in YAML or either supported TOML form.
+    extensions, configs = cfg_module._convert_markdown_extensions(value)
+
+    # The extension is added once and its explicit options are retained.
+    assert extensions.count("pymdownx.superfences") == 1
+    assert configs["pymdownx.superfences"] == {"preserve_tabs": True}
+
+
 def test_markdown_extensions_are_normalized_without_mutating_input() -> None:
     value = {
         "abbr": None,
@@ -209,6 +246,7 @@ def test_markdown_extensions_are_normalized_without_mutating_input() -> None:
     assert extensions == [
         "toc",
         "tables",
+        "pymdownx.superfences",
         "abbr",
         "pymdownx.highlight",
         "pymdownx.blocks.tab",

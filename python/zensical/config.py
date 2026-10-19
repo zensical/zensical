@@ -810,10 +810,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     # Set validation
     config["validation"] = validation
 
-    # MkDocs will also set fenced_code, which is incompatible with SuperFences,
-    # the extension that Material for MkDocs generally recommends. Note that we
-    # decided to set defaults that make it easy to get started with sensible
-    # Markdown support, but users can override this as needed.
+    # Markdown extensions and their configuration are normalized.
     markdown_extensions, mdx_configs = _convert_markdown_extensions(
         config.get("markdown_extensions", DEFAULT_MARKDOWN_EXTENSIONS)
     )
@@ -1563,8 +1560,12 @@ def _convert_markdown_extensions(
     value: Any,
 ) -> tuple[list[str], dict[str, dict[str, Any]]]:
     """Convert Markdown extensions to what Python Markdown expects."""
-    markdown_extensions = ["toc", "tables"]
-    mdx_configs: dict[str, dict[str, Any]] = {"toc": {}, "tables": {}}
+    # As in MkDocs, fenced code is always supported, but SuperFences is used
+    # instead of fenced_code for compatibility with nested blocks.
+    markdown_extensions = ["toc", "tables", "pymdownx.superfences"]
+    mdx_configs: dict[str, dict[str, Any]] = {
+        ext: {} for ext in markdown_extensions
+    }
 
     if value is None:
         return markdown_extensions, mdx_configs
