@@ -85,6 +85,15 @@ class _TrackingPostprocessor(LinksPostprocessor):
         ("guide/README.md", False, "guide/index.html"),
         ("guide/page.md", False, "guide/page.html"),
         ("assets/app.js", True, "assets/app.js"),
+        ("index.md/", True, ""),
+        ("README.md/", True, ""),
+        ("guide/index.md/", True, "guide/"),
+        ("guide/README.md/", True, "guide/"),
+        ("guide/page.md/", True, "guide/page/"),
+        ("guide/index.md/", False, "guide/index.html"),
+        ("guide/README.md/", False, "guide/index.html"),
+        ("guide/page.md/", False, "guide/page.html"),
+        ("assets/", True, "assets/"),
     ],
 )
 def test_markdown_path_routing(
@@ -110,6 +119,32 @@ def test_rewrite_preserves_query_and_fragment() -> None:
         _rewrite_url("other.md?view=full#details", "guide/page.md", True)
         == "../other/?view=full#details"
     )
+
+
+@pytest.mark.parametrize("directory_urls", [True, False])
+@pytest.mark.parametrize("source", ["guide/index.md", "guide/page.md"])
+@pytest.mark.parametrize("suffix", ["", "#anchor", "?view=full#anchor"])
+@pytest.mark.parametrize(
+    "content",
+    [
+        "[hello](foo/bar/hello.md/{suffix})",
+        "[hello][target]\n\n[target]: foo/bar/hello.md/{suffix}",
+        '<div><a href="foo/bar/hello.md/{suffix}">hello</a></div>',
+    ],
+)
+def test_rewrites_markdown_urls_with_trailing_slashes(
+    directory_urls: bool, source: str, suffix: str, content: str
+) -> None:
+    """Resolve Markdown file URLs with a trailing slash in each link form."""
+    md = Markdown(
+        extensions=[LinksExtension(source, use_directory_urls=directory_urls)]
+    )
+    prefix = "../" if directory_urls and source == "guide/page.md" else ""
+    target = "foo/bar/hello/" if directory_urls else "foo/bar/hello.html"
+
+    html = md.convert(content.format(suffix=suffix))
+
+    assert f'href="{prefix}{target}{suffix}"' in html
 
 
 def test_rewrites_markdown_links_after_inline_processing() -> None:

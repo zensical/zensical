@@ -725,6 +725,8 @@ fn resolve_link(base: &Path, href: &str) -> String {
 
 /// Returns whether a URL path points directly to a Markdown file.
 fn is_markdown_path(path: &str) -> bool {
+    // Trailing slashes are accepted for MkDocs compatibility.
+    let path = path.trim_end_matches('/');
     path.rsplit('/').next().is_some_and(|name| {
         name.rsplit_once('.')
             .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("md"))
@@ -867,16 +869,23 @@ mod tests {
 
         assert!(!is_markdown_path(""));
         assert!(!is_markdown_path("target/"));
-        assert!(!is_markdown_path("target.md/"));
-        assert!(!is_markdown_path("target.md/index.md/"));
+        assert!(!is_markdown_path("/"));
+
+        // Markdown file URLs are accepted with trailing slashes.
+        assert!(is_markdown_path("target.md/"));
+        assert!(is_markdown_path("docs/target.md/"));
+        assert!(is_markdown_path("docs/target.MD/"));
+        assert!(is_markdown_path("target.md/index.md/"));
+
+        // A child path after a Markdown file is still rejected.
+        assert!(!is_markdown_path("target.md/child"));
     }
 
     #[test]
     fn markdown_path_as_directory_is_invalid() {
-        assert!(is_invalid_markdown_path("target.md/"));
-        assert!(is_invalid_markdown_path("docs/target.md/"));
+        assert!(is_invalid_markdown_path("target.md/child"));
         assert!(is_invalid_markdown_path("docs/target.md/child"));
-        assert!(is_invalid_markdown_path("docs/target.MD/"));
+        assert!(is_invalid_markdown_path("docs/target.MD/child"));
 
         assert!(!is_invalid_markdown_path(""));
         assert!(!is_invalid_markdown_path("target/"));

@@ -218,11 +218,13 @@ def _is_relative(value: str) -> bool:
 
 def _md_path_to_html(path: str, use_directory_urls: bool) -> str:
     """Convert a relative `.md` path to its final HTML form."""
-    if not path.endswith(".md"):
+    # Trailing slashes are ignored on Markdown URLs for MkDocs compatibility.
+    md_path = path.rstrip("/")
+    if not md_path.endswith(".md"):
         return path
 
     # Convert the `.md` extension to `.html` and extract the file name
-    path = path.removesuffix(".md") + ".html"
+    path = md_path.removesuffix(".md") + ".html"
     name = _get_name(path)
 
     # When directory URLs are enabled, `index.html` and `README.html` collapse
