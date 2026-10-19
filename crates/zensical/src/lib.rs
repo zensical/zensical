@@ -270,19 +270,16 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     let waker = match &mode {
         Mode::Build(_) => None,
         Mode::Serve(options, seq) => {
+            let (waker, addrs) =
+                create_server(&config, receiver, options.clone());
             if *seq == 0 {
-                println!(
-                    "Serving {} on http://{}",
-                    site_dir.display(),
-                    options
-                        .dev_addr
-                        .as_ref()
-                        .unwrap_or_else(|| &config.project.dev_addr)
-                );
+                for addr in addrs {
+                    println!("Serving {} on http://{addr}", site_dir.display());
+                }
             } else {
                 println!("Reloading...");
             }
-            Some(create_server(&config, receiver, options.clone()))
+            Some(waker)
         }
     };
 
