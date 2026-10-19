@@ -29,14 +29,14 @@ import threading
 import time
 from typing import TYPE_CHECKING
 
+import pytest
+
 import zensical
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from io import TextIOWrapper
     from pathlib import Path
-
-    import pytest
 
 
 def _wait_for(
@@ -105,6 +105,57 @@ unresolved_references = true
     captured = capfd.readouterr()
     assert "No issues found" in captured.err
     assert "2 issues found" not in captured.err
+
+
+@pytest.mark.parametrize("directory_urls", [True, False])
+def test_validation_supports_markdown_urls_with_trailing_slashes(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], directory_urls: bool
+) -> None:
+    """Resolve trailing-slash links and report missing targets and anchors."""
+    # A nested target is linked from a non-index page, with an optional anchor.
+    docs = tmp_path / "docs"
+    target_dir = docs / "foo" / "bar"
+    target_dir.mkdir(parents=True)
+    source = docs / "page.md"
+    source.write_text(
+        "# Source\n\n[hello](foo/bar/hello.md/)\n\n"
+        "[hello](foo/bar/hello.md/#anchor)\n\n"
+        "[reference][target]\n\n[target]: foo/bar/hello.md/#anchor\n",
+        encoding="utf-8",
+    )
+    (target_dir / "hello.md").write_text("# Anchor\n", encoding="utf-8")
+    config = tmp_path / "zensical.toml"
+    config.write_text(
+        '[project]\nsite_name = "Test"\n'
+        f"use_directory_urls = {str(directory_urls).lower()}\n",
+        encoding="utf-8",
+    )
+
+    zensical.build(str(config), {"clean": True, "strict": False})
+
+    captured = capfd.readouterr()
+    assert "No issues found" in captured.err
+    output_path = "page/index.html" if directory_urls else "page.html"
+    html = (tmp_path / "site" / output_path).read_text(encoding="utf-8")
+    target = "../foo/bar/hello/" if directory_urls else "foo/bar/hello.html"
+    assert f'href="{target}"' in html
+    assert f'href="{target}#anchor"' in html
+
+    # Missing targets and Markdown files used as directories are reported.
+    source.write_text(
+        "# Source\n\n[missing](foo/bar/missing.md/)\n\n"
+        "[missing](foo/bar/missing.md/#anchor)\n\n"
+        "[anchor](foo/bar/hello.md/#missing)\n\n"
+        "[child](foo/bar/hello.md/child)\n",
+        encoding="utf-8",
+    )
+
+    zensical.build(str(config), {"clean": True, "strict": False})
+
+    captured = capfd.readouterr()
+    assert "4 issues found" in captured.err
+    assert "page does not exist" in captured.err
+    assert "anchor does not exist" in captured.err
 
 
 def test_validation_reports_unresolved_autorefs(
