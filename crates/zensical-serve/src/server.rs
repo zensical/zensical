@@ -30,7 +30,7 @@ use mio::net::{TcpListener, TcpStream};
 use mio::{Interest, Token, Waker};
 use slab::Slab;
 use std::io::ErrorKind;
-use std::net::ToSocketAddrs;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tungstenite::protocol::Role;
@@ -127,6 +127,14 @@ where
         T: TryIntoHandler<Output = H>,
     {
         Builder::new(handler)
+    }
+
+    /// Bound socket addresses are returned with assigned ephemeral ports.
+    pub fn local_addrs(&self) -> Result<Vec<SocketAddr>> {
+        self.acceptors
+            .iter()
+            .map(|listener| listener.local_addr().map_err(Into::into))
+            .collect()
     }
 
     /// Polls the server for incoming events.
@@ -293,5 +301,56 @@ where
     // Return waker for waking server from poll loop
     pub fn waker(&self) -> Arc<Waker> {
         self.events.waker().clone()
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use std::net::TcpStream;
+
+    use crate::handler::Teapot;
+
+    use super::*;
+
+    #[test]
+    fn local_addrs_reports_assigned_port() {
+        // An ephemeral port is requested on the loopback interface.
+        let server = Server::new(Teapot, "127.0.0.1:0").unwrap();
+
+        let addrs = server.local_addrs().unwrap();
+
+        // The reported address must accept connections on its assigned port.
+        assert_eq!(addrs.len(), 1);
+        assert_ne!(addrs[0].port(), 0);
+        let connection = TcpStream::connect(addrs[0]).unwrap();
+        assert_eq!(connection.peer_addr().unwrap(), addrs[0]);
+    }
+
+    #[test]
+    fn local_addrs_reports_all_listeners_in_bind_order() {
+        // Each address to which localhost resolves is bound independently.
+        let server = Server::new(Teapot, "localhost:0").unwrap();
+        let mut expected = Vec::new();
+        for addr in "localhost:0".to_socket_addrs().unwrap() {
+            if !expected.contains(&addr.ip()) {
+                expected.push(addr.ip());
+            }
+        }
+
+        let addrs = server.local_addrs().unwrap();
+
+        // All listeners must be reported in their resolved order.
+        assert_eq!(
+            addrs.iter().map(SocketAddr::ip).collect::<Vec<_>>(),
+            expected
+        );
+        for addr in addrs {
+            assert_ne!(addr.port(), 0);
+            TcpStream::connect(addr).unwrap();
+        }
     }
 }

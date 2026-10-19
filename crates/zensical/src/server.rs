@@ -59,15 +59,15 @@ pub struct ServeOptions {
 // Functions
 // ----------------------------------------------------------------------------
 
-/// Creates an HTTP server to serve the site.
+/// An HTTP server is created with its waker and advertised addresses returned.
 pub fn create_server(
     config: &Config, receiver: Receiver<String>, options: ServeOptions,
-) -> Arc<Waker> {
+) -> (Arc<Waker>, Vec<String>) {
     let site_dir = config.output_root().as_path().to_owned();
     fs::create_dir_all(&site_dir).expect("site directory could not be created");
 
-    // Create a one shot channel to extract waker - this is currently necessary,
-    // so that the server wakes up when the file watcher emits new events
+    // The waker and bound addresses are returned through a one shot channel.
+    // The waker is used when new events are emitted by the file watcher.
     let (tx, rx) = unbounded();
     let addr = options
         .dev_addr
@@ -89,34 +89,49 @@ pub fn create_server(
                     middleware::StaticFiles::new(&site_dir).expect("invariant"),
                 );
 
-            // Start server and extract waker for interaction with event loop
-            let mut server = match Server::new(stack, &addr) {
-                Ok(server) => server,
-                Err(err) => {
-                    let _ = tx.send(Err(err));
-                    return Ok(());
-                }
+            // Listener addresses are obtained after the server has been bound.
+            let (mut server, addrs) =
+                match Server::new(stack, &addr).and_then(|server| {
+                    let addrs = server.local_addrs()?;
+                    Ok((server, addrs))
+                }) {
+                    Ok(server) => server,
+                    Err(err) => {
+                        let _ = tx.send(Err(err));
+                        return Ok(());
+                    }
+                };
+
+            // Concrete addresses are used for ephemeral ports so that each URL
+            // reaches the correct listener, even across address families.
+            // Configured hostnames are preserved for explicit ports.
+            let addrs = if addr
+                .rsplit_once(':')
+                .is_some_and(|(_, port)| port.parse::<u16>() == Ok(0))
+            {
+                addrs.iter().map(ToString::to_string).collect()
+            } else {
+                vec![addr]
             };
 
-            // Open browser, if desired
+            // The first advertised address is opened when requested.
             if options.open {
-                let url = format!("http://{addr}");
+                let url = format!("http://{}", addrs[0]);
                 let _ = webbrowser::open(&url);
             }
 
-            // Send waker back to main thread
-            let _ = tx.send(Ok(server.waker()));
+            // The waker and advertised addresses are sent to the main thread.
+            let _ = tx.send(Ok((server.waker(), addrs)));
             loop {
                 server.poll(Some(&receiver))?;
             }
         }
     });
 
-    // Return waker, or fail if server thread could not be started - we need to
-    // restructure this logic, but for now, it's quite safe to assume that when
-    // the server thread could not be started, the address is already in use.
+    // Server details are returned after successful binding, or the error is
+    // reported if the server thread could not be started.
     match rx.recv().expect("invariant") {
-        Ok(waker) => waker,
+        Ok(server) => server,
         Err(err) => {
             eprintln!("Error: {err}");
             std::process::exit(1);
