@@ -80,6 +80,7 @@ saphyr.workspace = true
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
 sha2.workspace = true
+sha1_smol.workspace = true
 svgtypes.workspace = true
 swc_common.workspace = true
 swc_css.workspace = true
