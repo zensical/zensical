@@ -75,6 +75,7 @@ pub struct Batch {
 struct SourceMount {
     root: PathBuf,
     context: String,
+    fallback: bool,
 }
 
 // ----------------------------------------------------------------------------
@@ -143,9 +144,8 @@ impl Watcher {
         // so we can make sure that there won't be any ambiguities.
         let mut path = config.path.clone();
         path.pop();
-        sources.push(SourceMount::new(
+        sources.push(SourceMount::fallback(
             config.output_root().as_path().to_owned(),
-            String::from("."),
         ));
         for (i, root) in config.api.roots.iter().enumerate() {
             sources.push(SourceMount::new(
@@ -157,7 +157,7 @@ impl Watcher {
                 format!("api/{i}"),
             ));
         }
-        sources.push(SourceMount::new(path, String::from(".")));
+        sources.push(SourceMount::fallback(path));
 
         // Original paths are tracked so discovery of a symlink and its target
         // is not mistaken for a change to an already discovered file.
@@ -300,32 +300,36 @@ impl Watcher {
                         | Event::Modify { path, .. }
                             if mounted(&path) =>
                         {
-                            batch.push(Change::Insert(
-                                to_id(&path, &sources)?.into(),
-                                Source::from(path),
-                            ));
+                            for id in to_ids(&path, &sources)? {
+                                batch.push(Change::Insert(
+                                    id.into(),
+                                    Source::from(path.clone()),
+                                ));
+                            }
                         }
 
                         // File was renamed
                         Event::Rename { from, to, .. } => {
                             if mounted(&from) {
-                                batch.push(Change::Remove(
-                                    to_id(&from, &sources)?.into(),
-                                ));
+                                for id in to_ids(&from, &sources)? {
+                                    batch.push(Change::Remove(id.into()));
+                                }
                             }
                             if mounted(&to) {
-                                batch.push(Change::Insert(
-                                    to_id(&to, &sources)?.into(),
-                                    Source::from(to),
-                                ));
+                                for id in to_ids(&to, &sources)? {
+                                    batch.push(Change::Insert(
+                                        id.into(),
+                                        Source::from(to.clone()),
+                                    ));
+                                }
                             }
                         }
 
                         // File was removed
                         Event::Remove { path, .. } if mounted(&path) => {
-                            batch.push(Change::Remove(
-                                to_id(&path, &sources)?.into(),
-                            ));
+                            for id in to_ids(&path, &sources)? {
+                                batch.push(Change::Remove(id.into()));
+                            }
                         }
                         _ => {}
                     }
@@ -421,6 +425,16 @@ impl SourceMount {
         Self {
             root,
             context: context.replace('\\', "/"),
+            fallback: false,
+        }
+    }
+
+    /// A fallback mount is created for paths outside logical source roots.
+    fn fallback(root: PathBuf) -> Self {
+        Self {
+            root,
+            context: String::from("."),
+            fallback: true,
         }
     }
 }
@@ -457,6 +471,23 @@ fn to_id(path: &Path, sources: &[SourceMount]) -> io::Result<Id> {
         .expect("invariant"))
 }
 
+/// All logical identities are returned for overlapping source roots.
+fn to_ids(path: &Path, sources: &[SourceMount]) -> io::Result<Vec<Id>> {
+    // Physical discovery is deduplicated by the file manager. Each logical
+    // mount must still be registered so nested themes retain both outputs.
+    let mut ids = sources
+        .iter()
+        .filter(|source| !source.fallback && path.starts_with(&source.root))
+        .map(|source| to_id(path, std::slice::from_ref(source)))
+        .collect::<io::Result<Vec<_>>>()?;
+
+    // The project mount is used only when no logical source root is matched.
+    if ids.is_empty() {
+        ids.push(to_id(path, sources)?);
+    }
+    Ok(ids)
+}
+
 #[inline]
 fn canonical_or_clone(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
@@ -487,7 +518,9 @@ mod tests {
     use std::{fs, io};
     use tempfile::tempdir;
 
-    use super::{should_restart, to_id, Event, Kind, Manager, SourceMount};
+    use super::{
+        should_restart, to_id, to_ids, Event, Kind, Manager, SourceMount,
+    };
 
     #[test]
     fn restart_inputs_are_discovered_once_and_restarted_after_edits() {
@@ -670,6 +703,49 @@ mod tests {
 
         assert_eq!(id.context(), "plugins/social/0");
         assert_eq!(id.location(), "custom.yml");
+    }
+
+    #[test]
+    fn overlapping_mounts_retain_each_logical_identity() {
+        let root = PathBuf::from("project");
+        let docs = root.join("docs");
+        let theme = docs.join("overrides");
+        let path = theme.join("assets/probe.css");
+        let sources = [
+            SourceMount::new(docs, String::from("docs")),
+            SourceMount::new(theme.clone(), String::from("templates/0")),
+            SourceMount::new(
+                theme.join("assets"),
+                String::from("plugins/social/0"),
+            ),
+            SourceMount::fallback(root),
+        ];
+
+        // No filesystem lookup is required, so removals retain all identities.
+        let ids = to_ids(&path, &sources).unwrap();
+        let identities = ids
+            .iter()
+            .map(|id| (id.context().into_owned(), id.location().to_string()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            identities,
+            vec![
+                (
+                    String::from("docs"),
+                    String::from("overrides/assets/probe.css")
+                ),
+                (
+                    String::from("templates/0"),
+                    String::from("assets/probe.css")
+                ),
+                (String::from("plugins/social/0"), String::from("probe.css")),
+            ]
+        );
+        let fallback =
+            to_ids(&PathBuf::from("project/config.yml"), &sources).unwrap();
+        assert_eq!(fallback.len(), 1);
+        assert_eq!(fallback[0].context(), ".");
     }
 
     #[cfg(unix)]
