@@ -27,6 +27,7 @@
 
 pub mod apidocs;
 pub mod html;
+pub mod links;
 pub mod plugin;
 pub mod resource;
 pub mod url;

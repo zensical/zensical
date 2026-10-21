@@ -33,7 +33,6 @@ from markdown import Markdown
 from zensical.config import get_config
 from zensical.extensions.autorefs import set_autorefs_page
 from zensical.extensions.context import ContextExtension, Page
-from zensical.extensions.links import LinksExtension
 
 
 def render(
@@ -90,19 +89,6 @@ def render(
         extensions=config["markdown_extensions"],
         extension_configs=config["mdx_configs"],
     )
-
-    # Note: mkdocstrings and markdown-exec do not need to propagate the links
-    # extension to their inner Markdown instances. Its postprocessor runs last
-    # and can see inner layer contents. More importantly, inner layers *must
-    # not* run the extension: the inner treeprocessor would transform links
-    # once, and the outer postprocessor would transform them again.
-
-    # Register links extension, which is equivalent to MkDocs' path resolution
-    # Markdown extension. This is a bandaid, until we move this to Rust
-    links = LinksExtension(
-        use_directory_urls=config["use_directory_urls"], path=path
-    )
-    links.extendMarkdown(md)
 
     # Inform markdown-exec that it runs through Zensical.
     try:

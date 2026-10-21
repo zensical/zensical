@@ -46,6 +46,7 @@ use zrx::stream::{
 use crate::compat::mkdocs::plugin::autorefs::UnresolvedAutorefs;
 use crate::compat::mkdocs::{
     html,
+    links::Links,
     plugin::{
         self, autorefs, awesome_nav, blog, exclude, literate_nav, llmstxt,
         meta, minify, mkdocstrings, nav_weight, redirects, rss, search, social,
@@ -740,7 +741,7 @@ fn process_markdown(
                     &config,
                     document.source.as_str(),
                     (
-                        15_u8,
+                        18_u8,
                         config.hash,
                         origin,
                         document.clone(),
@@ -826,9 +827,15 @@ fn render_markdown(
     )?;
     let navigation_title = navigation_title.map(|_| title.clone());
     let source_route = PageRoute::from_source(config, document.source.clone())?;
-    if let Some(content) =
-        html::rebase_urls(&markdown.content, &source_route.url, &route.url)
-    {
+    let mut links = Links::new(
+        source_route.source.as_str(),
+        config.project.use_directory_urls,
+        &source_route.url,
+        &route.url,
+    );
+    // URLs are resolved before plugin visitors are run so extracted titles
+    // and Markdown exports are also given the rewritten targets.
+    if let Some(content) = html::scan(&markdown.content, &mut [&mut links]) {
         markdown.replace_content(content);
     }
     let html =
