@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import yaml
 from markdown import Markdown
+from pymdownx.superfences import fence_div_format
 
 import zensical.config as cfg_module
 from zensical.config import (
@@ -195,7 +196,9 @@ def test_watch_excludes_config_file(tmp_path: Path, watch_path: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("value", [None, [], {}, ["abbr"], {"abbr": {}}])
+@pytest.mark.parametrize(
+    "value", [None, [], {}, ["abbr"], {"abbr": {}}, ["extra"], ["codehilite"]]
+)
 @pytest.mark.parametrize(
     "source",
     ["```\n<tag>\n```", "- Example\n\n    ```\n    <tag>\n    ```"],
@@ -231,6 +234,60 @@ def test_explicit_superfences_configuration_is_preserved(value: Any) -> None:
     assert configs["pymdownx.superfences"] == {"preserve_tabs": True}
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        ["admonition", "extra", "pymdownx.superfences"],
+        {"admonition": {}, "extra": {}, "pymdownx.superfences": {}},
+        ["admonition", "extra"],
+    ],
+)
+def test_superfences_renders_nested_code_after_extra(value: Any) -> None:
+    # The basic fence processor from extra is replaced by SuperFences.
+    extensions, configs = cfg_module._convert_markdown_extensions(value)
+    markdown = Markdown(extensions=extensions, extension_configs=configs)
+
+    rendered = markdown.convert(
+        "# Example\n\n!!! note\n\n    ```python"
+        '\n    # This is code, not a heading\n    print("hello")\n    ```'
+    )
+
+    assert rendered.count("<h1") == 1
+    assert rendered.count("<pre") == 1
+    assert "```" not in rendered
+
+
+def test_explicit_superfences_keeps_its_position_and_custom_fences() -> None:
+    # Custom fences and extension order are retained
+    # when a fallback is unnecessary.
+    value = [
+        "extra",
+        {
+            "pymdownx.superfences": {
+                "custom_fences": [
+                    {
+                        "name": "diagram",
+                        "class": "diagram",
+                        "format": fence_div_format,
+                    }
+                ]
+            }
+        },
+        "abbr",
+    ]
+    extensions, configs = cfg_module._convert_markdown_extensions(value)
+    markdown = Markdown(extensions=extensions, extension_configs=configs)
+
+    rendered = markdown.convert("```diagram\nA --> B\n```")
+
+    assert (
+        extensions.index("extra")
+        < extensions.index("pymdownx.superfences")
+        < extensions.index("abbr")
+    )
+    assert rendered == '<div class="diagram">A --&gt; B</div>'
+
+
 def test_markdown_extensions_are_normalized_without_mutating_input() -> None:
     value = {
         "abbr": None,
@@ -246,11 +303,11 @@ def test_markdown_extensions_are_normalized_without_mutating_input() -> None:
     assert extensions == [
         "toc",
         "tables",
-        "pymdownx.superfences",
         "abbr",
         "pymdownx.highlight",
         "pymdownx.blocks.tab",
         "zensical.extensions.preview",
+        "pymdownx.superfences",
     ]
     assert configs["abbr"] == {}
     assert configs["pymdownx.highlight"] == {"linenums": True}
