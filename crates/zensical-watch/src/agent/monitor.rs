@@ -574,6 +574,12 @@ fn filter<W>(event: Event) -> Option<Event>
 where
     W: 'static + Watcher,
 {
+    // Access notifications are discarded before the debounce channel so queued
+    // changes cannot be postponed indefinitely by reads of generated files.
+    if matches!(event.kind, EventKind::Access(_)) {
+        return None;
+    }
+
     // IN_ATTRIB is emitted for metadata changes, including hardlink counts
     // changed by package installations. These events, including timestamp-only
     // changes, are ignored; content writes and renames are reported separately.
@@ -613,9 +619,30 @@ where
 
 #[cfg(test)]
 mod tests {
-    use notify::event::MetadataKind;
+    use notify::event::{AccessKind, AccessMode, MetadataKind};
 
     use super::{filter, Event, EventKind, ModifyKind, PollWatcher};
+
+    #[test]
+    fn access_events_are_ignored_before_debouncing() {
+        // Pending source changes must not be delayed by reads, opens, or closes.
+        for access in [
+            AccessKind::Any,
+            AccessKind::Read,
+            AccessKind::Open(AccessMode::Any),
+            AccessKind::Open(AccessMode::Read),
+            AccessKind::Close(AccessMode::Read),
+            AccessKind::Close(AccessMode::Write),
+            AccessKind::Other,
+        ] {
+            let event = Event::new(EventKind::Access(access))
+                .add_path("site/assets/shared.txt".into());
+
+            assert!(filter::<PollWatcher>(event.clone()).is_none());
+            #[cfg(target_os = "linux")]
+            assert!(filter::<notify::INotifyWatcher>(event).is_none());
+        }
+    }
 
     #[cfg(target_os = "linux")]
     #[test]

@@ -28,7 +28,6 @@
 use anyhow::{anyhow, Context as _};
 use sha2::{Digest, Sha384};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
@@ -170,15 +169,20 @@ impl Settings {
             return Ok(Emission {
                 source_path: resource.path.clone(),
                 output_path: resource.path.clone(),
-                contents: Contents::Copy(resource.source.clone()),
+                contents: if resource.source.is_generated() {
+                    Contents::Bytes(
+                        resource.source.read_to_string()?.into_bytes().into(),
+                    )
+                } else {
+                    Contents::Copy(resource.source.clone())
+                },
                 claimed: false,
             });
         };
 
-        let source =
-            fs::read_to_string(&resource.source).with_context(|| {
-                format!("failed to read asset {}", resource.source.display())
-            })?;
+        let source = resource.source.read_to_string().with_context(|| {
+            format!("failed to read asset {}", resource.source.display())
+        })?;
         let minify = self.minify.contains(&kind);
         let transformed = if minify {
             match kind {

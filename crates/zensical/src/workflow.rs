@@ -49,8 +49,8 @@ use crate::compat::mkdocs::{
     links::Links,
     plugin::{
         self, autorefs, awesome_nav, blog, exclude, literate_nav, llmstxt,
-        meta, minify, mkdocstrings, nav_weight, redirects, rss, search, social,
-        tags,
+        meta, minify, mkdocstrings, nav_weight, privacy, redirects, rss,
+        search, social, tags,
     },
     resource,
 };
@@ -94,6 +94,8 @@ struct Main {
     meta: meta::Meta,
     /// File exclusion shared by documentation and resource processing.
     exclude: exclude::Exclude,
+    /// Privacy state shared by resources and rendered HTML.
+    privacy: privacy::Privacy,
 }
 
 /// File input enriched with immutable facts for the current revision.
@@ -175,6 +177,8 @@ struct RenderedSitePage {
     artifact: output::Artifact,
     /// Autorefs that could not be resolved in this revision.
     unresolved: UnresolvedAutorefs,
+    /// Downloads retained by this rendered page.
+    assets: privacy::Assets,
 }
 
 impl Value for RenderedSitePage {}
@@ -265,6 +269,7 @@ impl Main {
         let configuration = ctx.input::<Configuration>();
         let sources_ready = ctx.input::<SourcesReady>();
         let minify = minify::Minify::new(&self.config);
+        let privacy = self.privacy.clone();
 
         // Set up workflow to process static assets and Markdown files.
         let sources = files.map(|input: &Input| input.source.clone());
@@ -272,8 +277,10 @@ impl Main {
             resource::Resources::new(&self.config, &self.meta, self.serve)
                 .setup(resource::Dependencies { sources: &sources });
         let resources = self.exclude.resources(&resources);
+        let (resources, resource_assets) = privacy.resources(&resources);
         let assets =
             minify.setup(minify::Dependencies { resources: &resources });
+        let assets = privacy.project(&assets, &resource_assets);
         let inclusion = self.config.inclusion.clone();
         let docs = self.config.project.docs_dir.clone();
         let serve = self.serve;
@@ -417,15 +424,16 @@ impl Main {
             self.strict,
         );
         let extra_artifacts = (rss_artifacts, llmstxt_artifacts).coalesce();
-        let _ = render_templates(
+        let template_assets = render_templates(
             &self.config,
             &files,
             &page,
             &nav,
             &assets,
             &minify,
+            &privacy,
         );
-        let unresolved = render_pages(
+        let (unresolved, page_assets) = render_pages(
             &self.config,
             &site_page,
             &social_metadata,
@@ -435,7 +443,10 @@ impl Main {
             &minify,
             &mkdocstrings,
             &extra_artifacts,
+            &privacy,
         );
+        privacy
+            .setup(&(resource_assets, template_assets, page_assets).coalesce());
         validate(&self.config, self.strict, &files, &page, &unresolved);
     }
 }
@@ -898,9 +909,9 @@ fn generate_page(
 /// Render static and extra templates.
 fn render_templates(
     config: &Config, files: &Stream<Id, Input>, pages: &Stream<Id, Page>,
-    nav: &Signal<Id, Navigation>, assets: &Signal<Id, minify::Manifest>,
-    minify: &minify::Minify,
-) -> Stream<Id, ()> {
+    nav: &Signal<Id, Navigation>, assets: &Stream<Id, minify::Manifest>,
+    minify: &minify::Minify, privacy: &privacy::Privacy,
+) -> Stream<Id, privacy::Assets> {
     let docs_dir = config.project.docs_dir.clone();
 
     // Retrieve template names
@@ -942,6 +953,7 @@ fn render_templates(
     // Create pipeline to render templates
     let renderer = Template::new(theme_dirs);
     let minify = minify.clone();
+    let privacy = privacy.clone();
     let config = config.clone();
     templates.product(nav).product(&pages).product(assets).map(
         move |id: &Id,
@@ -959,11 +971,19 @@ fn render_templates(
                 pages.0.as_slice(),
                 &assets.project,
             )?;
+            let (data, downloads) = if output
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("html"))
+            {
+                privacy.html(data, &output)?
+            } else {
+                (data, privacy::Assets::default())
+            };
             let data = minify.template(name, data);
             let path = config.output_root().join(&output);
             fs::create_dir_all(path.parent().expect("invariant"))?;
             fs::write(path, &data)?;
-            Ok::<_, anyhow::Error>(())
+            Ok::<_, anyhow::Error>(downloads)
         },
     )
 }
@@ -980,10 +1000,10 @@ fn render_pages(
     config: &Config, pages: &Stream<Id, SitePage>,
     social: &Stream<Id, social::Metadata>, nav: &Signal<Id, Navigation>,
     autorefs: &Signal<Id, autorefs::Registry>,
-    assets: &Signal<Id, minify::Manifest>, minify: &minify::Minify,
+    assets: &Stream<Id, minify::Manifest>, minify: &minify::Minify,
     mkdocstrings: &mkdocstrings::Mkdocstrings,
-    extra: &Stream<Id, output::Artifact>,
-) -> Stream<Id, UnresolvedAutorefs> {
+    extra: &Stream<Id, output::Artifact>, privacy: &privacy::Privacy,
+) -> (Stream<Id, UnresolvedAutorefs>, Stream<Id, privacy::Assets>) {
     let pages = (pages.clone(), social.clone())
         .join()
         .product(nav)
@@ -1010,6 +1030,7 @@ fn render_pages(
     let template = OnceLock::new();
     let theme_dirs = config.theme_dirs.clone();
     let minify = minify.clone();
+    let privacy = privacy.clone();
     let output = config.output_root().clone();
     let mkdocstrings = mkdocstrings.clone();
     let config = config.clone();
@@ -1056,6 +1077,7 @@ fn render_pages(
             &page.url,
         )?;
         let data = input.social.inject(data);
+        let (data, assets) = privacy.html(data, page.destination())?;
         let data = minify.html(data);
 
         Ok::<_, anyhow::Error>(RenderedSitePage {
@@ -1065,12 +1087,16 @@ fn render_pages(
                 data.into_bytes(),
             ),
             unresolved,
+            assets,
         })
     });
     let artifacts =
         rendered.map(|rendered: &RenderedSitePage| rendered.artifact.clone());
     output::setup(output, &(artifacts, extra.clone()).coalesce());
-    rendered.map(|rendered: &RenderedSitePage| rendered.unresolved.clone())
+    (
+        rendered.map(|rendered: &RenderedSitePage| rendered.unresolved.clone()),
+        rendered.map(|rendered: &RenderedSitePage| rendered.assets.clone()),
+    )
 }
 
 /// Creates a workflow for the given config.
@@ -1078,6 +1104,7 @@ pub fn create_workflow(
     config: &Config, strict: bool, serve: bool, meta: meta::Meta,
 ) -> anyhow::Result<Workflow<Id>> {
     let exclude = exclude::Exclude::new(config)?;
+    let privacy = privacy::Privacy::new(config, strict);
     Ok(Workflow::build(|workflow| {
         Main {
             config: config.clone(),
@@ -1085,6 +1112,7 @@ pub fn create_workflow(
             serve,
             meta,
             exclude,
+            privacy,
         }
         .setup(workflow);
     }))
