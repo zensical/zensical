@@ -1560,15 +1560,14 @@ def _convert_markdown_extensions(
     value: Any,
 ) -> tuple[list[str], dict[str, dict[str, Any]]]:
     """Convert Markdown extensions to what Python Markdown expects."""
-    # As in MkDocs, fenced code is always supported, but SuperFences is used
-    # instead of fenced_code for compatibility with nested blocks.
-    markdown_extensions = ["toc", "tables", "pymdownx.superfences"]
+    # Explicit extension order is preserved; fallback fences are added below.
+    markdown_extensions = ["toc", "tables"]
     mdx_configs: dict[str, dict[str, Any]] = {
         ext: {} for ext in markdown_extensions
     }
 
     if value is None:
-        return markdown_extensions, mdx_configs
+        value = []
     if not isinstance(value, (dict, list)):
         raise ConfigurationError(
             "Markdown extensions must be a list or mapping"
@@ -1636,6 +1635,13 @@ def _convert_markdown_extensions(
                 value[f"zensical.{ext}"] = conf
 
     extensions, configs = _convert_plugin_markdown_extensions(value)
+
+    # An explicit SuperFences entry is retained at its configured position.
+    # The fallback is added last to prevent replacement by extra.
+    if "pymdownx.superfences" not in extensions:
+        extensions.append("pymdownx.superfences")
+        configs.setdefault("pymdownx.superfences", {})
+
     markdown_extensions.extend(extensions)
     mdx_configs.update(configs)
 
