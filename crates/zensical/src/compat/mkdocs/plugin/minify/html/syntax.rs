@@ -136,6 +136,8 @@ pub fn source_value(input: &str, span: Span<usize>) -> String {
     // The opening quote or first unquoted byte is excluded from html5gum's
     // attribute-value spans. The first byte must be restored for unquoted
     // values.
+    // This correction can be removed when a release with
+    // https://github.com/untitaker/html5gum/pull/146 is used.
     let mut start = span.start - 1;
     if matches!(input.as_bytes()[start], b'\'' | b'"') {
         start += 1;

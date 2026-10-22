@@ -29,7 +29,6 @@ from markdown.postprocessors import Postprocessor
 
 from tests.unit.extensions.conftest import soup
 from zensical.extensions.glightbox import GlightboxExtension
-from zensical.extensions.links import LinksExtension
 from zensical.extensions.media import MediaExtension
 
 
@@ -147,13 +146,12 @@ def test_audio_options_and_disabling_globals() -> None:
     assert not second.has_attr("disable-global-config")
 
 
-def test_raw_html_and_markdown_media_precede_image_and_url_processing() -> None:
+def test_raw_html_and_markdown_media_precede_image_processing() -> None:
     md = Markdown(
         extensions=[
             "attr_list",
             GlightboxExtension(),
             MediaExtension(),
-            LinksExtension(path="guide/page.md", use_directory_urls=True),
         ]
     )
     html = md.convert(
@@ -168,10 +166,10 @@ def test_raw_html_and_markdown_media_precede_image_and_url_processing() -> None:
     assert audio_source is not None
     assert video_frame is not None
     assert ordinary_img is not None
-    assert audio_source["src"] == "../sound.mp3"
-    assert video_frame["src"] == "../movie.mp4"
+    assert audio_source["src"] == "sound.mp3"
+    assert video_frame["src"] == "movie.mp4"
     assert len(page.select("a.glightbox")) == 1
-    assert ordinary_img["src"] == "../picture.png"
+    assert ordinary_img["src"] == "picture.png"
 
 
 def test_raw_html_preserves_unrelated_markup_and_inline_text() -> None:

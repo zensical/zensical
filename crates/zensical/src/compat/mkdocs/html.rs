@@ -66,8 +66,8 @@ struct RebaseUrls<'a> {
     from: &'a str,
     /// Route from which rewritten relative URLs are emitted.
     to: &'a str,
-    /// Optional target used for fragment-only links.
-    fragment_base: Option<&'a str>,
+    /// Target used for fragment-only links.
+    fragment_base: &'a str,
     /// Whether the tokenizer is currently reading an attribute value.
     attribute: bool,
     /// Whether the current attribute is an `href` rather than a `src`.
@@ -117,7 +117,20 @@ impl<'a> Editor<'a> {
         };
         {
             let mut emitter = CallbackEmitter::new(
-                |event: CallbackEvent<'_>, span: Span<usize>| {
+                |event: CallbackEvent<'_>, mut span: Span<usize>| {
+                    // The opening quote or first unquoted byte is excluded
+                    // from html5gum 0.8.4's value spans. Only the unquoted byte
+                    // must be restored, as in minify::html::syntax::source_value.
+                    // This correction can be removed when a release with
+                    // https://github.com/untitaker/html5gum/pull/146 is used.
+                    if matches!(event, CallbackEvent::AttributeValue { .. })
+                        && !matches!(
+                            input.as_bytes()[span.start - 1],
+                            b'\'' | b'"'
+                        )
+                    {
+                        span.start -= 1;
+                    }
                     for visitor in &mut *visitors {
                         visitor.visit(&event, span, &mut editor);
                     }
@@ -300,13 +313,10 @@ impl Visitor for RebaseUrls<'_> {
             }
             CallbackEvent::AttributeValue { value } if self.attribute => {
                 let value = String::from_utf8_lossy(value);
-                if self.href
-                    && value.starts_with('#')
-                    && let Some(base) = self.fragment_base
-                {
+                if self.href && value.starts_with('#') {
                     editor.replace(
                         span.start..span.end,
-                        format!("{base}{value}"),
+                        format!("{}{value}", self.fragment_base),
                     );
                 } else if let Some(value) =
                     url::rebase(self.from, self.to, &value)
@@ -383,21 +393,6 @@ pub fn scan(input: &str, visitors: &mut [&mut dyn Visitor]) -> Option<String> {
     Editor::scan(input, visitors).finish()
 }
 
-/// Rebases local `href` and `src` attributes between two page routes.
-pub fn rebase_urls(input: &str, from: &str, to: &str) -> Option<String> {
-    if from == to {
-        return None;
-    }
-    let mut visitor = RebaseUrls {
-        from,
-        to,
-        fragment_base: None,
-        attribute: false,
-        href: false,
-    };
-    scan(input, &mut [&mut visitor])
-}
-
 /// Rebases URLs and prefixes fragment-only links with a separate base.
 pub fn rebase_urls_with_fragment_base(
     input: &str, from: &str, to: &str, fragment_base: &str,
@@ -405,7 +400,7 @@ pub fn rebase_urls_with_fragment_base(
     let mut visitor = RebaseUrls {
         from,
         to,
-        fragment_base: Some(fragment_base),
+        fragment_base,
         attribute: false,
         href: false,
     };
@@ -460,13 +455,14 @@ mod tests {
     use html5gum::Span;
 
     use super::{
-        rebase_urls, rebase_urls_with_fragment_base, rewrite_urls, scan,
-        Editor, Visitor,
+        rebase_urls_with_fragment_base, rewrite_urls, scan, Editor, Visitor,
     };
     use std::collections::HashMap;
 
     #[derive(Default)]
     struct RemoveDataAttribute;
+
+    struct ReplaceAttributeValues;
 
     #[derive(Default)]
     struct ReplaceElement {
@@ -482,6 +478,17 @@ mod tests {
                 && *name == b"data-remove"
             {
                 editor.remove_attribute(name, span);
+            }
+        }
+    }
+
+    impl Visitor for ReplaceAttributeValues {
+        fn visit(
+            &mut self, event: &CallbackEvent<'_>, span: Span<usize>,
+            editor: &mut Editor<'_>,
+        ) {
+            if let CallbackEvent::AttributeValue { .. } = event {
+                editor.replace(span.start..span.end, "updated");
             }
         }
     }
@@ -512,6 +519,38 @@ mod tests {
     #[test]
     fn retains_the_original_allocation_without_edits() {
         assert_eq!(remove("<p>Text</p>"), None);
+    }
+
+    #[test]
+    fn attribute_edits_preserve_quotes_and_whitespace() {
+        // Source ranges are checked for single-byte values, multibyte first
+        // characters, and entities whose decoded and source lengths differ.
+        let input = concat!(
+            "<img src=x>",
+            "<img src=é.png>",
+            "<img SRC \t= \r\n\x0c image.png >",
+            r#"<img src="a'b.png">"#,
+            r#"<img src='a"b.png'>"#,
+            r#"<img src="&#233;.png?x=1&amp;y=2">"#,
+            r#"<img src=&#233;.png>"#,
+        );
+        let mut visitor = ReplaceAttributeValues;
+
+        let output = scan(input, &mut [&mut visitor]);
+
+        // Only the values are replaced; surrounding HTML syntax is retained.
+        assert_eq!(
+            output.as_deref(),
+            Some(concat!(
+                "<img src=updated>",
+                "<img src=updated>",
+                "<img SRC \t= \r\n\x0c updated >",
+                r#"<img src="updated">"#,
+                r#"<img src='updated'>"#,
+                r#"<img src="updated">"#,
+                r#"<img src=updated>"#,
+            )),
+        );
     }
 
     #[test]
@@ -573,7 +612,13 @@ mod tests {
             r#"<a href="https://example.com">External</a>"#,
         );
         assert_eq!(
-            rebase_urls(input, "blog/2026/09/post/", "blog/page/2/").as_deref(),
+            rebase_urls_with_fragment_base(
+                input,
+                "blog/2026/09/post/",
+                "blog/page/2/",
+                "",
+            )
+            .as_deref(),
             Some(concat!(
                 r#"<a href="../../../notes/#detail">Notes</a>"#,
                 r#"<img src='../../2026/09/post/asset.png'>"#,

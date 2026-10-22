@@ -1795,7 +1795,7 @@ mod tests {
             Some("../../../notes/#detail")
         );
         assert_eq!(
-            html::rebase_urls(
+            html::rebase_urls_with_fragment_base(
                 concat!(
                     r#"<a href="../../../../notes/#detail">Notes</a>"#,
                     r#"<img src='asset.png'>"#,
@@ -1803,6 +1803,7 @@ mod tests {
                 ),
                 "blog/2026/09/post/",
                 "blog/page/2/",
+                "",
             )
             .as_deref(),
             Some(concat!(

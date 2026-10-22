@@ -192,9 +192,9 @@ class MediaTreeprocessor(Treeprocessor):
                 }
                 replacement = _replace_image(attrs, self.config)
                 if replacement is not None:
-                    # Python Markdown does not serialize <source> as a void
-                    # element. Stash its HTML so raw_html restores the proper
-                    # tag after the URL postprocessor has rewritten its src.
+                    # The void <source> tag isn't serialized by Python-Markdown.
+                    # Its HTML is stashed for restoration by raw_html before
+                    # its URL is resolved in Rust.
                     source = replacement.find(".//source")
                     if source is not None:
                         media = replacement[0]
@@ -332,11 +332,11 @@ class MediaExtension(Extension):
             return
         md.registerExtension(self)
 
-        # attr_list runs at 8, glightbox at 7, and URL rewriting at 0.
+        # attr_list is run at 8 and glightbox at 7.
         tree = MediaTreeprocessor(md, self.media_config)
         md.treeprocessors.register(tree, tree.name, 7.5)
 
-        # Run before glightbox and URL rewriting (31), then raw_html (30).
+        # Images are transformed before glightbox (31) and raw_html (30).
         post = MediaPostprocessor(md, self.media_config)
         md.postprocessors.register(post, post.name, 32)
 

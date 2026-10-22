@@ -31,7 +31,7 @@ from urllib.parse import urlparse
 from markdown import Extension
 from markdown.treeprocessors import Treeprocessor
 
-from zensical.extensions.links import LinksTreeprocessor
+from zensical.extensions.context import ContextPreprocessor
 from zensical.extensions.utilities.filter import Filter
 
 if TYPE_CHECKING:
@@ -59,8 +59,7 @@ class PreviewConfig:
 class PreviewProcessor(Treeprocessor):
     """A Markdown treeprocessor to enable instant previews on links.
 
-    Note that this treeprocessor is dependent on the `links` treeprocessor
-    registered programmatically before rendering a page.
+    Get the source path from the rendering context before Rust resolves URLs.
     """
 
     name = "preview"
@@ -72,20 +71,10 @@ class PreviewProcessor(Treeprocessor):
 
     def run(self, root: Element) -> None:
         """Run the treeprocessor."""
-        at = self.md.treeprocessors.get_index_for_name(LinksTreeprocessor.name)
-
-        # Hack: Python Markdown has no notion of where it is, i.e., which file
-        # is being processed. This seems to be a deliberate design decision, as
-        # it is not possible to access the file path of the current page, but
-        # it might also be an oversight that is now impossible to fix. However,
-        # since this extension is only useful in the context of Material for
-        # MkDocs, we can assume that the _RelativePathTreeprocessor is always
-        # present, telling us the file path of the current page. If that ever
-        # changes, we would need to wrap this extension in a plugin, but for
-        # the time being we are sneaky and will probably get away with it.
-        processor = self.md.treeprocessors[at]
-        if not isinstance(processor, LinksTreeprocessor):
-            raise TypeError("Links processor not registered")
+        context = ContextPreprocessor.from_markdown(self.md)
+        if context is None:
+            raise TypeError("Rendering context not registered")
+        source_path = context.page.path
 
         # Normalize configurations
         configurations = list(self.config.configurations)
@@ -106,7 +95,7 @@ class PreviewProcessor(Treeprocessor):
 
             # Skip if page should not be considered
             filter = get_filter(configuration, "sources")
-            if not filter(processor.path):
+            if not filter(source_path):
                 continue
 
             # Walk through all links and add preview attributes
@@ -132,10 +121,10 @@ class PreviewProcessor(Treeprocessor):
                     continue
 
                 # An empty url.path means we're targetting the current page
-                url_path = url.path or processor.path
+                url_path = url.path or source_path
 
                 # Include, if filter matches
-                path = resolve(processor.path, url_path)
+                path = resolve(source_path, url_path)
                 if path and filter(path):
                     el.set("data-preview", "")
 
@@ -162,10 +151,7 @@ class PreviewExtension(Extension):
         """Register Markdown extension."""
         md.registerExtension(self)
 
-        # Create and register treeprocessor - we use the same priority as the
-        # `relpath` treeprocessor, the latter of which is guaranteed to run
-        # after our treeprocessor, so we can check the original Markdown URIs
-        # before they are resolved to URLs.
+        # Original Markdown URIs are inspected before URL resolution in Rust.
         config = PreviewConfig(**self._kwargs)
         processor = PreviewProcessor(md, config)
         md.treeprocessors.register(processor, processor.name, 0)
