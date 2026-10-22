@@ -3374,6 +3374,7 @@ dependencies = [
  "saphyr",
  "serde",
  "serde_json",
+ "sha1_smol",
  "sha2",
  "skrifa",
  "svgtypes",
