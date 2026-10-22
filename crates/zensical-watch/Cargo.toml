@@ -47,6 +47,9 @@ thiserror.workspace = true
 tracing = { workspace = true, optional = true }
 walkdir.workspace = true
 
+[dev-dependencies]
+tempfile = "3"
+
 [features]
 default = []
 tracing = ["dep:tracing"]

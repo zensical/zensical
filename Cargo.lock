@@ -3418,6 +3418,7 @@ dependencies = [
  "file-id",
  "notify",
  "pyo3",
+ "tempfile",
  "thiserror",
  "tracing",
  "walkdir",
