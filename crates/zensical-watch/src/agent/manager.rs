@@ -425,10 +425,14 @@ impl Manager {
         // association. Note that we iterate the file path map in reverse, as
         // we need to make sure that files are always emitted before folders.
         let iter = paths.into_iter().rev().filter_map(|path| {
-            self.paths.remove(&path).and_then(|(id, kind)| {
-                self.ids
-                    .remove(&id)
-                    .map(|path| Ok(Event::Remove { kind, path }))
+            self.paths.remove(&path).map(|(id, kind)| {
+                // An inode may be reused by a newly discovered file before
+                // this removal is processed. Its new mapping must be retained,
+                // and the removed path must be emitted regardless of that map.
+                if self.ids.get(&id) == Some(&path) {
+                    self.ids.remove(&id);
+                }
+                Ok(Event::Remove { kind, path })
             })
         });
 
@@ -818,4 +822,65 @@ where
     // turns out that this breaks in some esoteric cases, we might consider
     // changing this later on, possibly putting it behind a feature flag.
     file_id::get_low_res_file_id(path)
+}
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use super::{Event, Kind, Manager};
+
+    #[test]
+    fn removal_keeps_its_path_when_a_file_id_is_reused() {
+        let directory = tempdir().unwrap();
+        let source = directory.path().join("source.txt");
+        let output = directory.path().join("output.txt");
+        fs::write(&source, "source").unwrap();
+
+        let mut manager = Manager::new();
+        let discovered = manager.handle([source.clone()]);
+        assert!(matches!(discovered.as_slice(), [Ok(Event::Create { .. })]));
+
+        // A reused filesystem ID is simulated with a hard link, so the failure
+        // can be reproduced without depending on inode allocation or timing.
+        fs::hard_link(&source, &output).unwrap();
+        fs::remove_file(&source).unwrap();
+        let created = manager.handle([output.clone()]);
+        assert!(matches!(created.as_slice(), [Ok(Event::Create { .. })]));
+
+        // The removed source must still be reported after its ID is registered
+        // for a new output, or the source will be retained by the workflow.
+        let removed = manager.handle([source.clone()]);
+
+        assert!(matches!(
+            removed.as_slice(),
+            [Ok(Event::Remove { kind: Kind::File, path })]
+                if path.as_ref() == &source
+        ));
+
+        // The new output must remain tracked after the old source is removed.
+        fs::write(&output, "updated").unwrap();
+        let modified = manager.handle([output.clone()]);
+
+        assert!(matches!(
+            modified.as_slice(),
+            [Ok(Event::Modify { kind: Kind::File, path })]
+                if path.as_ref() == &output
+        ));
+
+        fs::remove_file(&output).unwrap();
+        let removed = manager.handle([output.clone()]);
+
+        assert!(matches!(
+            removed.as_slice(),
+            [Ok(Event::Remove { kind: Kind::File, path })]
+                if path.as_ref() == &output
+        ));
+    }
 }
