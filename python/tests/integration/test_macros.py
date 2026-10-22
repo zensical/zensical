@@ -211,8 +211,10 @@ def test_serve_reloads_after_watched_theme_discovery(
 
             # A restart must be triggered by a subsequent dependency edit.
             target.write_text(content, encoding="utf-8")
-            timestamp = target.stat().st_mtime + 2
-            os.utime(target, (timestamp, timestamp))
+            # Template edits must be detected without a timestamp bump.
+            if dependency != "template":
+                timestamp = target.stat().st_mtime + 2
+                os.utime(target, (timestamp, timestamp))
 
             wait_for(expected, reloads=1)
             assert process.poll() is None
