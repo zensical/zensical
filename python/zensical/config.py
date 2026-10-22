@@ -1439,7 +1439,8 @@ def _list_templates(config: dict) -> list[tuple[str, int]]:
                 continue
             for file in files:
                 file_path = os.path.join(root, file)
-                mtime = int(os.path.getmtime(file_path))
+                # Subsecond edits must be reflected in the template cache key.
+                mtime = os.stat(file_path).st_mtime_ns
                 files_with_mtime.append((file_path, mtime))
 
     # Sort by file path for deterministic order

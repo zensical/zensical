@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
@@ -34,6 +35,38 @@ import pytest
 
 import zensical
 from zensical.config import get_builtin_theme_dir
+
+
+def test_same_second_template_edits_invalidate_cache(tmp_path: Path) -> None:
+    # Cached output is produced with a known subsecond template timestamp.
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text("# Theme cache\n", encoding="utf-8")
+    theme = tmp_path / "theme"
+    theme.mkdir()
+    template = theme / "main.html"
+    template.write_text("First: {{ page.content }}", encoding="utf-8")
+    timestamp = 1_700_000_000_000_000_000
+    os.utime(template, ns=(timestamp, timestamp + 100_000_000))
+    config = tmp_path / "zensical.toml"
+    config.write_text(
+        '[project]\nsite_name = "Cache"\n'
+        '[project.theme]\ncustom_dir = "theme"\n',
+        encoding="utf-8",
+    )
+
+    zensical.build(str(config), {"clean": True, "strict": True})
+
+    output = tmp_path / "site/index.html"
+    assert "First:" in output.read_text(encoding="utf-8")
+
+    # An edit in the same second must be rendered without clearing the cache.
+    template.write_text("Later: {{ page.content }}", encoding="utf-8")
+    os.utime(template, ns=(timestamp, timestamp + 200_000_000))
+
+    zensical.build(str(config), {"clean": False, "strict": True})
+
+    assert "Later:" in output.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("theme_dir", ["docs/overrides", "theme"])
