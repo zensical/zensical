@@ -225,19 +225,19 @@ def test_plugin_visitors_receive_rewritten_urls(
     source = "guide/page.md"
     pages = {
         source: (
-            '[Other](other.md)\n\n'
+            "[Other](other.md)\n\n"
             '<autoref identifier="target">'
             '<img src="icon.svg" alt="Icon">'
-            '</autoref>'
+            "</autoref>"
         ),
         "guide/other.md": "# Target {#target}\n",
     }
     extra_config = (
-        '[project.markdown_extensions.attr_list]\n'
+        "[project.markdown_extensions.attr_list]\n"
         '[project.markdown_extensions."zensical.extensions.autorefs"]\n'
-        '[project.plugins.llmstxt]\n'
-        'autoclean = false\n'
-        '[project.plugins.llmstxt.sections]\n'
+        "[project.plugins.llmstxt]\n"
+        "autoclean = false\n"
+        "[project.plugins.llmstxt.sections]\n"
         'Pages = ["guide/page.md"]\n'
     )
 
