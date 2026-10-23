@@ -758,7 +758,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(extra, "polyfills", [], list)
 
     # Ensure all non-existent values are all empty strings (for now)
-    config["extra"] = _convert_extra(extra)
+    config["extra"] = cast("dict[str, Any]", _convert_extra(extra))
     config["extra"]["polyfills"] = _convert_extra_javascript(
         config["extra"]["polyfills"]
     )
