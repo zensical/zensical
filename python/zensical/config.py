@@ -759,6 +759,9 @@ def _apply_defaults(config: dict, path: str) -> dict:
 
     # Ensure all non-existent values are all empty strings (for now)
     config["extra"] = _convert_extra(extra)
+    config["extra"]["polyfills"] = _convert_extra_javascript(
+        config["extra"]["polyfills"]
+    )
 
     # Set defaults for extra files
     set_default(config, "extra_css", [], list)
