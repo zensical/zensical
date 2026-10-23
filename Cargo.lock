@@ -3344,7 +3344,7 @@ dependencies = [
 
 [[package]]
 name = "zensical"
-version = "0.0.71"
+version = "0.0.72"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3394,7 +3394,7 @@ dependencies = [
 
 [[package]]
 name = "zensical-serve"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "base64 0.22.1",
  "crossbeam",
@@ -3411,7 +3411,7 @@ dependencies = [
 
 [[package]]
 name = "zensical-watch"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "ahash",
  "crossbeam",
