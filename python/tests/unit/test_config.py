@@ -344,6 +344,43 @@ def test_markdown_extensions_reject_invalid_configuration(
         cfg_module._convert_markdown_extensions(value)
 
 
+@pytest.mark.parametrize("offline", [False, True])
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "js/iframe-worker.js",
+        {"path": "js/iframe-worker.js"},
+        {
+            "path": "js/iframe-worker.js",
+            "type": "text/javascript",
+            "async": True,
+            "defer": True,
+        },
+    ],
+)
+def test_polyfills_are_normalized_before_plugin_configuration(
+    tmp_path: Path, entry: str | dict[str, Any], offline: bool
+) -> None:
+    config_file = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(
+            extra={"polyfills": [entry]},
+            plugins={"offline": {"enabled": offline}},
+        ),
+    )
+    config = parse_config(str(config_file))
+    expected = {
+        "path": "js/iframe-worker.js",
+        "type": None,
+        "async": False,
+        "defer": False,
+    }
+    if isinstance(entry, dict):
+        expected.update(entry)
+    # Preserve script options and avoid a duplicate CDN shim in offline mode.
+    assert config["extra"]["polyfills"] == [expected]
+
+
 # ---------------------------------------------------------------------------
 # Plugins to Markdown extensions
 # ---------------------------------------------------------------------------
