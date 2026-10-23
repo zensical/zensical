@@ -941,7 +941,7 @@ class TestPreprocessor:
         caplog: pytest.LogCaptureFixture,
         verbose: bool,
     ) -> None:
-        md.preprocessors["macros"].config.verbose = verbose
+        md.preprocessors["macros"].config.verbose = verbose  # ty:ignore[unresolved-attribute]
         (tmp_path / "main.py").write_text(
             "def define_env(env):\n"
             '    chatter = env.start_chatting("Example")\n'

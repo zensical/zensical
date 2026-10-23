@@ -220,7 +220,7 @@ def test_preserves_entity_spellings_in_titles(tmp_path: Path) -> None:
 * [a&amp;b](a.md)
 * [a&b](b.md)
 * [a&amp;amp;b](c.md)
-* [\\__init__](d.md)
+* [\\_\\_init\\_\\_](d.md)
 * [\\`hi`](e.md)
 """,
         encoding="utf-8",

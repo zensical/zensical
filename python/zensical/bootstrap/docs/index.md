@@ -45,7 +45,8 @@ For full documentation visit [zensical.org](https://zensical.org/docs/).
 
 ``` python hl_lines="2" title="Code blocks"
 def greet(name):
-    print(f"Hello, {name}!") # (1)!
+    print(f"Hello, {name}!")  # (1)!
+
 
 greet("Python")
 ```

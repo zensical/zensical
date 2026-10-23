@@ -120,7 +120,7 @@ def render(content: str) -> str:
     md.convert(content)
     if capture.nav is None:
         return ""
-    _encode_tree(capture.nav, md.treeprocessors["unescape"].unescape)
+    _encode_tree(capture.nav, md.treeprocessors["unescape"].unescape)  # ty:ignore[unresolved-attribute]
     return ElementTree.tostring(capture.nav, encoding="unicode")
 
 

@@ -218,7 +218,7 @@ class AutorefsInlineProcessor(ReferenceInlineProcessor):
 
     @property
     def stashed_nodes(self) -> dict[str, Element | str]:
-        return self.md.treeprocessors["inline"].stashed_nodes
+        return self.md.treeprocessors["inline"].stashed_nodes  # ty:ignore[unresolved-attribute]
 
     def handleMatch(
         self, m: Match[str], data: str

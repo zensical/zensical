@@ -412,7 +412,7 @@ class TestTreeprocessorBoundary:
     ) -> None:
         """Nested Markdown exposes its object ID without scanning in Python."""
         processor = md.treeprocessors["mkdocs-autorefs-backlinks"]
-        processor.initial_id = "object-id"
+        processor.initial_id = "object-id"  # ty:ignore[unresolved-attribute]
 
         html = md.convert("[Foo][foo]")
 

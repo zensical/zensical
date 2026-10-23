@@ -124,19 +124,25 @@ def test_url_rewriting_preserves_code_and_html_text(
     tmp_path: Path, highlight: bool
 ) -> None:
     sources = [
-        '```\ndocker run --mount src="$(pwd)",'
-        'target="/src",type=bind image\n```',
+        (
+            '```\ndocker run --mount src="$(pwd)",'
+            'target="/src",type=bind image\n```'
+        ),
         "```python\nself.click('a[href=\"?diff1\"]')\n```",
         '`src="$(pwd)"` and `a[href="?diff1"]`',
         '<pre><code>src="$(pwd)" and href="target.md"</code></pre>',
         '<!-- <img src="image.png"> href="target.md" -->',
         "<script>const example = '<a href=\"target.md\">';</script>",
-        '<style>/* <img src="image.png"> */ '
-        'a[href="target.md"] { color: red; }</style>',
+        (
+            '<style>/* <img src="image.png"> */ '
+            'a[href="target.md"] { color: red; }</style>'
+        ),
         '<textarea><img src="image.png"> href="target.md"</textarea>',
         '<title>href="target.md"</title>',
-        '<div data-href="target.md" data-example=\'src="image.png"\'>'
-        'src="image.png"</div>',
+        (
+            '<div data-href="target.md" data-example=\'src="image.png"\'>'
+            'src="image.png"</div>'
+        ),
     ]
     pages = {
         f"sample-{index}.md": source for index, source in enumerate(sources)

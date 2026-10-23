@@ -90,6 +90,7 @@ ignore = [
 ]
 "python/tests/**.py" = [
     "D",  # Docstrings rules
+    "PLR0917",  # Too many positional arguments
     "PLR2004", # Magic value used in comparison
     "S101",  # Use of assert detected
 ]

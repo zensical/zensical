@@ -928,5 +928,5 @@ def _get_env_info() -> dict[str, str]:
         "python_version": platform.python_version(),
         "mkdocs_version": "1.6.1",
         "macros_plugin_version": "1.3.7",
-        "jinja2_version": jinja2.__version__ if jinja2 else "0.0.0",
+        "jinja2_version": jinja2.__version__,
     }

@@ -35,7 +35,7 @@ from zensical.extensions.autorefs import set_autorefs_page
 from zensical.extensions.context import ContextExtension, Page
 
 
-def render(
+def render(  # noqa: PLR0917
     content: str,
     path: str,
     url: str,
