@@ -169,20 +169,30 @@ impl Visitor for Links<'_> {
                 };
             }
             CallbackEvent::AttributeValue { value } => {
-                // Original attribute bytes are retained so entities and quotes
-                // are preserved. Encoded absolute URLs are excluded as well.
-                let raw = editor.text(span.start..span.end);
+                // Decoded attribute values are used so entity semicolons are
+                // not interpreted as URL path parameters or fragment markers.
+                let value = String::from_utf8_lossy(value);
                 let updated = match self.attribute {
-                    Attribute::Url
-                        if is_relative(&String::from_utf8_lossy(value)) =>
-                    {
-                        self.rewrite_url(raw)
-                    }
-                    Attribute::Srcset => self.rewrite_srcset(raw),
-                    _ => None,
+                    Attribute::Url => self.rewrite_url(&value),
+                    Attribute::Srcset => self.rewrite_srcset(&value),
+                    Attribute::Other => None,
                 };
                 if let Some(updated) = updated {
-                    editor.replace(span.start..span.end, updated);
+                    // Only the replacement value is escaped; original quotes
+                    // and surrounding HTML syntax are retained.
+                    let quote = editor.text(span.start - 1..span.start);
+                    let escaped = match quote {
+                        "\"" => html_escape::encode_double_quoted_attribute(
+                            &updated,
+                        )
+                        .into_owned(),
+                        "'" => html_escape::encode_single_quoted_attribute(
+                            &updated,
+                        )
+                        .into_owned(),
+                        _ => encode_unquoted(&updated),
+                    };
+                    editor.replace(span.start..span.end, escaped);
                 }
             }
             _ => {}
@@ -230,6 +240,29 @@ fn markdown_path(path: &str, directory_urls: bool) -> String {
 
 fn whitespace(byte: u8) -> bool {
     matches!(byte, b' ' | b'\t' | b'\n' | b'\r' | 0x0c)
+}
+
+// URL punctuation is retained while unquoted attribute delimiters are escaped.
+fn encode_unquoted(value: &str) -> String {
+    let mut escaped = String::new();
+    for character in value.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            '=' => escaped.push_str("&#61;"),
+            '`' => escaped.push_str("&#96;"),
+            ' ' => escaped.push_str("&#32;"),
+            '\t' => escaped.push_str("&#9;"),
+            '\n' => escaped.push_str("&#10;"),
+            '\r' => escaped.push_str("&#13;"),
+            '\x0c' => escaped.push_str("&#12;"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 // ----------------------------------------------------------------------------
@@ -329,6 +362,74 @@ mod tests {
                 .replace("src=é.png", "src=../é.png")
                 .replace("src = 'app.js'", "src = '../app.js'")
         );
+    }
+
+    #[test]
+    fn character_references_are_decoded_before_url_resolution() {
+        // Entity semicolons are not interpreted as URL path parameters.
+        for directory in [true, false] {
+            for entity in ["&amp;", "&#38;", "&#x26;"] {
+                let source = format!(
+                    r#"<a href="Lecture {entity} Notes.md?x=1&amp;y=2#part">Notes</a>"#,
+                );
+                let mut links = Links::new("index.md", directory, "", "");
+
+                let rendered = html::scan(&source, &mut [&mut links]).unwrap();
+
+                let suffix = if directory { "/" } else { ".html" };
+                assert_eq!(
+                    rendered,
+                    format!(
+                        r#"<a href="Lecture &amp; Notes{suffix}?x=1&amp;y=2#part">Notes</a>"#,
+                    ),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rewritten_attribute_values_remain_escaped() {
+        // Decoded quotes and spaces are kept inside their original attributes.
+        for (source, expected) in [
+            (
+                r#"<a href='it&#39;s.md'>Notes</a>"#,
+                r#"<a href='../it&#x27;s/'>Notes</a>"#,
+            ),
+            (
+                r#"<a href="say&quot;hello.md">Notes</a>"#,
+                r#"<a href="../say&quot;hello/">Notes</a>"#,
+            ),
+            (
+                "<a href=Lecture&#32;&amp;&#32;Notes.md>Notes</a>",
+                "<a href=../Lecture&#32;&amp;&#32;Notes/>Notes</a>",
+            ),
+            (
+                r#"<img src="image&#38;icon.svg">"#,
+                r#"<img src="../image&amp;icon.svg">"#,
+            ),
+            (
+                r#"<source srcset="image&#38;icon.svg 1x, large&amp;icon.svg 2x">"#,
+                r#"<source srcset="../image&amp;icon.svg 1x, ../large&amp;icon.svg 2x">"#,
+            ),
+            (
+                r#"<a href="literal&amp;amp;.md">Notes</a>"#,
+                r#"<a href="../literal&amp;amp;.md">Notes</a>"#,
+            ),
+            (
+                r#"<a href="other.md&#63;x=1&amp;y=2&#35;part">Notes</a>"#,
+                r#"<a href="../other/?x=1&amp;y=2#part">Notes</a>"#,
+            ),
+            (
+                "<a href=odd&#61;&#96;&#9;&quot;&#39;.md>Notes</a>",
+                "<a href=../odd&#61;&#96;&#9;&quot;&#39;/>Notes</a>",
+            ),
+        ] {
+            let mut links = Links::new("page.md", true, "page/", "page/");
+
+            let rendered = html::scan(source, &mut [&mut links]);
+
+            assert_eq!(rendered.as_deref(), Some(expected));
+        }
     }
 
     #[test]

@@ -205,6 +205,32 @@ def test_preview_uses_rendering_context_before_rust_resolves_links(
     assert 'href="../other/"' in rendered
 
 
+@pytest.mark.parametrize("directory_urls", [True, False])
+@pytest.mark.parametrize("source", ["guide/index.md", "guide/page.md"])
+def test_ampersands_in_markdown_link_targets(
+    tmp_path: Path, directory_urls: bool, source: str
+) -> None:
+    # The same existing page is linked with literal and percent-encoded names.
+    pages = {
+        source: (
+            "[Ampersand](<Lecture & Notes.md>)\n\n"
+            "[Percent encoded](<Lecture%20%26%20Notes.md>)\n\n"
+            '<a href="Lecture &#38; Notes.md?x=1&amp;y=2#part">Raw</a>'
+        ),
+        "guide/Lecture & Notes.md": "# Notes\n",
+    }
+
+    rendered = _build_pages(tmp_path, pages, directory_urls)[source]
+
+    # Each target is rewritten to the route of the emitted page.
+    prefix = "../" if directory_urls and source == "guide/page.md" else ""
+    suffix = "/" if directory_urls else ".html"
+    assert f'href="{prefix}Lecture &amp; Notes{suffix}"' in rendered
+    assert f'href="{prefix}Lecture%20%26%20Notes{suffix}"' in rendered
+    raw_target = f'href="{prefix}Lecture &amp; Notes{suffix}?x=1&amp;y=2#part"'
+    assert raw_target in rendered
+
+
 def test_media_urls_are_rewritten_after_all_markdown_postprocessors(
     tmp_path: Path,
 ) -> None:
