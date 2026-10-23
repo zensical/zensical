@@ -1364,7 +1364,8 @@ def _list_macros_files(config: dict, config_file: str) -> set[tuple[str, int]]:
     pluglets = macros_config.get("modules", [])
     for pluglet in pluglets:
         pluglet_module = importlib.import_module(pluglet)
-        macros_files.append(pluglet_module.__file__)
+        if pluglet_module.__file__:
+            macros_files.append(pluglet_module.__file__)
 
     include_yaml: list[str] | dict[str, str] = macros_config.get(
         "include_yaml", []
@@ -1650,7 +1651,9 @@ def _convert_markdown_extensions(
     # Return extension list and configuration, after ensuring they're unique
     seen = set()
     mdx_exts = [
-        ext for ext in markdown_extensions if not (ext in seen or seen.add(ext))
+        ext
+        for ext in markdown_extensions
+        if not (ext in seen or seen.add(ext))  # ty:ignore[redundant-condition]
     ]
     return mdx_exts, mdx_configs
 
@@ -1716,7 +1719,7 @@ def _reject_unknown_options(
         if not isinstance(name, str):
             raise ConfigurationError(f"{label} option names must be strings")
     if unknown := set(plugin) - supported:
-        name = sorted(unknown)[0]
+        name = min(unknown)
         raise ConfigurationError(f"unknown {label} option: {name}")
 
 
@@ -2996,7 +2999,7 @@ def _convert_plugins(value: Any, config: dict) -> dict:
                     "table-reader select_readers must be a list of reader names"
                 )
             if unsupported := set(selected) - set(TABLE_READERS):
-                reader = sorted(unsupported)[0]
+                reader = min(unsupported)
                 raise ConfigurationError(
                     f"unknown table-reader reader: {reader}"
                 )

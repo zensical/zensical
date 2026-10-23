@@ -102,7 +102,7 @@ class TableReaderConfig:
     def __post_init__(self) -> None:
         unknown = set(self.select_readers) - set(TABLE_READERS)
         if unknown:
-            reader = sorted(unknown)[0]
+            reader = min(unknown)
             raise ValueError(f"unknown table-reader reader: {reader}")
 
 
@@ -373,7 +373,7 @@ def _relative_pandas_reader(
         filepath, args, kwargs = _extract_filepath(args, kwargs)
         if not isinstance(filepath, (str, Path)):
             raise TypeError(
-                f"Only str and Path are supported in pd_{func.__name__}"  # ty:ignore[unresolved-attribute]
+                f"Only str and Path are supported in pd_{func.__name__}"
             )
         resolved = context.resolve(filepath)
         if resolved is None:

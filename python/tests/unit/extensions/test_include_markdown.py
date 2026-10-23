@@ -156,7 +156,7 @@ def test_unsupported_options_match_plain_whole_file_snippets(
 
     included_lines = md.preprocessors["snippet"].run(include_source.split("\n"))
     snippet_lines = native.preprocessors["snippet"].run(
-        snippet_source.split("\n")
+        snippet_source.split("\n")  # ty:ignore[invalid-argument-type]
     )
 
     # Unsupported arguments cannot introduce behavior beyond native Snippets.

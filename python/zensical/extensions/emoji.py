@@ -45,7 +45,7 @@ def twemoji(options: dict, md: Markdown) -> dict:  # noqa: ARG001
     return _load_twemoji_index(tuple(paths))
 
 
-def to_svg(
+def to_svg(  # noqa: PLR0917
     index: str,
     shortname: str,
     alias: str,

@@ -419,7 +419,7 @@ class TestPostprocessor:
     ) -> None:
         """TOC rendering does not cause processed blocks to be scanned again."""
         blocks = _TrackingBlocks()
-        md.htmlStash.rawHtmlBlocks = blocks
+        md.htmlStash.rawHtmlBlocks = blocks  # ty:ignore[invalid-assignment]
         processor = md.postprocessors["glightbox"]
         original = processor.run
         visits: list[list[int]] = []

@@ -245,7 +245,7 @@ class GlightboxPostprocessor(Postprocessor, ProcessorMixin):
         """Wrap images in stashed HTML blocks."""
         blocks = self.md.htmlStash.rawHtmlBlocks
         while self._cursor < len(blocks):
-            blocks[self._cursor] = _RE.sub(
+            blocks[self._cursor] = _RE.sub(  # ty:ignore[no-matching-overload]
                 self._maybe_process, blocks[self._cursor]
             )
             self._cursor += 1

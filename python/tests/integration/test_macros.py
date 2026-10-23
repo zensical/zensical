@@ -184,8 +184,10 @@ def test_serve_reloads_after_watched_theme_discovery(
             changes = {
                 "icon": (
                     icon,
-                    '<svg xmlns="http://www.w3.org/2000/svg">'
-                    "<title>Updated</title></svg>",
+                    (
+                        '<svg xmlns="http://www.w3.org/2000/svg">'
+                        "<title>Updated</title></svg>"
+                    ),
                     "First value: 2",
                 ),
                 "template": (
