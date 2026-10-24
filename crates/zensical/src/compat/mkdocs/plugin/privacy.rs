@@ -28,7 +28,7 @@
 use anyhow::{anyhow, bail, Context as _, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -95,6 +95,7 @@ struct Instance {
     config: PrivacyPluginConfig,
     cache: PathBuf,
     site: String,
+    base: String,
     hostname: Option<String>,
     strict: bool,
     agent: ureq::Agent,
@@ -123,6 +124,7 @@ impl Privacy {
                 config: entry.config.clone(),
                 cache: config.project.root_dir.join(&entry.config.cache_dir),
                 site: config.project.site_url.clone().unwrap_or_default(),
+                base: config.get_base_path(),
                 hostname: config.project.site_url.as_deref().and_then(hostname),
                 strict,
                 agent: ureq::Agent::config_builder()
@@ -193,8 +195,6 @@ impl Privacy {
                     }
 
                     // Mermaid is preloaded when no site URL is available.
-                    // Its dynamic loader otherwise resolves the patched script URL
-                    // relative to the page, which is wrong for nested routes.
                     if instance.site.is_empty() {
                         for link in &links {
                             if link.value.contains("mermaid.min.js")
@@ -410,6 +410,9 @@ impl Instance {
     ) -> String {
         let mut output = String::new();
         let mut cursor = 0;
+        let javascript = Path::new(initiator)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("js"));
         for link in links {
             let Some(file) = downloaded(graph, &link.value) else {
                 continue;
@@ -419,15 +422,11 @@ impl Instance {
             }
             output.push_str(&content[cursor..link.start]);
             let path = download::public_path(&file.path);
-            let replacement = if file.extension() == ".js" {
-                format!(
-                    "{}{path}",
-                    if self.site.is_empty() {
-                        String::new()
-                    } else {
-                        format!("{}/", self.site.trim_end_matches('/'))
-                    }
-                )
+            let replacement = if javascript {
+                // Dynamic DOM URLs are resolved against the page, so the
+                // site's base path is used for every JavaScript dependency.
+                // The current origin is retained for local previews.
+                format!("{}/{path}", self.base.trim_end_matches('/'))
             } else {
                 let relative = url::relative(initiator, &path);
                 // A self-reference must be resolved to the file, not its
