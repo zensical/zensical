@@ -25,10 +25,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import threading
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urljoin, urlsplit
 
 import pytest
 from bs4 import BeautifulSoup, Tag
@@ -239,14 +241,102 @@ def test_recursively_patches_remote_and_local_media_before_minify_hashing(
     assert 'url("font.woff2")' in remote_css.read_text()
     assert origin not in remote_css.read_text()
     remote_js = next((tmp_path / "site/assets/external").rglob("dependency.js"))
-    assert '"data.json"' in remote_js.read_text()
+    data = next((tmp_path / "site/assets/external").rglob("data.json"))
+    data_url = "/docs/" + data.relative_to(tmp_path / "site").as_posix()
+    assert f'"{data_url}"' in remote_js.read_text()
     loader = next((tmp_path / "site/assets").glob("loader.*.min.js"))
-    assert "https://example.com/docs/assets/external/" in loader.read_text()
+    assert "/docs/assets/external/" in loader.read_text()
+    assert "https://example.com" not in loader.read_text()
     assert hashlib.sha384(loader.read_bytes()).hexdigest()[:6] in loader.name
     stylesheet = next((tmp_path / "site/styles").glob("site.*.min.css"))
     assert origin not in stylesheet.read_text()
     digest = hashlib.sha384(stylesheet.read_bytes()).hexdigest()[:6]
     assert digest in stylesheet.name
+
+
+@pytest.mark.parametrize("source", ["local", "remote"])
+@pytest.mark.parametrize(
+    "site_url",
+    [
+        None,
+        "https://example.com/",
+        "https://example.com/docs/",
+        "https://example.com/docs",
+    ],
+)
+def test_javascript_dependencies_resolve_from_root_and_nested_pages(
+    tmp_path: Path, remote: Any, source: str, site_url: str | None
+) -> None:
+    origin, responses, requests = remote
+    loader = f"""
+const script = document.createElement("script");
+script.src = "{origin}/dependency.js";
+document.head.appendChild(script);
+const link = document.createElement("link");
+link.rel = "stylesheet";
+link.href = "{origin}/dependency.css";
+document.head.appendChild(link);
+"""
+    responses["/dependency.js"] = ("text/javascript", b"window.loaded = true;")
+    responses["/dependency.css"] = (
+        "text/css",
+        f'@font-face {{ src: url("{origin}/font.woff2"); }}'.encode(),
+    )
+    responses["/font.woff2"] = ("font/woff2", b"font bytes")
+    if source == "remote":
+        responses["/loader.js"] = ("text/javascript", loader.encode())
+        loader_path = origin + "/loader.js"
+    else:
+        loader_path = "scripts/loader.js"
+
+    config = _project(
+        tmp_path,
+        origin,
+        "# Dynamic assets",
+        settings={
+            "site_url": site_url,
+            "extra_javascript": [loader_path],
+        },
+    )
+    if source == "local":
+        (tmp_path / "docs/scripts").mkdir()
+        (tmp_path / "docs/scripts/loader.js").write_text(loader)
+    (tmp_path / "docs/guide").mkdir()
+    (tmp_path / "docs/guide/page.md").write_text("# Nested dynamic assets")
+
+    _build(config)
+
+    site = tmp_path / "site"
+    patched_loader = next(site.rglob("loader.js")).read_text()
+    dependencies = re.findall(r'\.(?:src|href) = "([^"]+)"', patched_loader)
+    assert len(dependencies) == 2
+
+    # Dynamic DOM URLs are resolved against each page by the browser.
+    # The deployment path is retained while the preview host is used.
+    base_path = urlsplit(site_url or "/").path.strip("/")
+    preview = "http://localhost:8000/" + (base_path + "/" if base_path else "")
+    for page in ("", "guide/page/"):
+        page_url = urljoin(preview, page)
+        soup = _soup(tmp_path, page + "index.html")
+        script_url = urljoin(page_url, _attribute(soup, "script", "src"))
+        assert script_url.startswith(preview)
+        assert (site / script_url.removeprefix(preview)).is_file()
+
+        for dependency in dependencies:
+            resolved = urljoin(page_url, dependency)
+            assert resolved.startswith(preview)
+            assert (site / resolved.removeprefix(preview)).is_file()
+
+    # Font URLs are still resolved relative to the downloaded stylesheet.
+    stylesheet = next(site.rglob("dependency.css"))
+    assert 'url("font.woff2")' in stylesheet.read_text()
+    assert (stylesheet.parent / "font.woff2").is_file()
+    assert requests == {
+        **({"/loader.js": 1} if source == "remote" else {}),
+        "/dependency.js": 1,
+        "/dependency.css": 1,
+        "/font.woff2": 1,
+    }
 
 
 def test_raw_download_cache_is_reused_and_outputs_restored_after_cleaning(
