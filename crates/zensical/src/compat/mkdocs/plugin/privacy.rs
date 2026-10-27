@@ -110,7 +110,7 @@ impl Value for Preloads {}
 
 impl Privacy {
     /// Enabled instances are constructed in configuration order.
-    pub fn new(config: &Config, strict: bool) -> Self {
+    pub fn new(config: &Config, strict: bool) -> Result<Self> {
         let mut instances = Vec::new();
         for (id, entry) in
             config.project.plugins.privacy.config.iter().enumerate()
@@ -128,6 +128,7 @@ impl Privacy {
                 hostname: config.project.site_url.as_deref().and_then(hostname),
                 strict,
                 agent: ureq::Agent::config_builder()
+                    .tls_config(download::tls_config()?)
                     .timeout_global(Some(Duration::from_secs(5)))
                     .build()
                     .into(),
@@ -140,11 +141,11 @@ impl Privacy {
             .map(|instance| instance.config.concurrency)
             .max()
             .unwrap_or(1);
-        Self {
+        Ok(Self {
             instances: instances.into(),
             output: config.output_root().clone(),
             concurrency,
-        }
+        })
     }
 
     /// Local media dependencies are patched before minification and hashing.

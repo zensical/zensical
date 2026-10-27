@@ -26,10 +26,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import ssl
 import threading
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 import pytest
@@ -37,12 +39,12 @@ from bs4 import BeautifulSoup, Tag
 
 import zensical
 
-if TYPE_CHECKING:
-    from pathlib import Path
+TLS_FIXTURES = Path(__file__).parents[1] / "fixtures" / "tls"
+CA_BUNDLE_VARIABLES = ("REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "SSL_CERT_FILE")
 
 
 @pytest.fixture
-def remote() -> Any:
+def remote(request: pytest.FixtureRequest) -> Any:
     """Serve deterministic assets and record every actual network request."""
     responses: dict[str, tuple[str, bytes]] = {}
     requests: Counter[str] = Counter()
@@ -63,10 +65,18 @@ def remote() -> Any:
             pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    scheme = getattr(request, "param", "http")
+    if scheme == "https":
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(
+            TLS_FIXTURES / "server.pem", TLS_FIXTURES / "server.key"
+        )
+        server.socket = context.wrap_socket(server.socket, server_side=True)
     worker = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}", responses, requests
+        host = "localhost" if scheme == "https" else "127.0.0.1"
+        yield f"{scheme}://{host}:{server.server_port}", responses, requests
     finally:
         server.shutdown()
         server.server_close()
@@ -93,7 +103,7 @@ def _project(
 <script src="{{ script.path | url }}"></script>{% endfor %}
 </head><body>{{ page.content }}</body></html>""")
     privacy = {
-        "assets_include": [origin.removeprefix("http://") + "/*"],
+        "assets_include": [urlsplit(origin).netloc + "/*"],
         **(options or {}),
     }
     config: dict[str, Any] = {
@@ -648,3 +658,135 @@ def test_mermaid_is_preloaded_without_a_site_url_for_nested_pages(
     assert preload.endswith("mermaid.min.js")
     assert origin not in (tmp_path / "site/loader.js").read_text()
     assert requests["/mermaid.min.js"] == 1
+
+
+@pytest.mark.parametrize("remote", ["https"], indirect=True)
+@pytest.mark.parametrize("variable", CA_BUNDLE_VARIABLES)
+def test_downloads_https_assets_with_configured_ca_bundle(
+    tmp_path: Path,
+    remote: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    variable: str,
+) -> None:
+    for name in CA_BUNDLE_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(variable, str(TLS_FIXTURES / "ca.pem"))
+    origin, responses, requests = remote
+    responses["/image.png"] = ("image/png", b"trusted HTTPS asset")
+    config = _project(tmp_path, origin, f"![Image]({origin}/image.png)")
+
+    _build(config, strict=True)
+
+    assert origin not in _attribute(_soup(tmp_path), "img", "src")
+    assert requests["/image.png"] == 1
+    assert (
+        next(
+            (tmp_path / "site/assets/external").rglob("image.png")
+        ).read_bytes()
+        == b"trusted HTTPS asset"
+    )
+
+
+@pytest.mark.parametrize("remote", ["https"], indirect=True)
+@pytest.mark.parametrize("variable", CA_BUNDLE_VARIABLES)
+def test_ca_bundle_precedence_and_multiple_certificates(
+    tmp_path: Path,
+    remote: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    variable: str,
+) -> None:
+    # The signing CA is deliberately second in a bundle containing two roots.
+    bundle = tmp_path / "roots.pem"
+    bundle.write_bytes(
+        (TLS_FIXTURES / "other-ca.pem").read_bytes()
+        + (TLS_FIXTURES / "ca.pem").read_bytes()
+    )
+    for index, name in enumerate(CA_BUNDLE_VARIABLES):
+        value = (
+            ""
+            if index < CA_BUNDLE_VARIABLES.index(variable)
+            else str(tmp_path / "missing.pem")
+        )
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv(variable, str(bundle))
+    origin, responses, requests = remote
+    responses["/image.png"] = ("image/png", b"bundle precedence")
+    config = _project(tmp_path, origin, f"![Image]({origin}/image.png)")
+
+    _build(config, strict=True)
+
+    assert requests["/image.png"] == 1
+    assert origin not in _attribute(_soup(tmp_path), "img", "src")
+
+
+@pytest.mark.parametrize("remote", ["https"], indirect=True)
+@pytest.mark.parametrize("bundle", [None, "other-ca.pem"])
+def test_https_assets_still_require_a_trusted_ca(
+    tmp_path: Path,
+    remote: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+    bundle: str | None,
+) -> None:
+    for name in CA_BUNDLE_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+    if bundle is not None:
+        monkeypatch.setenv("SSL_CERT_FILE", str(TLS_FIXTURES / bundle))
+    origin, responses, requests = remote
+    responses["/image.png"] = ("image/png", b"untrusted HTTPS asset")
+    config = _project(tmp_path, origin, f"![Image]({origin}/image.png)")
+
+    with pytest.raises(RuntimeError, match="strict"):
+        _build(config, strict=True)
+
+    assert "UnknownIssuer" in capfd.readouterr().err
+    assert not requests
+
+
+@pytest.mark.parametrize("remote", ["https"], indirect=True)
+def test_custom_ca_preserves_hostname_verification(
+    tmp_path: Path,
+    remote: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    for name in CA_BUNDLE_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("SSL_CERT_FILE", str(TLS_FIXTURES / "ca.pem"))
+    origin, responses, requests = remote
+    # The certificate covers localhost, not its IP address.
+    origin = origin.replace("localhost", "127.0.0.1")
+    responses["/image.png"] = ("image/png", b"wrong hostname")
+    config = _project(tmp_path, origin, f"![Image]({origin}/image.png)")
+
+    with pytest.raises(RuntimeError, match="strict"):
+        _build(config, strict=True)
+
+    assert "certificate not valid for name" in capfd.readouterr().err
+    assert not requests
+
+
+@pytest.mark.parametrize("kind", ["missing", "empty", "malformed"])
+def test_invalid_ca_bundle_is_not_silently_ignored(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+) -> None:
+    path = tmp_path / "invalid.pem"
+    if kind == "empty":
+        path.touch()
+    elif kind == "malformed":
+        path.write_text(
+            "-----BEGIN CERTIFICATE-----\n!invalid!\n"
+            "-----END CERTIFICATE-----\n"
+        )
+    # A valid lower-priority bundle must not hide the selected bundle's error.
+    monkeypatch.setenv("REQUESTS_CA_BUNDLE", str(path))
+    monkeypatch.setenv("CURL_CA_BUNDLE", str(TLS_FIXTURES / "ca.pem"))
+    monkeypatch.setenv("SSL_CERT_FILE", str(TLS_FIXTURES / "ca.pem"))
+    config = _project(tmp_path, "https://localhost:1", "# No download needed")
+
+    with pytest.raises(
+        RuntimeError, match=r"REQUESTS_CA_BUNDLE.*invalid\.pem"
+    ):
+        _build(config)

@@ -1104,7 +1104,7 @@ pub fn create_workflow(
     config: &Config, strict: bool, serve: bool, meta: meta::Meta,
 ) -> anyhow::Result<Workflow<Id>> {
     let exclude = exclude::Exclude::new(config)?;
-    let privacy = privacy::Privacy::new(config, strict);
+    let privacy = privacy::Privacy::new(config, strict)?;
     Ok(Workflow::build(|workflow| {
         Main {
             config: config.clone(),
