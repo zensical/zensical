@@ -25,7 +25,7 @@
 
 //! Download identities and persistent raw asset caching.
 
-use anyhow::{Context as _, Result};
+use anyhow::{ensure, Context as _, Result};
 use fluent_uri::UriRef;
 use percent_encoding::{
     percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS,
@@ -35,6 +35,7 @@ use sha2::{Digest, Sha256};
 use std::fs;
 use std::sync::{Arc, OnceLock};
 use std::sync::{Condvar, Mutex};
+use ureq::tls::{parse_pem, PemItem, TlsConfig};
 
 use crate::path::SitePath;
 
@@ -157,6 +158,37 @@ impl RemoteUrl {
         };
         Ok(Self { key, request })
     }
+}
+
+/// Explicit CA bundles replace the default roots, as they do in Requests.
+pub(super) fn tls_config() -> Result<TlsConfig> {
+    let bundle = ["REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "SSL_CERT_FILE"]
+        .into_iter()
+        .find_map(|name| {
+            std::env::var_os(name)
+                .filter(|path| !path.is_empty())
+                .map(|path| (name, std::path::PathBuf::from(path)))
+        });
+    let Some((name, path)) = bundle else {
+        return Ok(TlsConfig::default());
+    };
+    let pem = fs::read(&path).with_context(|| {
+        format!("failed to read {name} CA bundle '{}'", path.display())
+    })?;
+    let mut certificates = Vec::new();
+    for item in parse_pem(&pem) {
+        if let PemItem::Certificate(certificate) = item.with_context(|| {
+            format!("failed to parse {name} CA bundle '{}'", path.display())
+        })? {
+            certificates.push(certificate);
+        }
+    }
+    ensure!(
+        !certificates.is_empty(),
+        "{name} CA bundle '{}' contains no certificates",
+        path.display()
+    );
+    Ok(TlsConfig::builder().root_certs(certificates.into()).build())
 }
 
 impl Downloaded {
