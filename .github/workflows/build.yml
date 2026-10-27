@@ -39,13 +39,12 @@ on:
         required: true
         type: boolean
 
-permissions:
-  attestations: write # Required for attestations
-  id-token: write # Required for OIDC
-
 jobs:
   linux:
     name: Wheel (Linux, ${{ matrix.platform.name }})
+    permissions:
+      contents: read
+    timeout-minutes: 60
     runs-on: ${{ matrix.platform.os }}
     strategy:
       matrix:
@@ -59,46 +58,44 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: 3.x
 
       - name: Build artifact
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           target: ${{ matrix.platform.target }}
           manylinux: auto
           # Temporary fix for https://github.com/zensical/zensical/issues/425
           args: >-
-            --release --out artifacts
+            --locked --release --out artifacts
             --interpreter python3.11
-          # args: --release --out artifacts
+          # args: --locked --release --out artifacts
           sccache: >
             ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
 
       - name: Check package contents
         run: python scripts/check-package.py artifacts
 
-      - name: Create artifact attestation
-        if: inputs.attestations == true
-        uses: actions/attest@v4
-        with:
-          show-summary: false
-          subject-path: artifacts/*
-
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: wheel-linux-${{ matrix.platform.name }}
           path: artifacts/*
+          if-no-files-found: error
 
   musllinux:
     name: Wheel (Linux, musl, ${{ matrix.platform.name }})
+    permissions:
+      contents: read
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -110,42 +107,40 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: 3.x
 
       - name: Build artifact
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           target: ${{ matrix.platform.target }}
           manylinux: musllinux_1_2
-          args: --release --out artifacts
+          args: --locked --release --out artifacts
           sccache: >
             ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
 
       - name: Check package contents
         run: python scripts/check-package.py artifacts
 
-      - name: Create artifact attestation
-        if: inputs.attestations == true
-        uses: actions/attest@v4
-        with:
-          show-summary: false
-          subject-path: artifacts/*
-
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: wheel-musllinux-${{ matrix.platform.name }}
           path: artifacts/*
+          if-no-files-found: error
 
   windows:
     name: Wheel (Windows, ${{ matrix.platform.name }})
+    permissions:
+      contents: read
+    timeout-minutes: 60
     runs-on: ${{ matrix.platform.os }}
     strategy:
       matrix:
@@ -159,42 +154,40 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: 3.x
           architecture: ${{ matrix.platform.name }}
 
       - name: Build artifact
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out artifacts
+          args: --locked --release --out artifacts
           sccache: >
             ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
 
       - name: Check package contents
         run: python scripts/check-package.py artifacts
 
-      - name: Create artifact attestation
-        if: inputs.attestations == true
-        uses: actions/attest@v4
-        with:
-          show-summary: false
-          subject-path: artifacts/*
-
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: wheel-windows-${{ matrix.platform.name }}
           path: artifacts/*
+          if-no-files-found: error
 
   macos:
     name: Wheel (macOS, ${{ matrix.platform.name }})
+    permissions:
+      contents: read
+    timeout-minutes: 60
     runs-on: ${{ matrix.platform.os }}
     strategy:
       matrix:
@@ -208,55 +201,54 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: 3.x
 
       - name: Build artifact
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out artifacts
+          args: --locked --release --out artifacts
           sccache: >
             ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
 
       - name: Check package contents
         run: python scripts/check-package.py artifacts
 
-      - name: Create artifact attestation
-        if: inputs.attestations == true
-        uses: actions/attest@v4
-        with:
-          show-summary: false
-          subject-path: artifacts/*
-
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: wheel-macos-${{ matrix.platform.name }}
           path: artifacts/*
+          if-no-files-found: error
 
   sdist:
     name: Source distribution
+    permissions:
+      contents: read
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: 3.x
 
       - name: Build artifact
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           command: sdist
           args: --out artifacts
@@ -264,21 +256,18 @@ jobs:
       - name: Check package contents
         run: python scripts/check-package.py artifacts
 
-      - name: Create artifact attestation
-        if: inputs.attestations == true
-        uses: actions/attest@v4
-        with:
-          show-summary: false
-          subject-path: artifacts/*
-
       - name: Upload sdist
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: wheel-sdist
           path: artifacts/*
+          if-no-files-found: error
 
   docker:
     name: Docker image
+    permissions:
+      contents: read
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     env:
       IMAGE: ${{ github.event.repository.full_name }}
@@ -286,20 +275,50 @@ jobs:
       DOCKER_BUILD_SUMMARY: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
         with:
           buildkitd-flags: --debug
 
       - name: Build image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           load: true
           tags: ${{ env.IMAGE }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max,ignore-error=true
+
+  attestations:
+    name: Attestations
+    if: inputs.attestations == true
+    needs:
+      - linux
+      - musllinux
+      - windows
+      - macos
+      - sdist
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: wheel-*
+          merge-multiple: true
+          path: artifacts
+
+      - name: Create artifact attestation
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          show-summary: false
+          subject-path: artifacts/*

@@ -30,17 +30,33 @@ on:
     branches:
       - master
 
-permissions:
-  contents: write     # Required for tags and releases
-  attestations: write # Required for attestations
-  id-token: write     # Required for OIDC
+concurrency:
+  group: release-${{ github.event.pull_request.head.ref }}
+  cancel-in-progress: false
 
 jobs:
+  check:
+    name: Check
+    if: |
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release/')
+    permissions:
+      contents: read
+    uses: ./.github/workflows/check.yml
+    with:
+      ref: ${{ github.event.pull_request.merge_commit_sha }}
+
   build:
     name: Build
     if: |
       github.event.pull_request.merged == true &&
       startsWith(github.event.pull_request.head.ref, 'release/')
+    # Only the reusable workflow's attestation job requests signing permissions.
+    # Its build jobs explicitly remain read-only.
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
     uses: ./.github/workflows/build.yml
     with:
       ref: ${{ github.event.pull_request.merge_commit_sha }}
@@ -48,52 +64,81 @@ jobs:
 
   tag:
     name: Create tag
+    timeout-minutes: 60
     runs-on: ubuntu-latest
-    needs: build
+    needs:
+      - check
+      - build
+    permissions:
+      contents: write
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Determine version
         id: version
+        env:
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
-          BRANCH="${{ github.event.pull_request.head.ref }}"
-          VERSION=${BRANCH#release/}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          VERSION=${RELEASE_BRANCH#release/}
+          PACKAGE_VERSION=$(python -c 'import tomllib; print(tomllib.load(open("crates/zensical/Cargo.toml", "rb"))["package"]["version"])')
+          if [ "${VERSION#v}" != "$PACKAGE_VERSION" ]; then
+            echo "Release branch and Cargo.toml versions differ"
+            exit 1
+          fi
+          git check-ref-format "refs/tags/$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Create and push tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a $VERSION -m "Release $VERSION"
-          git push origin $VERSION
+          if git show-ref --verify --quiet "refs/tags/$VERSION"; then
+            if [ "$(git rev-parse "$VERSION^{commit}")" != "$(git rev-parse HEAD)" ]; then
+              echo "Existing tag points to a different commit"
+              exit 1
+            fi
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a "$VERSION" -m "Release $VERSION"
+            gh auth setup-git
+            git push origin "refs/tags/$VERSION"
+          fi
 
   release:
     name: Create release
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     needs: tag
+    permissions:
+      contents: write
     env:
+      GH_REPO: ${{ github.repository }}
       VERSION: ${{ needs.tag.outputs.version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
 
       - name: Set up mono
-        uses: zensical/mono@v0
+        uses: zensical/mono@2be38f5a76677c8e5c342f269b78aaccc8631b7c # v0
 
       - name: Download artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
+          pattern: wheel-*
           path: artifacts
           merge-multiple: true
 
@@ -101,44 +146,87 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mono version changelog -s $VERSION > notes.txt
-          gh release create $VERSION \
-            --title ${VERSION#v} \
-            --notes-file notes.txt \
-            --draft
+          if ! gh release view "$VERSION" --json tagName > /dev/null 2>&1; then
+            mono version changelog -s "$VERSION" > notes.txt
+            gh release create "$VERSION" \
+              --title "${VERSION#v}" \
+              --notes-file notes.txt \
+              --verify-tag \
+              --draft
+          fi
 
       - name: Upload release artifacts
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload $VERSION artifacts/*
+        run: |
+          python - <<'PYTHON'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
 
-      - name: Publish release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release edit $VERSION --draft=false
+          version = os.environ["VERSION"]
+          repository = os.environ["GH_REPO"]
+          release = json.loads(subprocess.check_output(
+              ["gh", "api", f"repos/{repository}/releases/tags/{version}"],
+              text=True,
+          ))
+          assets = {asset["name"]: asset for asset in release["assets"]}
+          pending = []
+          for path in sorted(Path("artifacts").iterdir()):
+              if not path.is_file():
+                  continue
+              asset = assets.get(path.name)
+              if asset is None:
+                  pending.append(path)
+                  continue
+              with path.open("rb") as stream:
+                  digest = "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
+              if asset.get("digest") != digest:
+                  raise SystemExit(f"Existing release asset differs: {path.name}")
+          for path in pending:
+              subprocess.run(["gh", "release", "upload", version, str(path)], check=True)
+          PYTHON
 
   publish:
     name: Publish
+    timeout-minutes: 60
     runs-on: ubuntu-latest
-    needs:
-      - tag
-      - release
+    needs: release
+    environment:
+      name: pypi
+      url: https://pypi.org/p/zensical
+    permissions:
+      id-token: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
-          fetch-depth: 0
-          fetch-tags: true
-
       - name: Download artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
+          pattern: wheel-*
           path: artifacts
           merge-multiple: true
 
       - name: Publish to pypi.org
-        uses: PyO3/maturin-action@v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
         with:
-          command: upload
-          args: --non-interactive --skip-existing artifacts/*
+          packages-dir: artifacts
+          attestations: true
+          skip-existing: true
+
+  publish-release:
+    name: Publish release
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    needs:
+      - tag
+      - publish
+    permissions:
+      contents: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.tag.outputs.version }}
+    steps:
+      - name: Publish release
+        run: gh release edit "$VERSION" --draft=false
