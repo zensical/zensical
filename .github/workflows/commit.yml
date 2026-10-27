@@ -33,26 +33,31 @@ on:
 jobs:
   validate:
     name: Validate
+    permissions:
+      contents: read
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Set up mono
-        uses: zensical/mono@v0
+        uses: zensical/mono@2be38f5a76677c8e5c342f269b78aaccc8631b7c # v0
 
       - name: Get commit messages
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          BASE="${{ github.event.pull_request.base.sha }}"
-          HEAD="${{ github.event.pull_request.head.sha }}"
-          git log "$BASE..$HEAD" --format=%h > commits.txt
+          git log "$BASE_SHA..$HEAD_SHA" --format=%h > commits.txt
 
       - name: Validate commit messages
         run: |
           while IFS= read -r id; do
             [ -z "$id" ] && continue
-            mono validate commit --id $id
+            mono validate commit --id "$id"
           done < commits.txt

@@ -172,14 +172,29 @@ impl Parser {
             // Retain HTML until we know the table fits GFM's cell model.
             element.html_body = Some(String::new());
             element.table_fallback = in_table
-                && (element.alert_kind().is_some() || matches!(
-                    element.tag.as_str(),
-                    "table" | "pre" | "ul" | "ol" | "blockquote"
-                        | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
-                        | "hr" | "col" | "colgroup"
-                ))
+                && (element.alert_kind().is_some()
+                    || matches!(
+                        element.tag.as_str(),
+                        "table"
+                            | "pre"
+                            | "ul"
+                            | "ol"
+                            | "blockquote"
+                            | "h1"
+                            | "h2"
+                            | "h3"
+                            | "h4"
+                            | "h5"
+                            | "h6"
+                            | "hr"
+                            | "col"
+                            | "colgroup"
+                    ))
                 || ["rowspan", "colspan"].iter().any(|name| {
-                    element.attr(name).parse::<usize>().is_ok_and(|span| span != 1)
+                    element
+                        .attr(name)
+                        .parse::<usize>()
+                        .is_ok_and(|span| span != 1)
                 });
         }
         if element.tag == "ol" {
@@ -196,7 +211,10 @@ impl Parser {
     fn close(&mut self) {
         let mut element = self.stack.pop().expect("open element");
         let task_checkbox = element.tag == "input"
-            && self.stack.iter().rev()
+            && self
+                .stack
+                .iter()
+                .rev()
                 .take_while(|item| item.body.trim().is_empty())
                 .any(|item| item.tag == "li");
         let alert = element.alert_kind().map(|kind| {
@@ -217,7 +235,10 @@ impl Parser {
         if element.tag == "code" && element.body.is_empty() {
             return;
         }
-        let html = element.html_body.as_ref().map(|body| element.html(&self.url, body));
+        let html = element
+            .html_body
+            .as_ref()
+            .map(|body| element.html(&self.url, body));
         if let (Some(output), Some(html)) = (&mut parent.html_body, &html) {
             output.push_str(html);
         }
@@ -259,7 +280,13 @@ impl Parser {
             block(&mut parent.body, &element.alert(kind, nested));
             return;
         }
-        Self::append_markdown(&mut element, parent, &self.url, html.as_deref(), task_checkbox);
+        Self::append_markdown(
+            &mut element,
+            parent,
+            &self.url,
+            html.as_deref(),
+            task_checkbox,
+        );
     }
 
     fn append_markdown(
@@ -291,7 +318,9 @@ impl Parser {
             "code" => parent.body.push_str(&code_span(body)),
             "strong" | "b" => parent.body.push_str(&emphasis(body, "**")),
             "em" | "i" => parent.body.push_str(&emphasis(body, "*")),
-            "del" | "s" | "strike" => parent.body.push_str(&emphasis(body, "~~")),
+            "del" | "s" | "strike" => {
+                parent.body.push_str(&emphasis(body, "~~"));
+            }
             "a" if !element.attr("href").is_empty() => {
                 element.link(&mut parent.body, url);
             }
@@ -329,7 +358,9 @@ impl Parser {
                     (false, false) => "☐ ",
                 });
             }
-            "td" | "th" if element.html_body.is_some() && parent.tag == "tr" => {
+            "td" | "th"
+                if element.html_body.is_some() && parent.tag == "tr" =>
+            {
                 parent.table_cells.push(TableCell {
                     body: body.clone(),
                     header: element.tag == "th",
@@ -337,7 +368,9 @@ impl Parser {
                 });
             }
             "tr" if element.html_body.is_some() => {
-                parent.table_rows.push(std::mem::take(&mut element.table_cells));
+                parent
+                    .table_rows
+                    .push(std::mem::take(&mut element.table_cells));
             }
             "thead" | "tbody" | "tfoot" if element.html_body.is_some() => {
                 parent.table_rows.append(&mut element.table_rows);
@@ -442,20 +475,25 @@ impl Visitor for Parser {
 
 impl Element {
     fn alert_kind(&self) -> Option<&'static str> {
-        if !(self.tag == "div" && self.has_class("admonition") || self.tag == "details") {
+        if !(self.tag == "div" && self.has_class("admonition")
+            || self.tag == "details")
+        {
             return None;
         }
-        self.attr("class").split_ascii_whitespace().find_map(|class| {
-            match class {
+        self.attr("class")
+            .split_ascii_whitespace()
+            .find_map(|class| match class {
                 "note" | "info" | "todo" | "abstract" | "summary" | "tldr"
-                    | "question" | "help" | "faq" | "example" | "quote" | "cite" => Some("NOTE"),
+                | "question" | "help" | "faq" | "example" | "quote"
+                | "cite" => Some("NOTE"),
                 "tip" | "hint" | "success" | "check" | "done" => Some("TIP"),
                 "important" => Some("IMPORTANT"),
                 "warning" | "attention" => Some("WARNING"),
-                "caution" | "danger" | "error" | "failure" | "fail" | "missing" | "bug" => Some("CAUTION"),
+                "caution" | "danger" | "error" | "failure" | "fail"
+                | "missing" | "bug" => Some("CAUTION"),
                 _ => None,
-            }
-        }).or_else(|| self.has_class("admonition").then_some("NOTE"))
+            })
+            .or_else(|| self.has_class("admonition").then_some("NOTE"))
     }
 
     fn alert(&self, kind: &str, nested: bool) -> String {
@@ -473,11 +511,22 @@ impl Element {
     }
 
     fn alignment(&self) -> Option<&'static str> {
-        let alignment = self.attr("style").split(';').find_map(|declaration| {
-            let (name, value) = declaration.split_once(':')?;
-            name.trim().eq_ignore_ascii_case("text-align").then_some(value.trim())
-        }).unwrap_or_else(|| self.attr("align"));
-        match alignment.trim_end_matches("!important").trim().to_ascii_lowercase().as_str() {
+        let alignment = self
+            .attr("style")
+            .split(';')
+            .find_map(|declaration| {
+                let (name, value) = declaration.split_once(':')?;
+                name.trim()
+                    .eq_ignore_ascii_case("text-align")
+                    .then_some(value.trim())
+            })
+            .unwrap_or_else(|| self.attr("align"));
+        match alignment
+            .trim_end_matches("!important")
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
             "left" => Some(":---"),
             "center" => Some(":---:"),
             "right" => Some("---:"),
@@ -489,21 +538,31 @@ impl Element {
         if self.table_fallback {
             return None;
         }
-        let width = self.table_rows.iter().map(Vec::len).max().filter(|width| *width > 0)?;
-        let header = self.table_rows.first()
+        let width = self
+            .table_rows
+            .iter()
+            .map(Vec::len)
+            .max()
+            .filter(|width| *width > 0)?;
+        let header = self
+            .table_rows
+            .first()
             .filter(|row| !row.is_empty() && row.iter().all(|cell| cell.header))
             .map_or(&[][..], Vec::as_slice);
         let mut output = String::new();
         table_row(&mut output, header, width);
         output.push('|');
         for column in 0..width {
-            let alignment = self.table_rows.iter()
+            let alignment = self
+                .table_rows
+                .iter()
                 .find_map(|row| row.get(column).and_then(|cell| cell.alignment))
                 .unwrap_or("---");
             let _ = write!(output, " {alignment} |");
         }
         output.push('\n');
-        for row in self.table_rows.iter().skip(usize::from(!header.is_empty())) {
+        for row in self.table_rows.iter().skip(usize::from(!header.is_empty()))
+        {
             table_row(&mut output, row, width);
         }
         Some(output)
@@ -632,14 +691,21 @@ fn table_row(output: &mut String, cells: &[TableCell], width: usize) {
 }
 
 fn footnote_label(url: &str, id: &str) -> Option<String> {
-    let id = percent_decode_str(id.strip_prefix('#').unwrap_or(id)).decode_utf8().ok()?;
-    let id = id.strip_prefix("fn:").or_else(|| id.strip_prefix("user-content-fn-"))?;
+    let id = percent_decode_str(id.strip_prefix('#').unwrap_or(id))
+        .decode_utf8()
+        .ok()?;
+    let id = id
+        .strip_prefix("fn:")
+        .or_else(|| id.strip_prefix("user-content-fn-"))?;
     let url = UriRef::parse(url).ok()?;
     // Include the page path so notes remain distinct in llms-full.txt.
     let scoped = format!("{}#{id}", url.path().as_str());
     let mut label = String::new();
     for character in scoped.chars() {
-        if character.is_whitespace() || character.is_control() || matches!(character, '[' | ']' | '\\') {
+        if character.is_whitespace()
+            || character.is_control()
+            || matches!(character, '[' | ']' | '\\')
+        {
             for byte in character.to_string().bytes() {
                 let _ = write!(label, "%{byte:02X}");
             }
@@ -695,13 +761,17 @@ fn block(output: &mut String, body: &str) {
 }
 
 fn blockquote(body: &str) -> String {
-    body.trim().lines().map(|line| {
-        if line.is_empty() {
-            ">".into()
-        } else {
-            format!("> {line}")
-        }
-    }).collect::<Vec<_>>().join("\n")
+    body.trim()
+        .lines()
+        .map(|line| {
+            if line.is_empty() {
+                ">".into()
+            } else {
+                format!("> {line}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn emphasis(body: &str, delimiter: &str) -> String {
@@ -756,9 +826,7 @@ pub(super) fn escape(text: &str) -> String {
     output
 }
 
-fn escape_character(
-    output: &mut String, character: char, next: Option<char>,
-) {
+fn escape_character(output: &mut String, character: char, next: Option<char>) {
     let starts_block = if matches!(character, '-' | '+' | '=' | '.' | ')') {
         let line = output.rsplit('\n').next().unwrap_or("").trim_start();
         line.is_empty() && matches!(character, '-' | '+' | '=')
@@ -955,12 +1023,15 @@ mod tests {
         for autoclean in [true, false] {
             let markdown = convert(html, autoclean);
 
-            assert_eq!(markdown, concat!(
-                "## run\n\nBeforeafter `run()`.\n\n",
-                "| Name |\n| --- |\n| run |\n\n",
-                "<table><tr><td colspan=\"2\">Wide</td></tr></table>\n\n",
-                "<kbd>Esc</kbd>\n",
-            ));
+            assert_eq!(
+                markdown,
+                concat!(
+                    "## run\n\nBeforeafter `run()`.\n\n",
+                    "| Name |\n| --- |\n| run |\n\n",
+                    "<table><tr><td colspan=\"2\">Wide</td></tr></table>\n\n",
+                    "<kbd>Esc</kbd>\n",
+                )
+            );
         }
     }
 
@@ -975,14 +1046,18 @@ mod tests {
         let markdown = convert(html, true);
 
         // Literal markup is example content, and empty fences keep their language.
-        assert_eq!(markdown, concat!(
-            "Markup: `<code></code>`, space: ` `.\n\n",
-            "```html\n<code></code>\n```\n\n```python\n```\n",
-        ));
+        assert_eq!(
+            markdown,
+            concat!(
+                "Markup: `<code></code>`, space: ` `.\n\n",
+                "```html\n<code></code>\n```\n\n```python\n```\n",
+            )
+        );
     }
 
     #[test]
-    fn removes_mkdocstrings_source_listings_and_keeps_signatures_and_examples() {
+    fn removes_mkdocstrings_source_listings_and_keeps_signatures_and_examples()
+    {
         let html = concat!(
             "<div class='doc-contents'><p>Description.</p>",
             "<div class='language-python doc-signature highlight'><pre><code>run()</code></pre></div>",
@@ -1026,7 +1101,8 @@ mod tests {
     }
 
     #[test]
-    fn converts_admonitions_to_github_alerts_without_repeating_default_titles() {
+    fn converts_admonitions_to_github_alerts_without_repeating_default_titles()
+    {
         for (class, title, kind) in [
             ("note", "Note", "NOTE"),
             ("tip", "Tip", "TIP"),
@@ -1077,7 +1153,11 @@ mod tests {
 
             let markdown = convert(&html, true);
 
-            assert_eq!(markdown, format!("> [!{kind}]\n>\n> **A `custom` title**\n>\n> Body.\n"), "{classes}");
+            assert_eq!(
+                markdown,
+                format!("> [!{kind}]\n>\n> **A `custom` title**\n>\n> Body.\n"),
+                "{classes}"
+            );
         }
     }
 
@@ -1124,9 +1204,18 @@ mod tests {
 
         // GitHub cannot render nested alerts, but the title and nesting must survive.
         for (html, expected) in [
-            (format!("<div class='admonition note'>{admonition}</div>"), "> [!NOTE]\n>\n> > **Tip**\n> >\n> > Body.\n"),
-            (format!("<blockquote>{admonition}</blockquote>"), "> > **Tip**\n> >\n> > Body.\n"),
-            (format!("<ul><li>{admonition}</li></ul>"), "- > **Tip**\n  >\n  > Body.\n"),
+            (
+                format!("<div class='admonition note'>{admonition}</div>"),
+                "> [!NOTE]\n>\n> > **Tip**\n> >\n> > Body.\n",
+            ),
+            (
+                format!("<blockquote>{admonition}</blockquote>"),
+                "> > **Tip**\n> >\n> > Body.\n",
+            ),
+            (
+                format!("<ul><li>{admonition}</li></ul>"),
+                "- > **Tip**\n  >\n  > Body.\n",
+            ),
         ] {
             let markdown = convert(&html, true);
 
@@ -1140,7 +1229,10 @@ mod tests {
 
         let markdown = convert(html, true);
 
-        assert_eq!(markdown, "| Name |\n| --- |\n| **A &amp; B**<br>`x_y` |\n\nAfter\n");
+        assert_eq!(
+            markdown,
+            "| Name |\n| --- |\n| **A &amp; B**<br>`x_y` |\n\nAfter\n"
+        );
     }
 
     #[test]
@@ -1164,7 +1256,8 @@ mod tests {
 
     #[test]
     fn gives_headerless_tables_an_empty_header_and_pads_short_rows() {
-        let html = "<table><tr><td>A</td><td>B</td></tr><tr><td>C</td></tr></table>";
+        let html =
+            "<table><tr><td>A</td><td>B</td></tr><tr><td>C</td></tr></table>";
 
         let markdown = convert(html, true);
 
@@ -1205,7 +1298,10 @@ mod tests {
 
         let markdown = convert(html, true);
 
-        assert_eq!(markdown, "~~Old **value**~~, ~~removed~~, and \\~literal\\~.\n");
+        assert_eq!(
+            markdown,
+            "~~Old **value**~~, ~~removed~~, and \\~literal\\~.\n"
+        );
     }
 
     #[test]
@@ -1220,7 +1316,10 @@ mod tests {
         for autoclean in [true, false] {
             let markdown = convert(html, autoclean);
 
-            assert_eq!(markdown, "- [x] Done\n- [ ] Todo\n\nSeparate ☑ checkbox.\n");
+            assert_eq!(
+                markdown,
+                "- [x] Done\n- [ ] Todo\n\nSeparate ☑ checkbox.\n"
+            );
         }
     }
 
@@ -1257,7 +1356,10 @@ mod tests {
 
         let markdown = convert(html, true);
 
-        assert_eq!(markdown, "Note[^/docs/guide/#1].\n\n[^/docs/guide/#1]: Body.\n");
+        assert_eq!(
+            markdown,
+            "Note[^/docs/guide/#1].\n\n[^/docs/guide/#1]: Body.\n"
+        );
     }
 
     #[test]

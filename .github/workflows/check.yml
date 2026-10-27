@@ -30,108 +30,131 @@ on:
   pull_request:
     branches:
       - master
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
 
 jobs:
   clippy:
     name: Clippy
+    permissions:
+      contents: read
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
 
       - name: Run clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --locked -- -D warnings
 
   test:
     name: Test
+    permissions:
+      contents: read
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
 
       - name: Run tests
-        run: cargo test
+        run: cargo test --locked
 
   python:
     name: Python (${{ matrix.python-version }})
+    permissions:
+      contents: read
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
 
       - name: Set up Python
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Prepare UI
-        run: python scripts/prepare.py
-
       - name: Install dependencies
-        run: uv sync --all-groups
+        run: uv sync --locked --all-groups
 
       - name: Run ruff
-        run: uv run ruff check --no-fix-only .
+        run: uv run --locked ruff check --no-fix-only .
 
       - name: Run ty
-        run: uv run ty check .
+        run: uv run --locked ty check .
 
       - name: Run pytest
-        run: uv run pytest python/tests/
+        run: uv run --locked pytest python/tests/
 
   format:
     name: Format
+    permissions:
+      contents: read
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
 
       - name: Run rustfmt
-        run: find crates -name "*.rs" -exec rustfmt --check {} \;
+        run: cargo fmt --all -- --check
 
   release:
     name: Release
+    permissions:
+      contents: read
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     if: |
       startsWith(github.event.pull_request.head.ref, 'release/')
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Check commit count
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          BASE="${{ github.event.pull_request.base.sha }}"
-          HEAD="${{ github.event.pull_request.head.sha }}"
-          COMMITS=$(git rev-list --count $HEAD ^$BASE)
+          COMMITS=$(git rev-list --count "$HEAD_SHA" "^$BASE_SHA")
           if [ "$COMMITS" -ne 1 ]; then
             echo "Release branch must contain exactly one commit, found $COMMITS"
             exit 1

@@ -36,39 +36,44 @@ jobs:
     if: |
       github.event.pull_request.merged == true &&
       startsWith(github.event.pull_request.head.ref, 'release/')
+    permissions:
+      contents: read
+    timeout-minutes: 120
     runs-on: ubuntu-latest
+    environment: dockerhub
     env:
       IMAGE: ${{ github.event.repository.full_name }}
       DOCKER_BUILDKIT: 1
       DOCKER_BUILD_SUMMARY: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
 
       - name: Determine version
         id: version
+        env:
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
-          BRANCH="${{ github.event.pull_request.head.ref }}"
-          VERSION=${BRANCH#release/}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          VERSION=${RELEASE_BRANCH#release/}
+          PACKAGE_VERSION=$(python -c 'import tomllib; print(tomllib.load(open("crates/zensical/Cargo.toml", "rb"))["package"]["version"])')
+          if [ "${VERSION#v}" != "$PACKAGE_VERSION" ]; then
+            echo "Release branch and Cargo.toml versions differ"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
 
       - name: Set up Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Sign in to DockerHub
-        uses: docker/login-action@v4
-        with:
-          username: zensical
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Generate tags and labels
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         env:
           VERSION: ${{ steps.version.outputs.version }}
         with:
@@ -87,11 +92,8 @@ jobs:
             org.opencontainers.image.version=${{ env.VERSION }}
             org.opencontainers.image.licenses=MIT
 
-      - name: Prepare build
-        run: python scripts/prepare.py
-
       - name: Build image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           load: true
@@ -101,15 +103,26 @@ jobs:
             VERSION=${{ steps.meta.outputs.version }}
 
       - name: Check image
-        working-directory: /tmp
         env:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          docker run --rm -i -v $PWD:/docs $IMAGE:$VERSION new .
-          docker run --rm -i -v $PWD:/docs $IMAGE:$VERSION build
+          PROJECT_DIR=$(mktemp -d "$RUNNER_TEMP/zensical-docker.XXXXXX")
+          trap 'rm -rf "$PROJECT_DIR"' EXIT
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$PROJECT_DIR,target=/docs" \
+            "$IMAGE:$VERSION" new .
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$PROJECT_DIR,target=/docs" \
+            "$IMAGE:$VERSION" build --strict
+
+      - name: Sign in to DockerHub
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          username: zensical
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           platforms: |
@@ -123,11 +136,11 @@ jobs:
         env:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          docker buildx imagetools inspect $IMAGE:$VERSION
+          docker buildx imagetools inspect "$IMAGE:$VERSION"
 
       - name: Inspect image
         env:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          docker pull $IMAGE:$VERSION
-          docker image inspect $IMAGE:$VERSION
+          docker pull "$IMAGE:$VERSION"
+          docker image inspect "$IMAGE:$VERSION"
