@@ -166,7 +166,8 @@ impl Config {
                         .extract::<String>()?;
                     let markdown = directives
                         .call_method1(
-                            "get", ("include-markdown", "include-markdown"),
+                            "get",
+                            ("include-markdown", "include-markdown"),
                         )?
                         .extract::<String>()?;
                     Some((opening, plain, markdown))
@@ -193,16 +194,19 @@ impl Config {
 
                 // Return configuration and theme directory
                 Ok::<_, PyErr>((
-                    project, markdown_extensions, record_backlinks,
+                    project,
+                    markdown_extensions,
+                    record_backlinks,
                     include_syntax,
                 ))
             })?;
 
-        let snippet_pattern = snippet_pattern(
-            include_syntax.as_ref().map(|(opening, plain, markdown)| {
+        let snippet_pattern = snippet_pattern(include_syntax.as_ref().map(
+            |(opening, plain, markdown)| {
                 (opening.as_str(), plain.as_str(), markdown.as_str())
-            }),
-        ).map_err(|error| {
+            },
+        ))
+        .map_err(|error| {
             PyValueError::new_err(format!(
                 "invalid include-markdown detector: {error}"
             ))
@@ -382,8 +386,8 @@ mod tests {
 
     #[test]
     fn custom_syntax_is_matched_literally() {
-        let pattern = snippet_pattern(Some(("[(", "read+file", "read.md")))
-            .unwrap();
+        let pattern =
+            snippet_pattern(Some(("[(", "read+file", "read.md"))).unwrap();
 
         for markdown in [
             "[( read+file \"shared.txt\" )]",
@@ -415,7 +419,9 @@ mod tests {
 
     #[test]
     fn detects_snippet_markers_and_default_include_tags() {
-        let pattern = snippet_pattern(Some(("{%", "include", "include-markdown"))).unwrap();
+        let pattern =
+            snippet_pattern(Some(("{%", "include", "include-markdown")))
+                .unwrap();
 
         for markdown in [
             "--8<-- \"shared.md\"",
@@ -426,13 +432,20 @@ mod tests {
             "```text\n{% include \"shared.txt\" %}\n```",
             "\u{FEFF}{% include-markdown \"shared.md\" %}",
         ] {
-            assert!(pattern.is_match(markdown.strip_prefix('\u{FEFF}').unwrap_or(markdown)), "{markdown:?}");
+            assert!(
+                pattern.is_match(
+                    markdown.strip_prefix('\u{FEFF}').unwrap_or(markdown)
+                ),
+                "{markdown:?}"
+            );
         }
     }
 
     #[test]
     fn keeps_pages_without_include_markers_cacheable() {
-        let pattern = snippet_pattern(Some(("{%", "include", "include-markdown"))).unwrap();
+        let pattern =
+            snippet_pattern(Some(("{%", "include", "include-markdown")))
+                .unwrap();
 
         for markdown in [
             "# Ordinary page\n\nContent.",
@@ -442,8 +455,12 @@ mod tests {
             "{! include \"shared.md\" !}",
             "The include-markdown plugin is enabled.",
         ] {
-            assert!(!pattern.is_match(markdown.strip_prefix('\u{FEFF}').unwrap_or(markdown)), "{markdown:?}");
+            assert!(
+                !pattern.is_match(
+                    markdown.strip_prefix('\u{FEFF}').unwrap_or(markdown)
+                ),
+                "{markdown:?}"
+            );
         }
     }
-
 }

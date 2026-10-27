@@ -131,7 +131,7 @@ jobs:
           toolchain: stable
 
       - name: Run rustfmt
-        run: find crates -name "*.rs" -print0 | xargs -0 rustfmt --check
+        run: cargo fmt --all -- --check
 
   release:
     name: Release
