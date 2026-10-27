@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 from xml.etree.ElementTree import Element
 
 from pymdownx import emoji, twemoji_db
+from zensical_ui import get_theme_dir as get_ui_theme_dir
 
 if TYPE_CHECKING:
     from markdown import Markdown
@@ -93,8 +94,7 @@ def _load_twemoji_index(paths: tuple[str, ...]) -> dict:
     }
 
     # Compute path to theme root and traverse all icon directories
-    root = os.path.dirname(os.path.dirname(__file__))
-    root = os.path.join(root, "templates", ".icons")
+    root = os.path.join(get_ui_theme_dir(), ".icons")
     for path in [*paths, root]:
         base = os.path.normpath(path)
 

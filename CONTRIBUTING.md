@@ -31,3 +31,28 @@ A few things to keep in mind:
 - **Questions belong in Discord.** The issue tracker is for bug reports, documentation issues, and change requests – not general questions.
 
 [Code of Conduct]: CODE_OF_CONDUCT.md
+
+## Local development
+
+With Python, Rust, and uv installed, install the development dependencies with
+`uv sync --all-groups`. The built-in theme is provided by the pinned
+`zensical-ui` Python package.
+
+To work on the UI alongside core, use Node.js 24 or newer, clone the
+[UI repository] next to this checkout, and install it into the same environment:
+
+```sh
+npm --prefix ../ui ci
+npm --prefix ../ui run build
+uv pip install --editable ../ui
+npm --prefix ../ui start
+```
+
+In another terminal, run core from this checkout with
+`uv run --no-sync zensical serve -f /path/to/zensical.toml`. The editable UI
+version must match core's dependency pin. Its watcher writes directly to the
+resource directory used by core, so there is no asset-copying or symlink setup.
+Use `--no-sync` to retain the editable installation instead of restoring the
+locked UI distribution.
+
+[UI repository]: https://github.com/zensical/ui

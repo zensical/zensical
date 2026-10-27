@@ -45,6 +45,7 @@ from deepmerge import always_merger
 from tomli import load as toml_load
 from yaml import Loader, YAMLError
 from yaml.constructor import ConstructorError
+from zensical_ui import get_theme_dir as get_ui_theme_dir
 
 from zensical.compat.mkdocstrings import _python_handler_has_backlinks
 from zensical.extensions.autorefs import AutorefsExtension
@@ -411,8 +412,7 @@ def get_themes() -> dict[str, EntryPoint]:
 
 def get_builtin_theme_dir() -> str:
     """Return the built-in theme directory."""
-    path = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(path, "templates")
+    return get_ui_theme_dir()
 
 
 def get_theme_dir(name: str) -> str:

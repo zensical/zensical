@@ -61,6 +61,7 @@ dependencies = [
     "pymdown-extensions>=11.0",
     "pyyaml>=6.0.2",
     "tomli>=2.4.0",
+    "zensical-ui==0.0.40",
 ]
 
 [project.urls]
@@ -94,5 +95,4 @@ features = ["pyo3/extension-module"]
 manifest-path = "crates/zensical/Cargo.toml"
 include = [
   "python/zensical/bootstrap/**/*",
-  "python/zensical/templates/**/*",
 ]

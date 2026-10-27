@@ -45,16 +45,9 @@ RUN apk add --no-cache \
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
 ENV PATH="/root/.cargo/bin:${PATH}"
 
-# Copy files to prepare build
-COPY scripts scripts
-
-# Prepare build
-RUN mkdir -p python/zensical
-RUN python scripts/prepare.py
-
 # Create a stub project, which will allow us to install dependencies and have
 # them properly cached while changes to sources won't invalidate the cache
-RUN mkdir crates
+RUN mkdir -p python/zensical crates
 RUN cargo new --lib crates/zensical
 RUN cargo add pyo3 \
     --manifest-path crates/zensical/Cargo.toml \

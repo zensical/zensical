@@ -45,12 +45,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Determine version
         id: version
+        env:
+          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
-          BRANCH="${{ github.event.pull_request.head.ref }}"
+          BRANCH="$RELEASE_BRANCH"
           VERSION=${BRANCH#release/}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
@@ -86,9 +88,6 @@ jobs:
             org.opencontainers.image.vendor=Zensical
             org.opencontainers.image.version=${{ env.VERSION }}
             org.opencontainers.image.licenses=MIT
-
-      - name: Prepare build
-        run: python scripts/prepare.py
 
       - name: Build image
         uses: docker/build-push-action@v7

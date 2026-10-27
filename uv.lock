@@ -1129,6 +1129,7 @@ dependencies = [
     { name = "pymdown-extensions" },
     { name = "pyyaml" },
     { name = "tomli" },
+    { name = "zensical-ui" },
 ]
 
 [package.dev-dependencies]
@@ -1157,6 +1158,7 @@ requires-dist = [
     { name = "pymdown-extensions", specifier = ">=11.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "tomli", specifier = ">=2.4.0" },
+    { name = "zensical-ui", specifier = "==0.0.40" },
 ]
 
 [package.metadata.requires-dev]
@@ -1172,4 +1174,13 @@ dev = [
     { name = "ty", specifier = ">=0.0.32" },
     { name = "types-markdown", specifier = ">=3.10.2" },
     { name = "types-pyyaml", specifier = ">=6.0.12" },
+]
+
+[[package]]
+name = "zensical-ui"
+version = "0.0.40"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4f/21/d4cefcc535e87df3f09404ebdf370783e8175a91e28c42aec116d1e8bc00/zensical_ui-0.0.40.tar.gz", hash = "sha256:2be430c993364dc9328cc64de466727b4137b2fe26f1d7e22ce942be2006e820", size = 4062914, upload-time = "2026-10-27T12:31:41.712Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/36/1a/0a02ae5f2c650577f9cdc77daf959ca29a16022012933d6424e97ff8d4f8/zensical_ui-0.0.40-py3-none-any.whl", hash = "sha256:887de2bfe247ab0a0951fca2829ea5915ecef31415978f31b986f02caea6be6c", size = 9961065, upload-time = "2026-10-27T12:31:39.125Z" },
 ]

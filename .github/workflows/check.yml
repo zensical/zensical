@@ -83,9 +83,6 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Prepare UI
-        run: python scripts/prepare.py
-
       - name: Install dependencies
         run: uv sync --all-groups
 
