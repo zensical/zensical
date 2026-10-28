@@ -33,6 +33,7 @@ mod api_autonav;
 mod autoapi;
 mod blog;
 mod llmstxt;
+mod meta_descriptions;
 mod nav_weight;
 mod optimize;
 mod privacy;
@@ -44,6 +45,9 @@ pub use api_autonav::{ApiAutonavConfig, ApiAutonavPlugin};
 pub use autoapi::AutoApiPlugin;
 pub use blog::{BlogPlugin, BlogPluginConfig, CategorySort, ExcerptPolicy};
 pub use llmstxt::{LlmstxtPlugin, LlmstxtPluginConfig};
+pub use meta_descriptions::{
+    MetaDescriptionsPlugin, MetaDescriptionsPluginConfig,
+};
 pub use nav_weight::{NavWeightPlugin, NavWeightPluginConfig};
 pub use optimize::{OptimizePlugin, OptimizePluginConfig};
 pub use privacy::{PrivacyPlugin, PrivacyPluginConfig};
@@ -86,6 +90,8 @@ pub struct Plugins {
     pub search: SearchPlugin,
     /// Material meta plugin.
     pub meta: MetaPlugin,
+    /// Automatic meta descriptions plugin.
+    pub meta_descriptions: MetaDescriptionsPlugin,
     /// File exclusion plugin.
     pub exclude: ExcludePlugin,
     /// Redirects plugin.

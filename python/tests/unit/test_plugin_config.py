@@ -33,6 +33,7 @@ from zensical.config import ConfigurationError
 PYTHON_PLUGINS = (
     "search",
     "meta",
+    "meta-descriptions",
     "exclude",
     "redirects",
     "mkdocs-autoapi",
@@ -118,6 +119,7 @@ def test_preserves_plugin_presence_semantics() -> None:
     assert plugins["search"]["config"]["enabled"] is True
     for name in (
         "meta",
+        "meta_descriptions",
         "exclude",
         "redirects",
         "minify",
