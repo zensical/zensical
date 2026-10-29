@@ -104,6 +104,7 @@ impl Parser {
         document(&body)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn open(&mut self, mut element: Element, self_closing: bool) {
         if self.autoclean
             && element.has_class("twemoji")
@@ -137,8 +138,11 @@ impl Parser {
         {
             element.language = language.into();
         }
-        if self.autoclean && matches!(element.tag.as_str(), "img" | "svg") {
-            // Upstream drops the complete link when its label contains an image.
+        if self.autoclean
+            && (element.tag == "svg"
+                || element.tag == "img" && element.has_class("twemoji"))
+        {
+            // Links containing discarded images are removed with their labels.
             if let Some(link) =
                 self.stack.iter_mut().rev().find(|item| item.tag == "a")
             {
@@ -163,6 +167,19 @@ impl Parser {
                 "sub" | "sup" | "kbd" | "mark" | "svg" | "math" => Mode::Html,
                 _ => Mode::Markdown,
             };
+        }
+        if self.autoclean && element.tag == "img" && element.mode != Mode::Skip
+        {
+            let source = element.attr("src").trim();
+            if source.is_empty()
+                || source.split_once(':').is_some_and(|(scheme, _)| {
+                    scheme.eq_ignore_ascii_case("data")
+                })
+            {
+                // Embedded data and missing image sources are replaced with alt text.
+                self.text(element.attr("alt"));
+                element.mode = Mode::Skip;
+            }
         }
         if in_table
             || element.tag == "table"
@@ -640,7 +657,7 @@ impl Element {
     }
 
     fn is_decoration(&self) -> bool {
-        matches!(self.tag.as_str(), "img" | "svg")
+        self.tag == "svg"
             || self.tag == "a" && self.has_class("headerlink")
             || [
                 "twemoji",
@@ -1364,7 +1381,7 @@ mod tests {
 
     #[test]
     fn cleans_controls_and_highlighted_code_without_losing_text() {
-        let html = "<div class='tabbed-labels'><label>Tab</label></div><p>Text<span class='twemoji'><svg>icon</svg></span><span class='doc-labels'>property</span><a href='x'><img src='x'>badge</a></p><table class='highlighttable'><tr><td class='linenos'><div class='linenodiv'><pre>1\n2</pre></div></td><td class='code'><div class='highlight'><pre><code>x\ny\n</code></pre></div></td></tr></table><script>bad()</script><style>body{}</style>";
+        let html = "<div class='tabbed-labels'><label>Tab</label></div><p>Text<span class='twemoji'><svg>icon</svg></span><span class='doc-labels'>property</span><a href='x'><svg>icon</svg>badge</a></p><table class='highlighttable'><tr><td class='linenos'><div class='linenodiv'><pre>1\n2</pre></div></td><td class='code'><div class='highlight'><pre><code>x\ny\n</code></pre></div></td></tr></table><script>bad()</script><style>body{}</style>";
 
         let markdown = convert(html, true);
 
@@ -1425,12 +1442,132 @@ mod tests {
             "<img alt='Ordinary image' src='image.png'><svg>Icon</svg></p>",
             "<div class='doc-labels'><img class='twemoji' alt='🟢' src='green.svg'></div>",
             "<a href='#heading' class='headerlink'><img class='twemoji' alt='🔗' src='link.svg'></a>",
+            "<p><a href='#status'><img class='twemoji' alt='' src='empty.svg'>Status</a></p>",
         );
 
         let markdown = convert(html, true);
 
         // Missing emoji text cannot be recovered, and skipped content stays omitted.
-        assert_eq!(markdown, "Text\n");
+        assert_eq!(markdown, "Text![Ordinary image](<https://example.org/docs/guide/image.png>)\n");
+    }
+
+    #[test]
+    fn keeps_content_images_and_their_links() {
+        // Standalone and linked images are retained, including external SVG files.
+        let html = concat!(
+            "<p><img alt='An [image]' src='../images/a b.png'></p>",
+            "<p><a href='../topic/'><img alt='Diagram' src='../images/diagram.png'> Details</a></p>",
+            "<p><img src='https://example.org/badge.svg'></p>",
+        );
+
+        for autoclean in [true, false] {
+            let markdown = convert(html, autoclean);
+
+            assert_eq!(
+                markdown,
+                concat!(
+                    "![An \\[image\\]](<https://example.org/docs/images/a b.png>)\n\n",
+                    "[![Diagram](<https://example.org/docs/images/diagram.png>) Details](<https://example.org/docs/topic/index.md>)\n\n",
+                    "![](<https://example.org/badge.svg>)\n",
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn keeps_content_images_in_markdown_and_html_tables() {
+        // A spanning cell requires HTML, while a simple table is converted to GFM.
+        let html = concat!(
+            "<table><tr><th>Diagram</th></tr>",
+            "<tr><td><img alt='Overview' src='../images/overview.png'></td></tr></table>",
+            "<table><tr><td colspan='2'><img alt='Detail' src='../images/detail.png'></td></tr></table>",
+        );
+
+        for autoclean in [true, false] {
+            let markdown = convert(html, autoclean);
+
+            // Image descriptions and absolute URLs are retained in both formats.
+            assert_eq!(
+                markdown,
+                concat!(
+                    "| Diagram |\n| --- |\n",
+                    "| ![Overview](<https://example.org/docs/images/overview.png>) |\n\n",
+                    "<table><tr><td colspan=\"2\"><img alt=\"Detail\" src=\"https://example.org/docs/images/detail.png\"></td></tr></table>\n",
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn replaces_data_images_and_images_without_sources_with_alt_text() {
+        for source in [
+            "",
+            " src",
+            " src=''",
+            " src=' \t '",
+            " src='data:image/png;base64,aGVsbG8='",
+            " src=' DATA:image/png;base64,aGVsbG8= '",
+            " src='data:image/svg+xml,%3Csvg%3E%3C/svg%3E'",
+        ] {
+            // Alt text is retained in paragraphs, links, and retained HTML.
+            let html = format!(
+                "<p>Before <img{source} alt='A [diagram] &amp; text'> after.</p>\
+                <p><a href='../topic/'><img{source} alt='Details'> more</a></p>\
+                <p>Empty<img{source}>.</p>\
+                <p><kbd><img{source} alt='&lt;Diagram&gt;'></kbd></p>\
+                <div class='doc-labels'><img{source} alt='Hidden'></div>\
+                <p><img{source} class='doc-labels' alt='Hidden'></p>"
+            );
+
+            let markdown = convert(&html, true);
+
+            // Sources and image markup are omitted, and skipped content stays omitted.
+            assert_eq!(
+                markdown,
+                concat!(
+                    "Before A \\[diagram\\] &amp; text after.\n\n",
+                    "[Details more](<https://example.org/docs/topic/index.md>)\n\n",
+                    "Empty.\n\n",
+                    "<kbd>&lt;Diagram&gt;</kbd>\n",
+                ),
+                "image source: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn cleans_data_images_and_images_without_sources_in_tables() {
+        for source in [" src='data:image/png;base64,aGVsbG8='", "", " src=''"] {
+            // Image markup is removed from both GFM cells and HTML fallback cells.
+            let html = format!(
+                "<table><tr><th>Diagram</th></tr>\
+                <tr><td><img{source} alt='Overview &amp; details'></td></tr></table>\
+                <table><tr><td colspan='2'><img{source} alt='&lt;Detail&gt;'></td></tr></table>"
+            );
+
+            let markdown = convert(&html, true);
+
+            assert_eq!(
+                markdown,
+                concat!(
+                    "| Diagram |\n| --- |\n",
+                    "| Overview &amp; details |\n\n",
+                    "<table><tr><td colspan=\"2\">&lt;Detail&gt;</td></tr></table>\n",
+                ),
+                "image source: {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn keeps_data_images_when_autoclean_is_disabled() {
+        let html =
+            "<p><img alt='Diagram' src='data:image/png;base64,aGVsbG8='></p>";
+
+        let markdown = convert(html, false);
+
+        // Embedded image data is retained when cleanup is disabled.
+        assert_eq!(markdown, "![Diagram](<data:image/png;base64,aGVsbG8=>)\n");
     }
 
     #[test]
