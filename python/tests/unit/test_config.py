@@ -111,6 +111,156 @@ def _reset_config() -> Generator[None, None, None]:
     cfg_module._CONFIG = None
 
 
+@pytest.mark.parametrize(
+    "setting", [None, "info", "warn", "ignore", "relative_to_docs"]
+)
+@pytest.mark.parametrize("nested", [True, False])
+def test_absolute_links_relative_to_docs_configuration(
+    tmp_path: Path, setting: str | None, nested: bool
+) -> None:
+    # Only the special MkDocs value is enabled, with either supported nesting.
+    validation = {} if setting is None else {"absolute_links": setting}
+    if nested:
+        validation = {"links": validation}
+    config_file = _write_mkdocs_config(
+        tmp_path, _minimal_yaml(validation=validation)
+    )
+
+    config = parse_config(str(config_file))
+
+    enabled = config["validation"]["absolute_links_relative_to_docs"]
+    assert enabled is (setting == "relative_to_docs")
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+@pytest.mark.parametrize("mkdocs_setting", [None, "ignore", "relative_to_docs"])
+def test_zensical_absolute_links_setting_overrides_mkdocs(
+    tmp_path: Path, enabled: bool, mkdocs_setting: str | None
+) -> None:
+    # A flat Zensical boolean is used alone or with a nested MkDocs alias.
+    validation: dict[str, Any] = {"absolute_links_relative_to_docs": enabled}
+    if mkdocs_setting is not None:
+        validation["links"] = {"absolute_links": mkdocs_setting}
+    config_file = _write_mkdocs_config(
+        tmp_path, _minimal_yaml(validation=validation)
+    )
+
+    config = parse_config(str(config_file))
+
+    # The explicit Zensical value is retained even when the alias disagrees.
+    assert config["validation"]["absolute_links_relative_to_docs"] is enabled
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_complete_zensical_validation_shape(
+    tmp_path: Path, enabled: bool
+) -> None:
+    # Every native flag is supplied together in the flat Zensical shape.
+    validation = {
+        "unresolved_references": enabled,
+        "unresolved_footnotes": enabled,
+        "unused_definitions": enabled,
+        "unused_footnotes": enabled,
+        "shadowed_definitions": enabled,
+        "shadowed_footnotes": enabled,
+        "invalid_links": enabled,
+        "invalid_link_anchors": enabled,
+        "absolute_links_relative_to_docs": enabled,
+    }
+    config_file = _write_mkdocs_config(
+        tmp_path, _minimal_yaml(validation=validation)
+    )
+
+    config = parse_config(str(config_file))
+
+    assert config["validation"] == validation
+
+
+@pytest.mark.parametrize("level", ["warn", "info", "ignore"])
+@pytest.mark.parametrize("nested", [True, False])
+def test_complete_mkdocs_validation_shape(
+    tmp_path: Path, level: str, nested: bool
+) -> None:
+    # The complete MkDocs tree is supplied, including navigation-only options.
+    validation: dict[str, Any] = {
+        "nav": {
+            "omitted_files": level,
+            "not_found": level,
+            "absolute_links": level,
+        },
+        "links": {
+            "not_found": level,
+            "anchors": level,
+            "absolute_links": "relative_to_docs",
+            "unrecognized_links": level,
+        },
+    }
+    if not nested:
+        validation = {**validation["links"], "omitted_files": level}
+    config_file = _write_mkdocs_config(
+        tmp_path, _minimal_yaml(validation=validation)
+    )
+
+    config = parse_config(str(config_file))
+
+    # Supported checks are normalized; native source checks keep their defaults.
+    assert config["validation"] == {
+        "unresolved_references": False,
+        "unresolved_footnotes": False,
+        "unused_definitions": False,
+        "unused_footnotes": False,
+        "shadowed_definitions": False,
+        "shadowed_footnotes": False,
+        "invalid_links": level != "ignore",
+        "invalid_link_anchors": level != "ignore",
+        "absolute_links_relative_to_docs": True,
+    }
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_zensical_link_validation_overrides_mkdocs(
+    tmp_path: Path, enabled: bool
+) -> None:
+    # Opposite values are supplied in the two shapes for both existing checks.
+    level = "ignore" if enabled else "warn"
+    validation = {
+        "invalid_links": enabled,
+        "invalid_link_anchors": enabled,
+        "links": {"not_found": level, "anchors": level},
+    }
+    config_file = _write_mkdocs_config(
+        tmp_path, _minimal_yaml(validation=validation)
+    )
+
+    config = parse_config(str(config_file))
+
+    assert config["validation"]["invalid_links"] is enabled
+    assert config["validation"]["invalid_link_anchors"] is enabled
+
+
+def test_nested_mkdocs_link_settings_override_shorthand(tmp_path: Path) -> None:
+    # Shorthand aliases are overridden by explicit nested link settings.
+    validation = {
+        "not_found": "warn",
+        "anchors": "ignore",
+        "absolute_links": "relative_to_docs",
+        "links": {
+            "not_found": "ignore",
+            "anchors": "warn",
+            "absolute_links": "ignore",
+        },
+    }
+    config_file = _write_mkdocs_config(
+        tmp_path, _minimal_yaml(validation=validation)
+    )
+
+    config = parse_config(str(config_file))
+
+    assert config["validation"]["invalid_links"] is False
+    assert config["validation"]["invalid_link_anchors"] is True
+    assert config["validation"]["absolute_links_relative_to_docs"] is False
+
+
 def test_site_dir_cant_be_empty(tmp_path: Path) -> None:
     config_file = _write_toml_config(tmp_path, site_dir="")
     with pytest.raises(ConfigurationError, match="empty"):

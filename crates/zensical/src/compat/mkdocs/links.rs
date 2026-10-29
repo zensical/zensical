@@ -36,10 +36,12 @@ use super::url;
 // Structs
 // ----------------------------------------------------------------------------
 
-/// Relative Markdown URLs are resolved and rebased to the emitted page route.
+/// Local Markdown URLs are resolved and rebased to the emitted page route.
 pub struct Links<'a> {
     /// Whether Markdown pages are emitted as directories.
     directory_urls: bool,
+    /// Whether absolute links are resolved relative to the documentation root.
+    absolute_links_relative_to_docs: bool,
     /// Whether a parent segment is required for the source page's route.
     prefix: bool,
     /// Original route against which source-relative URLs are resolved.
@@ -64,9 +66,11 @@ impl<'a> Links<'a> {
     /// A resolver is created for the source file and its emitted route.
     pub fn new(
         source: &str, directory_urls: bool, from: &'a str, to: &'a str,
+        absolute_links_relative_to_docs: bool,
     ) -> Self {
         Self {
             directory_urls,
+            absolute_links_relative_to_docs,
             prefix: directory_urls
                 && !matches!(name(source), "index.md" | "README.md"),
             from,
@@ -76,7 +80,10 @@ impl<'a> Links<'a> {
     }
 
     fn rewrite_url(&self, value: &str) -> Option<String> {
-        if !is_relative(value) {
+        let rooted = self.absolute_links_relative_to_docs
+            && value.starts_with('/')
+            && !value.starts_with("//");
+        if !rooted && !is_relative(value) {
             return None;
         }
         let mut suffix = value.find(['?', '#']).unwrap_or(value.len());
@@ -88,6 +95,20 @@ impl<'a> Links<'a> {
             suffix = component + params;
         }
         let (path, suffix) = value.split_at(suffix);
+        if rooted {
+            // MkDocs absolute links are resolved from docs_dir, including on
+            // pages whose emitted routes have been changed by plugins.
+            let path = markdown_path(&path[1..], self.directory_urls);
+            // File routes are reduced to their directory so links back to
+            // the current HTML file are retained as filenames.
+            let base = self.to.rfind('/').map_or("", |pos| &self.to[..=pos]);
+            let mut target = url::relative(base, &path);
+            if path.is_empty() || target == "." {
+                target.push('/');
+            }
+            target.push_str(suffix);
+            return (target != value).then_some(target);
+        }
         let mut target = String::new();
         if self.prefix {
             target.push_str("../");
@@ -301,8 +322,13 @@ mod tests {
 
     #[test]
     fn external_and_same_page_references_are_preserved() {
-        let links =
-            Links::new("guide/page.md", true, "guide/page/", "guide/page/");
+        let links = Links::new(
+            "guide/page.md",
+            true,
+            "guide/page/",
+            "guide/page/",
+            false,
+        );
 
         for value in [
             "https://example.com",
@@ -324,7 +350,7 @@ mod tests {
 
     #[test]
     fn url_parameters_queries_and_fragments_are_preserved() {
-        let links = Links::new("page.md", true, "page/", "page/");
+        let links = Links::new("page.md", true, "page/", "page/", false);
 
         assert_eq!(
             links
@@ -350,7 +376,7 @@ mod tests {
             r#"<script src = 'app.js'>const s = 'src="ignored.js"';</script>"#,
             r#"<style>/* href="ignored.md" */</style></div>"#,
         );
-        let mut links = Links::new("guide.md", true, "guide/", "guide/");
+        let mut links = Links::new("guide.md", true, "guide/", "guide/", false);
 
         let rendered = html::scan(source, &mut [&mut links]).unwrap();
 
@@ -372,7 +398,8 @@ mod tests {
                 let source = format!(
                     r#"<a href="Lecture {entity} Notes.md?x=1&amp;y=2#part">Notes</a>"#,
                 );
-                let mut links = Links::new("index.md", directory, "", "");
+                let mut links =
+                    Links::new("index.md", directory, "", "", false);
 
                 let rendered = html::scan(&source, &mut [&mut links]).unwrap();
 
@@ -424,7 +451,8 @@ mod tests {
                 "<a href=../odd&#61;&#96;&#9;&quot;&#39;/>Notes</a>",
             ),
         ] {
-            let mut links = Links::new("page.md", true, "page/", "page/");
+            let mut links =
+                Links::new("page.md", true, "page/", "page/", false);
 
             let rendered = html::scan(source, &mut [&mut links]);
 
@@ -434,7 +462,7 @@ mod tests {
 
     #[test]
     fn text_comments_and_raw_text_elements_are_preserved() {
-        let mut links = Links::new("page.md", true, "page/", "page/");
+        let mut links = Links::new("page.md", true, "page/", "page/", false);
         for source in [
             r#"<pre><code>src="$(pwd)" and href="target.md"</code></pre>"#,
             r#"<!-- <img src="image.png"> href="target.md" -->"#,
@@ -453,7 +481,7 @@ mod tests {
 
     #[test]
     fn srcset_candidates_keep_descriptors_separators_and_data_urls() {
-        let mut links = Links::new("page.md", true, "page/", "page/");
+        let mut links = Links::new("page.md", true, "page/", "page/", false);
         let source = concat!(
             r#"<source srcset="image-1.png 1x, image-2.png?raw=1&amp;next=2#image 2x, "#,
             r#"https://example.com/image.png 3x, data:image/png;base64,AAAA 4x">"#,
@@ -480,6 +508,7 @@ mod tests {
             true,
             "blog/posts/hello/",
             "blog/2026/09/hello/",
+            false,
         );
         let source = r##"<a href="../../notes.md?raw#part">Notes</a><img src="asset.png"><a href="#local">Local</a>"##;
 
@@ -492,6 +521,36 @@ mod tests {
                 r#"<img src="../../../posts/asset.png">"#,
                 r##"<a href="#local">Local</a>"##,
             )
+        );
+    }
+
+    #[test]
+    fn rooted_links_use_the_emitted_route_for_relocated_pages() {
+        // Docs-root targets are rebased from the relocated page's final route.
+        let mut links = Links::new(
+            "blog/posts/hello.md",
+            true,
+            "blog/posts/hello/",
+            "blog/2026/09/hello/",
+            true,
+        );
+        let source = concat!(
+            r#"<a href="/index.md#home">Home</a>"#,
+            r#"<a href="/guide/README.md;v=1?view=full#part">Guide</a>"#,
+            r#"<img src="/assets/image.png">"#,
+            r#"<a href="//example.org/page.md">External</a>"#,
+        );
+
+        let rendered = html::scan(source, &mut [&mut links]).unwrap();
+
+        assert_eq!(
+            rendered,
+            concat!(
+                r#"<a href="../../../../#home">Home</a>"#,
+                r#"<a href="../../../../guide/;v=1?view=full#part">Guide</a>"#,
+                r#"<img src="../../../../assets/image.png">"#,
+                r#"<a href="//example.org/page.md">External</a>"#,
+            ),
         );
     }
 }

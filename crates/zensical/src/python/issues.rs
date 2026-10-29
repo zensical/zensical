@@ -175,7 +175,7 @@ impl<'a> Issues<'a> {
     /// iterator boundary must not materialize owned values: doing so would
     /// duplicate the largest validation payloads at peak.
     #[allow(clippy::too_many_lines)]
-    pub fn new<T>(iter: T) -> Self
+    pub fn new<T>(iter: T, absolute_links_relative_to_docs: bool) -> Self
     where
         T: IntoIterator<
             Item = (
@@ -362,8 +362,15 @@ impl<'a> Issues<'a> {
         for (base, mappings) in link_map {
             let base_path = Path::new(base.as_str());
             for (span, href) in mappings {
+                // Network-path references are external URLs. Rooted paths are
+                // resolved from docs_dir only when the MkDocs setting is enabled.
+                if href.starts_with("//") {
+                    continue;
+                }
                 if let Some((path, anchor)) = href.split_once('#') {
                     let offset = path.len();
+                    let path =
+                        path.split_once('?').map_or(path, |(path, _)| path);
                     let path = decode_markdown_href(path);
                     let anchor = decode_markdown_href(anchor);
                     let (anchor, len) =
@@ -387,14 +394,22 @@ impl<'a> Issues<'a> {
                             issues.push(Issue::InvalidLink {
                                 path: base.clone(),
                                 span,
-                                href: resolve_link(base_path, &path),
+                                href: resolve_link(
+                                    base_path,
+                                    &path,
+                                    absolute_links_relative_to_docs,
+                                ),
                             });
                         }
                         continue;
                     }
 
                     // Resolve the link against the base path
-                    let link = resolve_link(base_path, &path);
+                    let link = resolve_link(
+                        base_path,
+                        &path,
+                        absolute_links_relative_to_docs,
+                    );
 
                     // Check if the link exists, and if it does, whether the
                     // anchor exists on the target page
@@ -417,19 +432,29 @@ impl<'a> Issues<'a> {
                         });
                     }
                 } else {
+                    let href =
+                        href.split_once('?').map_or(href, |(path, _)| path);
                     let href = decode_markdown_href(href);
                     if !is_markdown_path(&href) {
                         if is_invalid_markdown_path(&href) {
                             issues.push(Issue::InvalidLink {
                                 path: base.clone(),
                                 span,
-                                href: resolve_link(base_path, &href),
+                                href: resolve_link(
+                                    base_path,
+                                    &href,
+                                    absolute_links_relative_to_docs,
+                                ),
                             });
                         }
                         continue;
                     }
 
-                    let link = resolve_link(base_path, &href);
+                    let link = resolve_link(
+                        base_path,
+                        &href,
+                        absolute_links_relative_to_docs,
+                    );
 
                     if !anchor_map.contains_key(&link) {
                         issues.push(Issue::InvalidLink {
@@ -715,8 +740,14 @@ where
 }
 
 /// Resolves a UTF-8 authored URL path into its normalized lookup form.
-fn resolve_link(base: &Path, href: &str) -> String {
-    let path = resolve_relative(base, href);
+fn resolve_link(
+    base: &Path, href: &str, absolute_links_relative_to_docs: bool,
+) -> String {
+    let path = if absolute_links_relative_to_docs && href.starts_with('/') {
+        normalize(PathBuf::from(&href[1..]))
+    } else {
+        resolve_relative(base, href)
+    };
     let path = path
         .to_str()
         .expect("a path constructed from UTF-8 link text remains UTF-8");

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import textwrap
 import threading
 import time
 from typing import TYPE_CHECKING
@@ -107,6 +108,83 @@ unresolved_references = true
     assert "2 issues found" not in captured.err
 
 
+@pytest.mark.parametrize(
+    ("config_shape", "setting", "issue_count"),
+    [
+        ("mkdocs", "warn", 2),
+        ("mkdocs", "info", 2),
+        ("mkdocs", "ignore", 0),
+        ("zensical", True, 3),
+        ("zensical", False, 0),
+    ],
+)
+def test_complete_validation_shapes_control_diagnostics(
+    tmp_path: Path,
+    capfd: pytest.CaptureFixture[str],
+    config_shape: str,
+    setting: str | bool,
+    issue_count: int,
+) -> None:
+    """Apply the complete validation configuration to page diagnostics."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text(
+        "# Home\n\n[Missing page](missing.md)\n\n"
+        "[Missing anchor](other.md#missing)\n\n[Missing reference][unknown]\n",
+        encoding="utf-8",
+    )
+    (docs / "other.md").write_text("# Other\n", encoding="utf-8")
+    if config_shape == "mkdocs":
+        validation = textwrap.dedent(
+            f"""
+            [project.validation.nav]
+            omitted_files = "{setting}"
+            not_found = "{setting}"
+            absolute_links = "{setting}"
+
+            [project.validation.links]
+            not_found = "{setting}"
+            anchors = "{setting}"
+            absolute_links = "{setting}"
+            unrecognized_links = "{setting}"
+            """
+        )
+    else:
+        value = str(setting).lower()
+        validation = textwrap.dedent(
+            f"""
+            [project.validation]
+            unresolved_references = {value}
+            unresolved_footnotes = {value}
+            unused_definitions = {value}
+            unused_footnotes = {value}
+            shadowed_definitions = {value}
+            shadowed_footnotes = {value}
+            invalid_links = {value}
+            invalid_link_anchors = {value}
+            absolute_links_relative_to_docs = {value}
+            """
+        )
+    config = tmp_path / "zensical.toml"
+    config.write_text(
+        '[project]\nsite_name = "Test"\n' + validation, encoding="utf-8"
+    )
+
+    zensical.build(str(config), {"clean": True, "strict": False})
+
+    # Native source checks are kept alongside the common page and anchor checks.
+    captured = capfd.readouterr()
+    if issue_count:
+        assert f"{issue_count} issues found" in captured.err
+        assert "page does not exist" in captured.err
+        assert "anchor does not exist" in captured.err
+        assert ("unresolved link reference" in captured.err) is (
+            config_shape == "zensical"
+        )
+    else:
+        assert "Warning:" not in captured.err
+
+
 @pytest.mark.parametrize("directory_urls", [True, False])
 def test_validation_supports_markdown_urls_with_trailing_slashes(
     tmp_path: Path, capfd: pytest.CaptureFixture[str], directory_urls: bool
@@ -154,6 +232,77 @@ def test_validation_supports_markdown_urls_with_trailing_slashes(
 
     captured = capfd.readouterr()
     assert "4 issues found" in captured.err
+    assert "page does not exist" in captured.err
+    assert "anchor does not exist" in captured.err
+
+
+@pytest.mark.parametrize("config_format", ["yaml", "toml"])
+@pytest.mark.parametrize("directory_urls", [True, False])
+@pytest.mark.parametrize("config_shape", ["mkdocs", "zensical"])
+def test_validation_supports_absolute_links_relative_to_docs(
+    tmp_path: Path,
+    capfd: pytest.CaptureFixture[str],
+    config_format: str,
+    directory_urls: bool,
+    config_shape: str,
+) -> None:
+    """Validate rooted targets and anchors with a custom docs directory."""
+    docs = tmp_path / "source"
+    guide = docs / "guide"
+    guide.mkdir(parents=True)
+    source = guide / "page.md"
+    source.write_text(
+        "# Source\n\n[Home](/index.md)\n\n"
+        "[Reference][target]\n\n[target]: /index.md#anchor\n\n"
+        "[Query](/index.md?view=full#anchor)\n\n"
+        "[External](//example.org/missing.md#anchor)\n",
+        encoding="utf-8",
+    )
+    (docs / "index.md").write_text("# Anchor\n", encoding="utf-8")
+    if config_format == "yaml":
+        validation = (
+            "validation:\n  links:\n    absolute_links: relative_to_docs\n"
+            if config_shape == "mkdocs"
+            else "validation:\n  absolute_links_relative_to_docs: true\n"
+        )
+        config = tmp_path / "mkdocs.yml"
+        config.write_text(
+            "site_name: Test\ndocs_dir: source\n"
+            f"use_directory_urls: {str(directory_urls).lower()}\n{validation}",
+            encoding="utf-8",
+        )
+    else:
+        validation = (
+            '[project.validation.links]\nabsolute_links = "relative_to_docs"\n'
+            if config_shape == "mkdocs"
+            else (
+                "[project.validation]\nabsolute_links_relative_to_docs = true\n"
+            )
+        )
+        config = tmp_path / "zensical.toml"
+        config.write_text(
+            '[project]\nsite_name = "Test"\ndocs_dir = "source"\n'
+            f"use_directory_urls = {str(directory_urls).lower()}\n"
+            + validation,
+            encoding="utf-8",
+        )
+
+    zensical.build(str(config), {"clean": True, "strict": True})
+
+    assert "No issues found" in capfd.readouterr().err
+
+    # Rooted missing pages and anchors are still reported after conversion.
+    source.write_text(
+        "# Source\n\n[Missing](/missing.md)\n\n"
+        "[Missing anchor](/index.md#missing)\n\n"
+        "[Missing query target](/missing.md?view=full#anchor)\n",
+        encoding="utf-8",
+    )
+
+    zensical.build(str(config), {"clean": True, "strict": False})
+
+    captured = capfd.readouterr()
+    assert "3 issues found" in captured.err
     assert "page does not exist" in captured.err
     assert "anchor does not exist" in captured.err
 

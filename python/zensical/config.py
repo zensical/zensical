@@ -783,6 +783,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
         "shadowed_footnotes": False,
         "invalid_links": True,
         "invalid_link_anchors": True,
+        "absolute_links_relative_to_docs": False,
     }
 
     # Map MkDocs validation configuration to ours - note that we only support
@@ -805,6 +806,10 @@ def _apply_defaults(config: dict, path: str) -> dict:
             validation["invalid_links"] = input["not_found"] != "ignore"
         if "anchors" in input:
             validation["invalid_link_anchors"] = input["anchors"] != "ignore"
+        if "absolute_links" in input:
+            validation["absolute_links_relative_to_docs"] = (
+                input["absolute_links"] == "relative_to_docs"
+            )
 
         # Our own keys override the ones we map from MkDocs, so we apply them
         # after mapping the MkDocs keys
