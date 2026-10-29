@@ -786,7 +786,5 @@ def test_invalid_ca_bundle_is_not_silently_ignored(
     monkeypatch.setenv("SSL_CERT_FILE", str(TLS_FIXTURES / "ca.pem"))
     config = _project(tmp_path, "https://localhost:1", "# No download needed")
 
-    with pytest.raises(
-        RuntimeError, match=r"REQUESTS_CA_BUNDLE.*invalid\.pem"
-    ):
+    with pytest.raises(RuntimeError, match=r"REQUESTS_CA_BUNDLE.*invalid\.pem"):
         _build(config)
