@@ -659,7 +659,10 @@ fn validate(
             // settled relation for the duration of this invocation, so
             // materializing owned tuples would duplicate all anchor and
             // unresolved-autoref data at peak.
-            let issues = Issues::new(pages.iter());
+            let issues = Issues::new(
+                pages.iter(),
+                validation.absolute_links_relative_to_docs,
+            );
             issues.print(&validation, strict)?;
             Ok::<_, anyhow::Error>(Some(()))
         },
@@ -843,6 +846,7 @@ fn render_markdown(
         config.project.use_directory_urls,
         &source_route.url,
         &route.url,
+        config.project.validation.absolute_links_relative_to_docs,
     );
     // URLs are resolved before plugin visitors are run so extracted titles
     // and Markdown exports are also given the rewritten targets.

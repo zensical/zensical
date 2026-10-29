@@ -249,6 +249,66 @@ def test_media_urls_are_rewritten_after_all_markdown_postprocessors(
 
 
 @pytest.mark.parametrize("directory_urls", [True, False])
+@pytest.mark.parametrize(
+    "source", ["index.md", "guide/index.md", "guide/page.md"]
+)
+@pytest.mark.parametrize("enabled", [True, False])
+@pytest.mark.parametrize("config_shape", ["mkdocs", "zensical"])
+def test_absolute_links_are_resolved_relative_to_docs(
+    tmp_path: Path,
+    directory_urls: bool,
+    source: str,
+    enabled: bool,
+    config_shape: str,
+) -> None:
+    # Rooted pages and media are linked from different depths in the site.
+    content = (
+        "# Local\n\n[Home](/index.md)\n\n"
+        f"[Self](/{source})\n\n"
+        "[Reference][target]\n\n[target]: /other.md#anchor\n\n"
+        '<a href="/other.md?view=1&amp;sort=2#anchor">Raw</a>\n\n'
+        '<img src="/assets/image.svg" '
+        'srcset="/assets/image.svg 1x, //cdn.example.org/image.svg 2x">\n\n'
+        "[External](//example.org/page.md)\n\n[Local](#local)\n\n[Query](?view=1)"
+    )
+    pages = {"index.md": "# Home\n", source: content, "other.md": "# Anchor\n"}
+    if config_shape == "mkdocs":
+        setting = "relative_to_docs" if enabled else "ignore"
+        config = f'[project.validation.links]\nabsolute_links = "{setting}"\n'
+    else:
+        config = (
+            "[project.validation]\n"
+            f"absolute_links_relative_to_docs = {str(enabled).lower()}\n"
+        )
+
+    rendered = _build_pages(tmp_path, pages, directory_urls, config)[source]
+
+    # Rooted URLs are preserved unless relative_to_docs is enabled.
+    if enabled:
+        depth = len(Path(source).parts) - 1
+        if directory_urls and Path(source).name != "index.md":
+            depth += 1
+        prefix = "../" * depth
+        home = (prefix or "./") if directory_urls else prefix + "index.html"
+        other = prefix + ("other/" if directory_urls else "other.html")
+        image = prefix + "assets/image.svg"
+        self_link = "./" if directory_urls else Path(source).stem + ".html"
+    else:
+        home, other, image = "/index.md", "/other.md", "/assets/image.svg"
+        self_link = f"/{source}"
+
+    assert f'href="{home}"' in rendered
+    assert f'href="{self_link}"' in rendered
+    assert f'href="{other}#anchor"' in rendered
+    assert f'href="{other}?view=1&amp;sort=2#anchor"' in rendered
+    assert f'src="{image}"' in rendered
+    assert f'srcset="{image} 1x, //cdn.example.org/image.svg 2x"' in rendered
+    assert 'href="//example.org/page.md"' in rendered
+    assert 'href="#local"' in rendered
+    assert 'href="?view=1"' in rendered
+
+
+@pytest.mark.parametrize("directory_urls", [True, False])
 def test_plugin_visitors_receive_rewritten_urls(
     tmp_path: Path, directory_urls: bool
 ) -> None:

@@ -53,6 +53,8 @@ pub struct Validation {
     pub invalid_links: bool,
     /// Invalid link anchors.
     pub invalid_link_anchors: bool,
+    /// Whether absolute links are resolved relative to the documentation root.
+    pub absolute_links_relative_to_docs: bool,
 }
 
 // ----------------------------------------------------------------------------
@@ -91,6 +93,7 @@ impl Default for Validation {
             shadowed_footnotes: false,
             invalid_links: true,
             invalid_link_anchors: true,
+            absolute_links_relative_to_docs: false,
         }
     }
 }
