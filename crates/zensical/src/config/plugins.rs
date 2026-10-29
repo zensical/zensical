@@ -34,6 +34,7 @@ mod autoapi;
 mod blog;
 mod llmstxt;
 mod nav_weight;
+mod optimize;
 mod privacy;
 mod rss;
 mod social;
@@ -44,6 +45,7 @@ pub use autoapi::AutoApiPlugin;
 pub use blog::{BlogPlugin, BlogPluginConfig, CategorySort, ExcerptPolicy};
 pub use llmstxt::{LlmstxtPlugin, LlmstxtPluginConfig};
 pub use nav_weight::{NavWeightPlugin, NavWeightPluginConfig};
+pub use optimize::{OptimizePlugin, OptimizePluginConfig};
 pub use privacy::{PrivacyPlugin, PrivacyPluginConfig};
 pub use rss::{RssDateConfig, RssPlugin, RssPluginConfig};
 pub use social::{SocialPlugin, SocialPluginConfig, SocialPluginInstance};
@@ -110,6 +112,8 @@ pub struct Plugins {
     pub offline: OfflinePlugin,
     /// Ordered Material privacy plugin instances.
     pub privacy: PrivacyPlugin,
+    /// Ordered Material optimize plugin instances.
+    pub optimize: OptimizePlugin,
 }
 
 // ----------------------------------------------------------------------------

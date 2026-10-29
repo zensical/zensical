@@ -58,6 +58,7 @@ icu_casemap.workspace = true
 icu_locale_core.workspace = true
 icu_normalizer.workspace = true
 jiff.workspace = true
+jpeg-encoder.workspace = true
 minijinja = { workspace = true, features = [
   "json", "loader", "builtins", "urlencode"
 ] }
@@ -93,6 +94,8 @@ tracing-chrome = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
 webbrowser.workspace = true
 zrx.workspace = true
+zune-core.workspace = true
+zune-jpeg.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

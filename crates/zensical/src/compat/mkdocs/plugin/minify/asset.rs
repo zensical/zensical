@@ -33,7 +33,7 @@ use std::sync::Arc;
 
 use zrx::id::Id;
 use zrx::stream::function::Collection;
-use zrx::stream::{Key, Signal, Stream, Value};
+use zrx::stream::{concurrent, Key, Signal, Stream, Value};
 
 use crate::compat::mkdocs::resource::Resource;
 use crate::config::plugins::MinifyPluginConfig;
@@ -345,9 +345,30 @@ pub fn setup(
 ) -> Signal<Id, Manifest> {
     let settings = Settings::new(plugin.config());
     let settings_for_transform = settings.clone();
-    let emissions = resources.map(move |resource: &Resource| {
-        settings_for_transform.transform(resource)
-    });
+    let optimize = plugin.optimize.clone();
+    let active = optimize.active();
+    let concurrency = optimize.concurrency();
+    let transform = move |resource: &Resource| {
+        let mut emission = settings_for_transform.transform(resource)?;
+        if optimize.selected(resource.source_path.as_str())? {
+            let bytes = match &emission.contents {
+                Contents::Copy(source) => std::fs::read(source)?,
+                Contents::Bytes(bytes) => bytes.to_vec(),
+            };
+            emission.contents = Contents::Bytes(
+                optimize
+                    .image(resource.source_path.as_str(), Arc::new(bytes))?
+                    .as_slice()
+                    .into(),
+            );
+        }
+        Ok::<_, anyhow::Error>(emission)
+    };
+    let emissions = if active {
+        resources.map(concurrent(concurrency, transform))
+    } else {
+        resources.map(transform)
+    };
 
     let outputs = emissions.unique_by_key(move |emission: &Emission| {
         output_key(&emission.output_path)

@@ -56,7 +56,7 @@ mod template;
 mod watcher;
 mod workflow;
 
-use compat::mkdocs::plugin::meta;
+use compat::mkdocs::plugin::{meta, optimize};
 use config::Config;
 use path::SourcePath;
 use server::{create_server, ServeOptions};
@@ -225,11 +225,14 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     let meta = meta::Meta::new(&config);
 
     // Create workflow runner and acquire its source input
+    let optimize =
+        optimize::Optimize::new(&config, matches!(&mode, Mode::Serve(_, _)));
     let workflow = create_workflow(
         &config,
         strict,
         matches!(&mode, Mode::Serve(_, _)),
         meta.clone(),
+        optimize.clone(),
     )
     .map_err(|error| PyRuntimeError::new_err(format!("{error:#}")))?;
     let mut runner = workflow
@@ -391,6 +394,9 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => match mode {
                 Mode::Build(..) => {
+                    optimize.report().map_err(|error| {
+                        PyRuntimeError::new_err(format!("{error:#}"))
+                    })?;
                     let elapsed = time.elapsed().as_secs_f32();
                     println!("Build finished in {elapsed:.2}s");
                     break;

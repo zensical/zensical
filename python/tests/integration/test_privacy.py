@@ -786,7 +786,41 @@ def test_invalid_ca_bundle_is_not_silently_ignored(
     monkeypatch.setenv("SSL_CERT_FILE", str(TLS_FIXTURES / "ca.pem"))
     config = _project(tmp_path, "https://localhost:1", "# No download needed")
 
-    with pytest.raises(
-        RuntimeError, match=r"REQUESTS_CA_BUNDLE.*invalid\.pem"
-    ):
+    with pytest.raises(RuntimeError, match=r"REQUESTS_CA_BUNDLE.*invalid\.pem"):
         _build(config)
+
+
+def test_downloaded_images_are_optimized_without_changing_download_cache(
+    tmp_path: Path,
+    remote: Any,
+) -> None:
+    """External images use the same image optimization path as local assets."""
+    origin, responses, requests = remote
+    from pathlib import Path  # noqa: PLC0415
+
+    original = (
+        Path(__file__).parents[1] / "fixtures" / "optimize" / "photo.jpg"
+    ).read_bytes()
+    responses["/photo.jpg"] = ("image/jpeg", original)
+    path = _project(tmp_path, origin, f"![Photo]({origin}/photo.jpg)")
+    settings = json.loads(path.read_text())
+    settings["plugins"].append({"optimize": {"optimize_png": False}})
+    path.write_text(json.dumps(settings))
+
+    _build(path)
+
+    images = list((tmp_path / "site" / "assets" / "external").rglob("*.jpg"))
+    assert len(images) == 1
+    assert len(images[0].read_bytes()) < len(original)
+    assert images[0].read_bytes().startswith(b"\xff\xd8")
+    assert requests["/photo.jpg"] == 1
+
+    # Download and optimization caches must both be reusable on the next build.
+    _build(path)
+
+    assert requests["/photo.jpg"] == 1
+    assert any(
+        file.read_bytes() == original
+        for file in (tmp_path / ".cache" / "plugin" / "privacy").rglob("*")
+        if file.is_file()
+    )
