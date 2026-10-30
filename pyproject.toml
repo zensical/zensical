@@ -61,7 +61,7 @@ dependencies = [
     "pymdown-extensions>=11.0",
     "pyyaml>=6.0.2",
     "tomli>=2.4.0",
-    "zensical-ui==0.0.40",
+    "zensical-ui==0.0.41",
 ]
 
 [project.urls]
