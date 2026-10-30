@@ -90,6 +90,61 @@ def test_redirects_generate_mkdocs_compatible_artifacts(tmp_path: Path) -> None:
     assert json.loads((tmp_path / "site" / "redirect.json").read_text()) == {}
 
 
+@pytest.mark.parametrize("use_directory_urls", [True, False])
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "?subgroup=example",
+        "?q=two%20words&tag=one&tag=two",
+        "?q=encoded%23hash#details",
+        "?",
+        "#details?literal",
+    ],
+)
+def test_internal_redirect_targets_preserve_query_and_fragment(
+    tmp_path: Path, use_directory_urls: bool, suffix: str
+) -> None:
+    """Page, anchor, and chained redirects resolve only the target path."""
+    config = _write_project(
+        tmp_path,
+        f"""\
+        first.md: legacy/deep.md
+        legacy/deep.md: guide/topic.md{suffix}
+        legacy/deep.md#old: guide/topic.md{suffix}
+        new.md#old: guide/topic.md{suffix}
+""",
+    )
+    with config.open("a", encoding="utf-8") as file:
+        file.write(f"use_directory_urls: {str(use_directory_urls).lower()}\n")
+    zensical.build(str(config), {"clean": False, "strict": True})
+
+    if use_directory_urls:
+        first_path = "first/index.html"
+        nested_path = "legacy/deep/index.html"
+        first_target = f"../guide/topic/{suffix}"
+        nested_target = f"../../guide/topic/{suffix}"
+        manifest_target = f"guide/topic/{suffix}"
+        nested_source, live_source = "legacy/deep/#old", "new/#old"
+    else:
+        first_path = "first.html"
+        nested_path = "legacy/deep.html"
+        first_target = f"guide/topic.html{suffix}"
+        nested_target = f"../guide/topic.html{suffix}"
+        manifest_target = f"guide/topic.html{suffix}"
+        nested_source, live_source = "legacy/deep.html#old", "new.html#old"
+
+    first = (tmp_path / "site" / first_path).read_text()
+    nested = (tmp_path / "site" / nested_path).read_text()
+    assert f'<link rel="canonical" href="{first_target}">' in first
+    assert f'<link rel="canonical" href="{nested_target}">' in nested
+    assert f'content="0; url={nested_target}"' in nested
+    assert f'"#old":"{nested_target}"' in nested
+    assert json.loads((tmp_path / "site" / "redirect.json").read_text()) == {
+        nested_source: manifest_target,
+        live_source: manifest_target,
+    }
+
+
 def test_anchor_redirects_generate_site_manifest(tmp_path: Path) -> None:
     """Anchor mappings retain live pages and use resolved public URLs."""
     config = _write_project(
@@ -210,15 +265,16 @@ def test_redirects_without_directory_urls_write_html_files(
     }
 
 
+@pytest.mark.parametrize("target", ["missing.md", "missing.md?q=1#details"])
 def test_missing_redirect_target_warns_and_strict_mode_fails(
-    tmp_path: Path, capfd: pytest.CaptureFixture[str]
+    tmp_path: Path, capfd: pytest.CaptureFixture[str], target: str
 ) -> None:
     """Missing targets are omitted and retain MkDocs strict semantics."""
-    config = _write_project(tmp_path, "        old.md: missing.md\n")
+    config = _write_project(tmp_path, f"        old.md: {target}\n")
     zensical.build(str(config), _BUILD_OPTIONS)
     assert not (tmp_path / "site" / "old" / "index.html").exists()
     assert (
-        "Redirect target 'missing.md' does not exist!" in capfd.readouterr().err
+        f"Redirect target '{target}' does not exist!" in capfd.readouterr().err
     )
 
     with pytest.raises(RuntimeError, match="strict flag is set"):
