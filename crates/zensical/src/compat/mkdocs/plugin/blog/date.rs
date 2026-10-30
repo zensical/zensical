@@ -26,8 +26,15 @@
 //! Native ISO date parsing and route-date formatting.
 
 use anyhow::{bail, Context};
+use icu_calendar::Gregorian;
+use icu_datetime::fieldsets::{YMD, YMDE};
+use icu_datetime::input::{Date, DateTime, Time};
+use icu_datetime::pattern::{DateTimePattern, FixedCalendarDateTimeNames};
+use icu_datetime::FixedCalendarDateTimeFormatter;
+use icu_locale_core::{locale, Locale};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
+use writeable::TryWriteable;
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -127,40 +134,64 @@ impl BlogDate {
         )
     }
 
-    /// Formats Material's default English `long` display date.
-    pub fn long_en(self) -> String {
-        format!(
-            "{} {}, {}",
-            month_name(self.month, false),
-            self.day,
-            self.year
-        )
-    }
+    /// A Material/Babel date pattern is formatted for the theme language.
+    pub fn format_display(
+        self, pattern: &str, language: &str,
+    ) -> anyhow::Result<String> {
+        let locale = language
+            .replace('_', "-")
+            .parse::<Locale>()
+            .unwrap_or(locale!("en"));
+        let date = Date::try_new_gregorian(self.year, self.month, self.day)?;
 
-    /// Formats a Material/Babel date pattern using native English names.
-    pub fn format_display(self, pattern: &str) -> anyhow::Result<String> {
+        // Gregorian civil dates are preserved, as in Material's Babel filter.
+        // Named formats are selected from the locale's date patterns.
         match pattern {
-            "full" => Ok(format!(
-                "{}, {} {}, {}",
-                weekday_name(self, false),
-                month_name(self.month, false),
-                self.day,
-                self.year
-            )),
-            "long" => Ok(self.long_en()),
-            "medium" => Ok(format!(
-                "{} {}, {}",
-                month_name(self.month, true),
-                self.day,
-                self.year
-            )),
-            "short" => Ok(format!(
-                "{}/{}/{:02}",
-                self.month,
-                self.day,
-                self.year.rem_euclid(100)
-            )),
-            pattern => self.format_pattern(pattern),
+            "full" => {
+                Ok(FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new(
+                    locale.into(),
+                    YMDE::long(),
+                )?
+                .format(&date)
+                .to_string())
+            }
+            "long" | "medium" | "short" => {
+                let fields = match pattern {
+                    "long" => YMD::long(),
+                    "medium" => YMD::medium(),
+                    _ => YMD::short(),
+                };
+                Ok(FixedCalendarDateTimeFormatter::<Gregorian, _>::try_new(
+                    locale.into(),
+                    fields,
+                )?
+                .format(&date)
+                .to_string())
+            }
+            pattern => {
+                let pattern = pattern.parse::<DateTimePattern>()?;
+                let mut names =
+                    FixedCalendarDateTimeNames::<Gregorian>::try_new(
+                        locale.into(),
+                    )?;
+                let datetime = DateTime {
+                    date,
+                    time: Time::try_new(
+                        self.hour,
+                        self.minute,
+                        self.second,
+                        self.microsecond * 1_000,
+                    )?,
+                };
+                names
+                    .include_for_pattern(&pattern)?
+                    .format(&datetime)
+                    .try_write_to_string()
+                    .map(std::borrow::Cow::into_owned)
+                    .map_err(|error| {
+                        anyhow::anyhow!("invalid display date: {error:?}")
+                    })
+            }
         }
     }
 
@@ -445,16 +476,16 @@ mod tests {
         assert_eq!(date.format_url("yy-M-d").unwrap(), "26-9-3");
         assert_eq!(date.format_url("yyyy'year'MM").unwrap(), "2026year09");
         assert_eq!(
-            date.format_display("MMMM d, yyyy").unwrap(),
+            date.format_display("MMMM d, yyyy", "en").unwrap(),
             "September 3, 2026"
         );
         assert_eq!(
-            date.format_display("full").unwrap(),
+            date.format_display("full", "en").unwrap(),
             "Thursday, September 3, 2026"
         );
         let time = BlogDate::parse("2026-09-03T14:05:09Z").unwrap();
         assert_eq!(
-            time.format_display("MMM d, yyyy h:mm a").unwrap(),
+            time.format_display("MMM d, yyyy h:mm a", "en").unwrap(),
             "Sep 3, 2026 2:05 PM"
         );
     }

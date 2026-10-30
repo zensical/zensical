@@ -164,14 +164,20 @@ pub fn script_tag_filter(state: &State, value: Value) -> String {
     html
 }
 
-/// Material blog's per-instance English date filter.
+/// Blog dates are formatted with the instance's pattern and theme language.
 pub fn date_filter(state: &State, value: String) -> String {
     let pattern = state
         .lookup("_blog_date_format")
         .filter(|value| !value.is_undefined())
         .map_or_else(|| "long".into(), |value| value.to_string());
+    let language = state
+        .lookup("config")
+        .and_then(|config| config.get_attr("theme").ok())
+        .and_then(|theme| theme.get_attr("language").ok())
+        .filter(|value| !value.is_undefined())
+        .map_or_else(|| "en".into(), |value| value.to_string());
     BlogDate::parse(&value)
-        .and_then(|date| date.format_display(&pattern))
+        .and_then(|date| date.format_display(&pattern, &language))
         .unwrap_or(value)
 }
 

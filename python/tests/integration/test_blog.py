@@ -1132,6 +1132,98 @@ def test_invalid_post_metadata_is_rejected(
         zensical.build(str(config), _BUILD_OPTIONS)
 
 
+@pytest.mark.parametrize(
+    ("language", "date_format", "created", "updated", "archive_title"),
+    [
+        ("de", "long", "4. Juni 2026", "5. Juni 2026", "Juni 2026"),
+        (
+            "de",
+            "full",
+            "Donnerstag, 4. Juni 2026",
+            "Freitag, 5. Juni 2026",
+            "Juni 2026",
+        ),
+        ("de", "medium", "04.06.2026", "05.06.2026", "Juni 2026"),
+        ("de", "short", "04.06.26", "05.06.26", "Juni 2026"),
+        (
+            "de",
+            "EEEE, d. MMMM yyyy",
+            "Donnerstag, 4. Juni 2026",
+            "Freitag, 5. Juni 2026",
+            "Juni 2026",
+        ),
+        ("fr", "long", "4 juin 2026", "5 juin 2026", "juin 2026"),
+        (
+            "pt-BR",
+            "long",
+            "4 de junho de 2026",
+            "5 de junho de 2026",
+            "junho 2026",
+        ),
+        ("en", "long", "June 4, 2026", "June 5, 2026", "June 2026"),
+    ],
+)
+def test_blog_dates_use_theme_language(
+    tmp_path: Path,
+    language: str,
+    date_format: str,
+    created: str,
+    updated: str,
+    archive_title: str,
+) -> None:
+    # Localized dates are requested for posts, excerpts, and archive titles.
+    config = _project(tmp_path, archive=True)
+    config.write_text(
+        config.read_text(encoding="utf-8").replace(
+            "  custom_dir: overrides\n",
+            f"  custom_dir: overrides\n  language: {language}\n",
+        )
+        + f'      post_date_format: "{date_format}"\n'
+        + '      archive_date_format: "MMMM yyyy"\n',
+        encoding="utf-8",
+    )
+    _post(
+        tmp_path,
+        "one.md",
+        "One",
+        "{created: 2026-06-04, updated: '2026-06-05T23:30:00-02:00'}",
+    )
+
+    post_template = tmp_path / "overrides" / "blog-post.html"
+    post_template.write_text(
+        post_template.read_text(encoding="utf-8")
+        + "|UPDATED={{ page.config.date.updated | date }}|",
+        encoding="utf-8",
+    )
+    blog_template = tmp_path / "overrides" / "blog.html"
+    blog_template.write_text(
+        blog_template.read_text(encoding="utf-8")
+        + (
+            "{% for post in posts %}"
+            "|CREATED={{ post.config.date.created | date }}|{% endfor %}"
+        ),
+        encoding="utf-8",
+    )
+
+    zensical.build(str(config), _BUILD_OPTIONS)
+
+    # Display dates are localized without a change to the civil date or routes.
+    blog = tmp_path / "site" / "blog"
+    post = (blog / "2026" / "06" / "04" / "one" / "index.html").read_text(
+        "utf-8"
+    )
+    assert f"|{created}|" in post
+    assert f"|UPDATED={updated}|" in post
+
+    index = (blog / "index.html").read_text("utf-8")
+    assert f"|CREATED={created}|" in index
+    assert f"[{archive_title}=" in index
+
+    archive = (blog / "archive" / "2026" / "index.html").read_text("utf-8")
+    assert f"BLOG|{archive_title}|" in archive
+    assert f"|CREATED={created}|" in archive
+
+
 def test_date_display_formats_are_independent_from_archive_routes(
     tmp_path: Path,
 ) -> None:

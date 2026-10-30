@@ -271,13 +271,13 @@ impl From<&ViewMembership> for ViewOrder {
 /// Installs explicit membership, per-view ordering, and pagination relations.
 pub fn setup(
     posts: &Stream<Id, PostDescriptor>,
-    instances: Arc<Vec<(BlogId, BlogPluginConfig)>>,
+    instances: Arc<Vec<(BlogId, BlogPluginConfig)>>, language: String,
 ) -> Output {
     let membership_settings = instances.clone();
     let memberships = posts.flat_map(move |post: &PostDescriptor| {
         let settings = settings(&membership_settings, post.id.blog);
         Ok::<_, anyhow::Error>(
-            memberships(post, settings)?
+            memberships(post, settings, &language)?
                 .into_iter()
                 .map(|membership| {
                     let key = membership_key(&membership.view);
@@ -345,7 +345,7 @@ fn pagination_per_page(settings: &BlogPluginConfig, kind: &ViewKind) -> usize {
 }
 
 fn memberships(
-    post: &PostDescriptor, settings: &BlogPluginConfig,
+    post: &PostDescriptor, settings: &BlogPluginConfig, language: &str,
 ) -> anyhow::Result<Vec<ViewMembership>> {
     let member = |kind, title, path, position| ViewMembership {
         view: ViewId { blog: post.id.blog, kind },
@@ -364,7 +364,7 @@ fn memberships(
             .format_url(&settings.archive_url_date_format)?;
         let title = post
             .created()
-            .format_display(&settings.archive_date_format)?;
+            .format_display(&settings.archive_date_format, language)?;
         let path = settings.archive_url_format.replace("{date}", &key);
         memberships.push(member(ViewKind::Archive(key), title, path, 0));
     }
@@ -609,7 +609,7 @@ mod tests {
         let instances = Arc::new(vec![(BlogId(0), settings)]);
         let workflow = Workflow::<Id>::build(|workflow| {
             let posts = workflow.input::<PostDescriptor>();
-            let output = setup(&posts, instances);
+            let output = setup(&posts, instances, "en".into());
             workflow.output(&output.pages);
         });
         let mut runner = workflow.runner().unwrap();

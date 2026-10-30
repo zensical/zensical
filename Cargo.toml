@@ -59,7 +59,9 @@ html5gum = { version = "0.8.4", default-features = false }
 html-escape = "0.2.14"
 httparse = "1.10"
 httpdate = "1.0"
+icu_calendar = "2.2.0"
 icu_casemap = "2.2.0"
+icu_datetime = "2.2.0"
 icu_locale_core = "2.2.0"
 icu_normalizer = "2.2.0"
 indicatif = "0.18"
@@ -101,6 +103,7 @@ tracing-chrome = "0.7"
 tracing-subscriber = "0.3.23"
 walkdir = "2.5"
 webbrowser = "1.2.2"
+writeable = "0.6"
 
 [workspace.dependencies.zrx]
 git = "https://github.com/zensical/zrx.git"

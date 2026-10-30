@@ -276,7 +276,11 @@ impl Blog {
         let post_pages = posts.map(|post: &PostDescriptor| post.page.clone());
         let pages = (pages, post_pages).coalesce();
         let entrypoints = self.entrypoints(dependencies.documents);
-        let collection = collection::setup(&posts, self.instances.clone());
+        let collection = collection::setup(
+            &posts,
+            self.instances.clone(),
+            self.config.project.theme.language.clone(),
+        );
         let views = collection.views;
         let main = views.select(&entrypoints, |entrypoint| {
             let blog = entrypoint.blog;

@@ -54,7 +54,9 @@ fluent-uri.workspace = true
 globset.workspace = true
 html5gum.workspace = true
 html-escape.workspace = true
+icu_calendar.workspace = true
 icu_casemap.workspace = true
+icu_datetime.workspace = true
 icu_locale_core.workspace = true
 icu_normalizer.workspace = true
 jiff.workspace = true
@@ -92,6 +94,7 @@ tracing = { workspace = true, optional = true, features = [
 tracing-chrome = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
 webbrowser.workspace = true
+writeable.workspace = true
 zrx.workspace = true
 
 [dev-dependencies]
