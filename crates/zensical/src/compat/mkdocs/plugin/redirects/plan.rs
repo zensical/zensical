@@ -56,10 +56,10 @@ enum Target {
     Internal {
         /// Original configured value used in diagnostics.
         configured: String,
-        /// Source path without a fragment.
+        /// Source path without a query or fragment.
         source: String,
-        /// Fragment including its leading `#`, when present.
-        fragment: String,
+        /// Query and fragment including their leading delimiters, when present.
+        suffix: String,
     },
 }
 
@@ -69,12 +69,12 @@ enum Target {
 enum ResolvedTarget<'a> {
     /// External target that is already ready for output.
     External(&'a str),
-    /// Internal target composed from a public page URL and fragment.
+    /// Internal target composed from a public page URL and URI suffix.
     Internal {
         /// Site-relative public page URL.
         url: &'a str,
-        /// Fragment including its leading `#`, when present.
-        fragment: &'a str,
+        /// Query and fragment including their leading delimiters, when present.
+        suffix: &'a str,
     },
 }
 
@@ -167,9 +167,9 @@ impl Target {
     ) -> Option<ResolvedTarget<'a>> {
         match self {
             Self::External(target) => Some(ResolvedTarget::External(target)),
-            Self::Internal { source, fragment, .. } => routes
+            Self::Internal { source, suffix, .. } => routes
                 .get(source)
-                .map(|url| ResolvedTarget::Internal { url, fragment }),
+                .map(|url| ResolvedTarget::Internal { url, suffix }),
         }
     }
 
@@ -189,7 +189,7 @@ impl ResolvedTarget<'_> {
     fn for_manifest(&self) -> String {
         match self {
             Self::External(target) => (*target).into(),
-            Self::Internal { url, fragment } => format!("{url}{fragment}"),
+            Self::Internal { url, suffix } => format!("{url}{suffix}"),
         }
     }
 
@@ -199,8 +199,8 @@ impl ResolvedTarget<'_> {
     ) -> String {
         match self {
             Self::External(target) => (*target).into(),
-            Self::Internal { url, fragment } => {
-                relative_target(output, url, fragment, use_directory_urls)
+            Self::Internal { url, suffix } => {
+                relative_target(output, url, suffix, use_directory_urls)
             }
         }
     }
@@ -401,11 +401,15 @@ fn prepare_target(configured: &str) -> Target {
     if is_external(configured) {
         Target::External(configured.into())
     } else {
-        let (source, fragment) = split_fragment(configured);
+        // Only the path identifies a source page. Keep the query and fragment
+        // verbatim so encoding, repeated parameters, and empty queries survive.
+        let (source, suffix) = configured
+            .find(['?', '#'])
+            .map_or((configured, ""), |index| configured.split_at(index));
         Target::Internal {
             configured: configured.into(),
             source: source.into(),
-            fragment: fragment.into(),
+            suffix: suffix.into(),
         }
     }
 }
@@ -576,7 +580,7 @@ fn split_fragment(target: &str) -> (&str, &str) {
 
 /// Makes a final page URL relative to one redirect output.
 fn relative_target(
-    output: &SitePath, target: &str, fragment: &str, use_directory_urls: bool,
+    output: &SitePath, target: &str, suffix: &str, use_directory_urls: bool,
 ) -> String {
     let parent = Path::new(output.as_str())
         .parent()
@@ -585,7 +589,7 @@ fn relative_target(
     if use_directory_urls {
         relative.push('/');
     }
-    relative.push_str(fragment);
+    relative.push_str(suffix);
     relative
 }
 
