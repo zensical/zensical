@@ -167,9 +167,8 @@ jobs:
           import subprocess
 
           version = os.environ["VERSION"]
-          repository = os.environ["GH_REPO"]
           release = json.loads(subprocess.check_output(
-              ["gh", "api", f"repos/{repository}/releases/tags/{version}"],
+              ["gh", "release", "view", version, "--json", "assets"],
               text=True,
           ))
           assets = {asset["name"]: asset for asset in release["assets"]}
@@ -181,9 +180,12 @@ jobs:
               if asset is None:
                   pending.append(path)
                   continue
+              details = json.loads(subprocess.check_output(
+                  ["gh", "api", asset["apiUrl"]], text=True,
+              ))
               with path.open("rb") as stream:
                   digest = "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
-              if asset.get("digest") != digest:
+              if details.get("digest") != digest:
                   raise SystemExit(f"Existing release asset differs: {path.name}")
           for path in pending:
               subprocess.run(["gh", "release", "upload", version, str(path)], check=True)

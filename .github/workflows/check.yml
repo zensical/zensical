@@ -145,6 +145,7 @@ jobs:
     timeout-minutes: 60
     runs-on: ubuntu-latest
     if: |
+      github.event.action != 'closed' &&
       startsWith(github.event.pull_request.head.ref, 'release/')
     steps:
       - name: Checkout repository
