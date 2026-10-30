@@ -57,6 +57,8 @@ pub struct Minify {
     output: OutputRoot,
     /// Template-visible project configuration projected by asset mappings.
     project: Arc<Project>,
+    /// Image optimization shared with downloaded assets.
+    optimize: super::optimize::Optimize,
 }
 
 // ----------------------------------------------------------------------------
@@ -73,11 +75,12 @@ pub struct Dependencies<'a> {
 
 impl Minify {
     /// Resolves the private settings owned by this pipeline instance.
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &Config, optimize: super::optimize::Optimize) -> Self {
         Self {
             config: config.project.plugins.minify.config.clone(),
             output: config.output_root().clone(),
             project: config.project.clone(),
+            optimize,
         }
     }
 

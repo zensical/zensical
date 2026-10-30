@@ -49,8 +49,8 @@ use crate::compat::mkdocs::{
     links::Links,
     plugin::{
         self, autorefs, awesome_nav, blog, exclude, literate_nav, llmstxt,
-        meta, minify, mkdocstrings, nav_weight, privacy, redirects, rss,
-        search, social, tags,
+        meta, minify, mkdocstrings, nav_weight, optimize, privacy, redirects,
+        rss, search, social, tags,
     },
     resource,
 };
@@ -96,6 +96,8 @@ struct Main {
     exclude: exclude::Exclude,
     /// Privacy state shared by resources and rendered HTML.
     privacy: privacy::Privacy,
+    /// Image optimization shared by local and downloaded assets.
+    optimize: optimize::Optimize,
 }
 
 /// File input enriched with immutable facts for the current revision.
@@ -268,7 +270,7 @@ impl Main {
         let files = self.exclude.sources(&ctx.input::<Input>());
         let configuration = ctx.input::<Configuration>();
         let sources_ready = ctx.input::<SourcesReady>();
-        let minify = minify::Minify::new(&self.config);
+        let minify = minify::Minify::new(&self.config, self.optimize.clone());
         let privacy = self.privacy.clone();
 
         // Set up workflow to process static assets and Markdown files.
@@ -1106,9 +1108,10 @@ fn render_pages(
 /// Creates a workflow for the given config.
 pub fn create_workflow(
     config: &Config, strict: bool, serve: bool, meta: meta::Meta,
+    optimize: optimize::Optimize,
 ) -> anyhow::Result<Workflow<Id>> {
     let exclude = exclude::Exclude::new(config)?;
-    let privacy = privacy::Privacy::new(config, strict)?;
+    let privacy = privacy::Privacy::new(config, strict, optimize.clone())?;
     Ok(Workflow::build(|workflow| {
         Main {
             config: config.clone(),
@@ -1117,6 +1120,7 @@ pub fn create_workflow(
             meta,
             exclude,
             privacy,
+            optimize,
         }
         .setup(workflow);
     }))

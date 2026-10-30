@@ -46,6 +46,7 @@ pub mod meta;
 pub mod minify;
 pub mod mkdocstrings;
 pub mod nav_weight;
+pub mod optimize;
 pub mod privacy;
 pub mod redirects;
 pub mod rss;
