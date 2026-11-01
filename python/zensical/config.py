@@ -63,6 +63,7 @@ from zensical.extensions.markdownextradata import (
 )
 from zensical.extensions.media import MediaExtension
 from zensical.extensions.mkdocstrings import MkdocstringsExtension
+from zensical.extensions.pdf import PdfExtension
 from zensical.extensions.table_reader import TABLE_READERS, TableReaderExtension
 
 if TYPE_CHECKING:
@@ -178,6 +179,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
     "minify": (),
     "mkdocs-audio": (),
     "mkdocs-autoapi": (),
+    "mkdocs-pdf": (),
     "mkdocs-video": (),
     "mkdocstrings": (
         # TODO: Merge the removed plugin watch setting into project.watch.
@@ -855,6 +857,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     _shim_markdown_exec(config)
     _shim_glightbox(config)
     _shim_media(config)
+    _shim_pdf(config)
     _shim_macros(config)
     _shim_markdownextradata(config)
     _shim_table_reader(config)
@@ -1173,6 +1176,15 @@ def _shim_media(config: dict[str, Any]) -> None:
                 settings.setdefault(option, value)
         if not direct:
             settings.setdefault("enabled", plugin_name in plugins)
+
+
+def _shim_pdf(config: dict[str, Any]) -> None:
+    """Map the PDF plugin onto the Markdown extension."""
+    if "mkdocs-pdf" not in config["plugins"]:
+        return
+    name = PdfExtension.name
+    if name not in config["markdown_extensions"]:
+        config["markdown_extensions"].append(name)
 
 
 def _shim_macros(config: dict[str, Any]) -> None:
