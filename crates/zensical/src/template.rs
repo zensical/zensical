@@ -125,6 +125,23 @@ impl Template<'_> {
         project: &Arc<Project>,
     ) -> Result<String, Error> {
         let template = self.env.get_template(name)?;
+        Self::render_template(template, config, nav, pages, project)
+    }
+
+    /// A documentation template is compiled before its context is rendered.
+    /// Compilation errors are returned separately from rendering errors.
+    pub fn render_extra(
+        &self, source: &str, config: &Config, nav: &Navigation, pages: &[Page],
+        project: &Arc<Project>,
+    ) -> Result<Result<String, Error>, Error> {
+        let template = self.env.template_from_str(source)?;
+        Ok(Self::render_template(template, config, nav, pages, project))
+    }
+
+    fn render_template(
+        template: minijinja::Template<'_, '_>, config: &Config,
+        nav: &Navigation, pages: &[Page], project: &Arc<Project>,
+    ) -> Result<String, Error> {
         let nav = NavigationView::new(nav.clone(), None);
 
         // Create context and render template

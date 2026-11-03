@@ -267,9 +267,16 @@ impl Main {
     /// Initializes the module.
     #[allow(clippy::too_many_lines)]
     fn setup(&self, ctx: &mut Builder<Id>) {
-        let files = self.exclude.sources(&ctx.input::<Input>());
+        let inputs = ctx.input::<Input>();
+        let files = self.exclude.sources(&inputs);
         let configuration = ctx.input::<Configuration>();
         let sources_ready = ctx.input::<SourcesReady>();
+        validate_extra_templates(
+            &self.config,
+            self.strict,
+            &sources_ready,
+            &inputs,
+        );
         let minify = minify::Minify::new(&self.config, self.optimize.clone());
         let privacy = self.privacy.clone();
 
@@ -428,6 +435,7 @@ impl Main {
         let extra_artifacts = (rss_artifacts, llmstxt_artifacts).coalesce();
         let template_assets = render_templates(
             &self.config,
+            self.strict,
             &files,
             &page,
             &nav,
@@ -912,11 +920,50 @@ fn generate_page(
     })
 }
 
-/// Render static and extra templates.
+/// Missing extra templates are reported after the unfiltered source scan.
+fn validate_extra_templates(
+    config: &Config, strict: bool, ready: &Stream<Id, SourcesReady>,
+    files: &Stream<Id, Input>,
+) {
+    let docs_dir = config.project.docs_dir.clone();
+
+    // Excluded files are retained here so existing templates are not reported
+    // as missing. Empty sites and incremental source changes are also checked.
+    let seed = ready.map(|_: &SourcesReady| Vec::<String>::new());
+    let docs = docs_dir.clone();
+    let paths = files.map(move |id: &Id, _: &Input| {
+        if id.context() == docs {
+            vec![id.location().to_string()]
+        } else {
+            Vec::new()
+        }
+    });
+    let present = (seed, paths).coalesce().reduce(
+        |files: &dyn Collection<Key<Id>, Vec<String>>| {
+            Some(files.values().flatten().cloned().collect::<Vec<_>>())
+        },
+    );
+    let configured = config.project.extra_templates.clone();
+    let _ = ready.product(&present).map(move |_: &SourcesReady, present: &Vec<String>| {
+        let mut missing = false;
+        for name in &configured {
+            if !present.contains(name) {
+                eprintln!("WARNING -  Template skipped: '{name}' not found in docs_dir.");
+                missing = true;
+            }
+        }
+        anyhow::ensure!(!strict || !missing, "Aborted because --strict flag is set");
+        Ok::<_, anyhow::Error>(())
+    });
+}
+
+/// Static and extra templates are rendered.
+#[allow(clippy::too_many_arguments)]
 fn render_templates(
-    config: &Config, files: &Stream<Id, Input>, pages: &Stream<Id, Page>,
-    nav: &Signal<Id, Navigation>, assets: &Stream<Id, minify::Manifest>,
-    minify: &minify::Minify, privacy: &privacy::Privacy,
+    config: &Config, strict: bool, files: &Stream<Id, Input>,
+    pages: &Stream<Id, Page>, nav: &Signal<Id, Navigation>,
+    assets: &Stream<Id, minify::Manifest>, minify: &minify::Minify,
+    privacy: &privacy::Privacy,
 ) -> Stream<Id, privacy::Assets> {
     let docs_dir = config.project.docs_dir.clone();
 
@@ -965,18 +1012,30 @@ fn render_templates(
         move |id: &Id,
               input: &((Input, Navigation), TemplatePages),
               assets: &minify::Manifest| {
-            let ((_, nav), pages) = input;
-            let output = template_output(id)?;
+            let ((input, nav), pages) = input;
+            let extra = id.context() == config.project.docs_dir;
+            let output = template_output(id, extra)?;
             let name = output.as_str();
 
             // Render template and write to disk
-            let data = renderer.render(
-                name,
-                &config,
-                nav,
-                pages.0.as_slice(),
-                &assets.project,
-            )?;
+            let data = if extra {
+                let source = input.source.read_to_string()?;
+                match renderer.render_extra(&source, &config, nav, pages.0.as_slice(), &assets.project) {
+                    Ok(result) => result?,
+                    Err(error) => {
+                        // Source assets are copied before extra templates are parsed by MkDocs.
+                        // Only compilation failures are downgraded to warnings.
+                        let path = config.output_root().join(&output);
+                        fs::create_dir_all(path.parent().expect("invariant"))?;
+                        fs::write(path, source)?;
+                        eprintln!("WARNING -  Error reading template '{name}': {error}");
+                        anyhow::ensure!(!strict, "Aborted because --strict flag is set");
+                        return Ok(privacy::Assets::default());
+                    }
+                }
+            } else {
+                renderer.render(name, &config, nav, pages.0.as_slice(), &assets.project)?
+            };
             let (data, downloads) = if output
                 .extension()
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("html"))
@@ -994,10 +1053,14 @@ fn render_templates(
     )
 }
 
-/// Maps a template provider identity to its MkDocs-compatible root output.
-fn template_output(id: &Id) -> Result<SitePath, PathError> {
+/// A template provider identity is mapped to its MkDocs-compatible output.
+fn template_output(id: &Id, extra: bool) -> Result<SitePath, PathError> {
     let source = id.location().parse::<SourcePath>()?;
-    source.file_name().parse()
+    if extra {
+        source.as_str().parse()
+    } else {
+        source.file_name().parse()
+    }
 }
 
 /// Render pages.
@@ -1145,6 +1208,10 @@ mod tests {
             .build()
             .unwrap();
 
-        assert_eq!(template_output(&id).unwrap().as_str(), "café.html");
+        assert_eq!(template_output(&id, false).unwrap().as_str(), "café.html");
+        assert_eq!(
+            template_output(&id, true).unwrap().as_str(),
+            "nested/café.html"
+        );
     }
 }
