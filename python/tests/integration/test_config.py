@@ -671,3 +671,133 @@ class TestThemeLoadingYml:
         )
         with pytest.raises(ConfigurationError):
             _build(config_path)
+
+
+@pytest.mark.parametrize(
+    ("site_url", "repo_url", "edit_uri", "canonical", "edit"),
+    [
+        (
+            "https://example.org/base",
+            "https://github.com/team/repo",
+            "/",
+            "https://example.org/base/guide/",
+            "https://github.com/guide.md",
+        ),
+        (
+            "https://example.org/base?x=1#part",
+            "https://github.com/team/repo/",
+            "edit/main/docs/../docs",
+            "https://example.org/base/guide/",
+            "https://github.com/team/repo/edit/main/docs/guide.md",
+        ),
+        (
+            "https://example.org/base",
+            "https://github.com/team/repo",
+            "/edit/main",
+            "https://example.org/base/guide/",
+            "https://github.com/edit/main/guide.md",
+        ),
+        (
+            "https://example.org/base",
+            "https://github.com/team/repo",
+            "//edit.example.org/main",
+            "https://example.org/base/guide/",
+            "https://edit.example.org/main/guide.md",
+        ),
+        (
+            "https://example.org/base",
+            "https://github.com/team/repo",
+            "?branch=main",
+            "https://example.org/base/guide/",
+            "https://github.com/team/repo?branch=main/guide.md",
+        ),
+        (
+            "https://example.org/base",
+            "https://github.com/team/repo",
+            "#main",
+            "https://example.org/base/guide/",
+            "https://github.com/team/repo#main/guide.md",
+        ),
+        (
+            "",
+            "https://github.com/team/repo",
+            "",
+            "/guide/",
+            None,
+        ),
+        (
+            "",
+            "https://github.com/team/repo",
+            "http://edit.example.org",
+            "/guide/",
+            "https://github.com/team/repo/http://edit.example.org/guide.md",
+        ),
+        (
+            "",
+            None,
+            "https://edit.example.org",
+            "/guide/",
+            None,
+        ),
+        (
+            "https://example.org/base?x=1#part",
+            "https://github.com/team/repo",
+            "https://edit.example.org/main/../docs",
+            "https://example.org/base/guide/",
+            "https://edit.example.org/docs/guide.md",
+        ),
+        (
+            "",
+            "https://github.com/team/repo",
+            "HTTP://edit.example.org",
+            "/guide/",
+            "https://github.com/team/repo/HTTP://edit.example.org/guide.md",
+        ),
+        (
+            "",
+            None,
+            "HTTPS://edit.example.org",
+            "/guide/",
+            None,
+        ),
+        (
+            "https://example.org/some path",
+            "https://github.com/team/repo",
+            "/some path",
+            "https://example.org/some path/guide/",
+            "https://github.com/some path/guide.md",
+        ),
+    ],
+)
+def test_page_urls_in_generated_html(
+    tmp_path: Path,
+    site_url: str,
+    repo_url: str | None,
+    edit_uri: str,
+    canonical: str,
+    edit: str | None,
+) -> None:
+    # URL forms and retained compatibility boundaries are checked in HTML.
+    extra = f'site_url = "{site_url}"\nedit_uri = "{edit_uri}"\n'
+    if repo_url is not None:
+        extra += f'repo_url = "{repo_url}"\n'
+    extra += (
+        '[project.theme]\nfeatures = ["content.action.edit"]\nfont = false\n'
+    )
+    config_path = _make_toml_project(tmp_path, toml_extra=extra)
+    (tmp_path / "docs" / "guide.md").write_text("# Guide\n", encoding="utf-8")
+
+    _build(config_path)
+
+    output = tmp_path / "site" / "guide" / "index.html"
+    html = output.read_text(encoding="utf-8")
+    assert f'<link rel="canonical" href="{canonical}">' in html
+    if site_url == "https://example.org/base?x=1#part":
+        # MkDocs' appended slash is retained in the homepage fragment.
+        homepage = (tmp_path / "site" / "index.html").read_text()
+        expected_home = "https://example.org/base/?x=1#part/"
+        assert f'<link rel="canonical" href="{expected_home}">' in homepage
+    if edit is None:
+        assert 'title="Edit this page"' not in html
+    else:
+        assert f'href="{edit}"' in html

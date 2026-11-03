@@ -308,12 +308,20 @@ impl Page {
         // Compute canonical URL
         let url = route.url;
         let canonical_url = site_url.as_ref().map(|base| {
-            let base = base.trim_end_matches('/');
-            format!("{base}/{url}")
+            // The empty-site policy is retained; MkDocs joining is used otherwise.
+            if base.is_empty() {
+                return format!("/{url}");
+            }
+            let base = if base.ends_with('/') {
+                base.clone()
+            } else {
+                format!("{base}/")
+            };
+            join_url(&base, &url)
         });
 
-        // Compute edit URL - edit URIs can be relative or absolute, as both
-        // variants are supported by MkDocs, so we mirror behavior for now
+        // Relative edit URIs are resolved against the repository URL.
+        // Existing absolute edit-link policies are retained below.
         let edit_source = match &origin {
             PageOrigin::Source(source) => Some(source),
             PageOrigin::Generated { provenance, .. } => provenance.as_ref(),
@@ -321,6 +329,9 @@ impl Page {
         let edit_url = edit_source.and_then(|source| {
             let repo_url = repo_url.as_ref()?;
             let uri = edit_uri.as_ref()?;
+            if uri.is_empty() {
+                return None;
+            }
             let generated = config.api.files.get(source);
             let source = if let Some(document) = generated {
                 document
@@ -333,9 +344,26 @@ impl Page {
                 source.to_string()
             };
             let url = if uri.starts_with("https://") {
-                format!("{uri}/{source}")
-            } else {
+                join_url(&format!("{uri}/"), &source)
+            } else if uri.to_ascii_lowercase().starts_with("http://")
+                || uri.to_ascii_lowercase().starts_with("https://")
+            {
+                // Absolute HTTP edit links are intentionally not enabled here.
                 format!("{repo_url}/{uri}/{source}")
+            } else {
+                let reference = if uri.ends_with('/') {
+                    format!("{uri}{source}")
+                } else {
+                    format!("{uri}/{source}")
+                };
+                let base = if reference.starts_with(['?', '#'])
+                    || repo_url.ends_with('/')
+                {
+                    repo_url.clone()
+                } else {
+                    format!("{repo_url}/")
+                };
+                join_url(&base, &reference)
             };
             if generated.is_none() {
                 return Some(url);
@@ -673,6 +701,28 @@ fn route_url(destination: &SitePath, use_directory_urls: bool) -> String {
         destination.as_str()
     };
     Uri::from(url).to_string()
+}
+
+/// URL references are resolved with `fluent-uri`.
+fn join_url(base: &str, reference: &str) -> String {
+    if reference.is_empty() {
+        return base.into();
+    }
+    // Literal spaces and existing percent escapes are preserved for MkDocs.
+    let protect = |url: &str| url.replace('%', "%25").replace(' ', "%20");
+    let base = protect(base);
+    let reference = protect(reference);
+    let base =
+        fluent_uri::Iri::parse(base.as_str()).expect("base URL is a valid IRI");
+    let reference = fluent_uri::IriRef::parse(reference.as_str())
+        .expect("URL reference is a valid IRI");
+    let joined = reference
+        .resolve_against(&base.strip_fragment())
+        .expect("base URL supports relative references");
+    percent_encoding::percent_decode_str(joined.as_str())
+        .decode_utf8()
+        .expect("URL text is valid UTF-8")
+        .into_owned()
 }
 
 // ----------------------------------------------------------------------------
