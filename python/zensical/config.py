@@ -761,7 +761,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     # Ensure all non-existent values are all empty strings (for now)
     config["extra"] = cast("dict[str, Any]", _convert_extra(extra))
     config["extra"]["polyfills"] = _convert_extra_javascript(
-        config["extra"]["polyfills"]
+        config["extra"]["polyfills"], infer_polyfill_modules=True
     )
 
     # Set defaults for extra files
@@ -1545,13 +1545,20 @@ def _convert_extra(data: dict | list) -> dict | list:
     return data
 
 
-def _convert_extra_javascript(value: list) -> list:
+def _convert_extra_javascript(
+    value: list, *, infer_polyfill_modules: bool = False
+) -> list:
     """Ensure extra_javascript uses a structured format."""
     for i, item in enumerate(value):
         if isinstance(item, str):
+            # Module inference is applied only to lowercase string endings.
             value[i] = {
                 "path": item,
-                "type": None,
+                "type": (
+                    "module"
+                    if item.endswith(".mjs") and not infer_polyfill_modules
+                    else None
+                ),
                 "async": False,
                 "defer": False,
             }
@@ -1564,6 +1571,15 @@ def _convert_extra_javascript(value: list) -> list:
             raise ConfigurationError(
                 f"Unknown extra_javascript item type: {type(item)}"
             )
+
+    # Legacy module inference is retained for polyfills, which share the filter.
+    if infer_polyfill_modules:
+        for item in value:
+            if (
+                item["type"] is None
+                and Path(item["path"]).suffix.lower() == ".mjs"
+            ):
+                item["type"] = "module"
 
     # Return resulting value
     return value
