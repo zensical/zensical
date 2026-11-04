@@ -46,6 +46,9 @@ use super::validation::Validation;
 #[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
 #[pyo3(from_item_all)]
 pub struct Project {
+    /// Warnings that were emitted during Python configuration validation.
+    #[serde(skip)]
+    pub config_warnings: Vec<String>,
     /// Project root directory.
     pub root_dir: PathBuf,
     /// Site name.

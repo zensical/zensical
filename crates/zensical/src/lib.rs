@@ -177,6 +177,22 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         Err(err) => return Err(err.into()),
     };
 
+    // Determine if strict mode is enabled
+    let strict = match &mode {
+        Mode::Build(options) => {
+            options.strict.unwrap_or(false) || config.project.strict
+        }
+        Mode::Serve(_, _) => false,
+    };
+
+    // Strict builds must be aborted on configuration warnings before output is cleaned.
+    if strict && !config.project.config_warnings.is_empty() {
+        return Err(PyRuntimeError::new_err(format!(
+            "Configuration warnings in strict mode: {}",
+            config.project.config_warnings.join("; ")
+        )));
+    }
+
     // Clean cache directory if requested
     if let Mode::Build(options) = &mode
         && options.clean.unwrap_or(false)
@@ -196,14 +212,6 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
     if site_dir.exists() {
         clear_dir(&site_dir).expect("site directory could not be cleaned");
     }
-
-    // Determine if strict mode is enabled
-    let strict = match &mode {
-        Mode::Build(options) => {
-            options.strict.unwrap_or(false) || config.project.strict
-        }
-        Mode::Serve(_, _) => false,
-    };
 
     config.api = std::sync::Arc::new(
         compat::mkdocs::apidocs::Snapshot::new(&config, strict)

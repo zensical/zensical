@@ -801,3 +801,39 @@ def test_page_urls_in_generated_html(
         assert 'title="Edit this page"' not in html
     else:
         assert f'href="{edit}"' in html
+
+
+@pytest.mark.parametrize(
+    "setting",
+    ["site_descripton: typo", "plugins: [search, search]"],
+)
+def test_cli_strict_rejects_configuration_warnings_before_cleaning(
+    tmp_path: Path,
+    setting: str,
+) -> None:
+    config_file = _make_yml_project(tmp_path, yml_extra=setting)
+    output = tmp_path / "site"
+    output.mkdir()
+    sentinel = output / "keep.txt"
+    sentinel.write_text("existing output")
+
+    with (
+        pytest.warns(UserWarning, match="Unrecognised|multiple times"),
+        pytest.raises(
+            RuntimeError,
+            match="Configuration warnings in strict mode",
+        ),
+    ):
+        zensical.build(str(config_file), {"clean": False, "strict": True})
+
+    assert sentinel.read_text() == "existing output"
+
+
+def test_null_navigation_infers_pages(tmp_path: Path) -> None:
+    config_file = _make_yml_project(tmp_path, yml_extra="nav: null")
+    (tmp_path / "docs" / "other.md").write_text("# Other")
+
+    _build(config_file)
+
+    html = (tmp_path / "site" / "index.html").read_text()
+    assert re.search(r'href="(?:\./)?other/"', html)

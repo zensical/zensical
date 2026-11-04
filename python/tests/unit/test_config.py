@@ -474,7 +474,10 @@ def test_markdown_extensions_are_normalized_without_mutating_input() -> None:
             "Markdown extension mappings must contain one entry",
         ),
         ({42: {}}, "Markdown extension names must be strings"),
-        ({"abbr": []}, "Markdown extension configurations must be mappings"),
+        (
+            {"abbr": ["invalid"]},
+            "Markdown extension configurations must be mappings",
+        ),
         ({"pymdownx": []}, "pymdownx Markdown extensions must be a mapping"),
         (
             {"pymdownx": {"blocks": []}},
@@ -1430,3 +1433,308 @@ def test_repository_defaults_use_complete_netloc(
 
     assert config["repo_name"] == name
     assert config["edit_uri"] == edit_uri
+
+
+@pytest.mark.parametrize(
+    "setting",
+    [
+        "nav",
+        "plugins",
+        "markdown_extensions",
+        "watch",
+        "extra_css",
+        "extra_javascript",
+        "extra_templates",
+    ],
+)
+@pytest.mark.parametrize("child", [[], ["child"]])
+def test_inheritance_replaces_lists(
+    tmp_path: Path,
+    setting: str,
+    child: list,
+) -> None:
+    # Parent entries must be replaced, including by an explicitly empty list.
+    parent = tmp_path / "parent.yml"
+    parent.write_text(
+        yaml.dump(
+            {
+                setting: ["parent"],
+                "theme": {"features": ["parent"], "language": "en"},
+            }
+        )
+    )
+    config_file = tmp_path / "mkdocs.yml"
+    config_file.write_text(
+        yaml.dump(
+            {
+                "INHERIT": "parent.yml",
+                setting: child,
+                "theme": {"features": []},
+            }
+        )
+    )
+
+    with config_file.open() as source:
+        parsed = cfg_module._yaml_load(source)
+
+    assert parsed[setting] == child
+    assert parsed["theme"] == {"features": [], "language": "en"}
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        ("strict", "false"),
+        ("use_directory_urls", "false"),
+        ("strict", 1),
+        ("site_name", 42),
+        ("site_description", 42),
+        ("watch", "src"),
+        ("extra_css", "a.css"),
+        ("extra_javascript", "a.js"),
+        ("extra_templates", "a.html"),
+        ("extra", []),
+        ("repo_name", 42),
+        ("docs_dir", 42),
+        ("nav", False),
+        ("nav", 0),
+        ("nav", ""),
+        ("site_name", None),
+        ("theme", False),
+    ],
+)
+def test_core_setting_types_are_validated(
+    tmp_path: Path,
+    setting: str,
+    value: Any,
+) -> None:
+    config_file = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(**{setting: value}),
+    )
+
+    with pytest.raises(ConfigurationError, match=setting):
+        parse_config(str(config_file))
+
+
+def test_unknown_core_setting_warns(tmp_path: Path) -> None:
+    config_file = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(site_descripton="typo"),
+    )
+
+    with pytest.warns(UserWarning, match="site_descripton"):
+        parsed = parse_config(str(config_file))
+
+    assert parsed["config_warnings"] == [
+        "Unrecognised configuration name: 'site_descripton'",
+    ]
+
+
+def test_unknown_core_setting_fails_strict_validation(tmp_path: Path) -> None:
+    config_file = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(site_descripton="typo", strict=True),
+    )
+
+    with (
+        pytest.warns(UserWarning, match="site_descripton"),
+        pytest.raises(ConfigurationError, match="strict mode"),
+    ):
+        parse_config(str(config_file))
+
+
+def test_recognized_unsupported_core_settings_remain_silent(
+    tmp_path: Path,
+) -> None:
+    config_file = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(
+            hooks=["missing.py"],
+            google_analytics=["id", "host"],
+            pages=[],
+            strict=True,
+        ),
+    )
+
+    parsed = parse_config(str(config_file))
+
+    assert parsed["config_warnings"] == []
+
+
+def test_null_theme_and_navigation_use_defaults(tmp_path: Path) -> None:
+    config_file = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(theme=None, nav=None),
+    )
+
+    parsed = parse_config(str(config_file))
+    config_file.write_text("site_name: Test\n")
+    default = parse_config(str(config_file))
+
+    assert parsed["nav"] == []
+    assert parsed["theme"] == default["theme"]
+    assert parsed["theme_dirs"] == default["theme_dirs"]
+
+
+def test_material_aliases_preserve_literal_configuration(
+    tmp_path: Path,
+) -> None:
+    config_file = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(
+            site_name="materialx",
+            extra_css=["materialx.css"],
+            extra={
+                "path": "material.extensions/data",
+                "materialx": "materialx",
+            },
+        ),
+    )
+
+    parsed = parse_config(str(config_file))
+
+    assert parsed["site_name"] == "materialx"
+    assert parsed["extra"]["path"] == "material.extensions/data"
+    assert parsed["extra"]["materialx"] == "materialx"
+    assert parsed["extra_css"] == ["materialx.css"]
+
+
+@pytest.mark.parametrize("namespace", ["material.extensions", "materialx"])
+def test_material_python_reference_aliases(
+    tmp_path: Path,
+    namespace: str,
+) -> None:
+    config_file = _write_mkdocs_config(
+        tmp_path,
+        "site_name: Test\nmarkdown_extensions:\n  - pymdownx.emoji:\n"
+        f"      emoji_generator: !!python/name:{namespace}.emoji.to_svg\n",
+    )
+
+    parsed = parse_config(str(config_file))
+
+    emoji = parsed["mdx_configs"]["pymdownx.emoji"]
+    assert emoji["emoji_generator"] is cfg_module.to_svg
+
+
+@pytest.mark.parametrize("namespace", ["material.extensions", "materialx"])
+def test_material_extension_name_aliases(namespace: str) -> None:
+    extensions, configs = cfg_module._convert_markdown_extensions(
+        [{f"{namespace}.emoji": {}}],
+    )
+
+    assert "zensical.extensions.emoji" in extensions
+    assert configs["zensical.extensions.emoji"] == {}
+
+
+@pytest.mark.parametrize("options", [None, False, 0, "", [], {}])
+def test_empty_extension_options_are_accepted(options: Any) -> None:
+    extensions, configs = cfg_module._convert_markdown_extensions(
+        [{"abbr": options}],
+    )
+
+    assert "abbr" in extensions
+    assert configs["abbr"] == {}
+
+
+def test_absolute_docs_directory_has_controlled_error(tmp_path: Path) -> None:
+    config_file = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(docs_dir=str(tmp_path / "docs")),
+    )
+
+    with pytest.raises(ConfigurationError, match="relative path"):
+        parse_config(str(config_file))
+
+
+@pytest.mark.parametrize(
+    ("docs_dir", "site_dir"),
+    [("docs", "docs/output"), ("output/docs", "output"), ("same", "same")],
+)
+@pytest.mark.parametrize("symlink", [False, True])
+def test_source_and_output_directories_cannot_overlap(
+    tmp_path: Path,
+    docs_dir: str,
+    site_dir: str,
+    symlink: bool,
+) -> None:
+    # No cleanup is invoked against sources during configuration loading.
+    (tmp_path / docs_dir).mkdir(parents=True)
+    if symlink:
+        (tmp_path / "alias").symlink_to(
+            tmp_path / docs_dir,
+            target_is_directory=True,
+        )
+        docs_dir = "alias"
+    config_file = tmp_path / "mkdocs.yml"
+    config_file.write_text(_minimal_yaml(docs_dir=docs_dir, site_dir=site_dir))
+
+    with pytest.raises(ConfigurationError, match="must be different"):
+        parse_config(str(config_file))
+
+
+def test_missing_watch_path_fails_validation(tmp_path: Path) -> None:
+    config_file = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(watch=["missing"]),
+    )
+
+    with pytest.raises(ConfigurationError, match="Watch path does not exist"):
+        parse_config(str(config_file))
+
+
+def test_duplicate_singleton_plugin_warns(tmp_path: Path) -> None:
+    config_file = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(
+            plugins=[
+                {"search": {"enabled": True}},
+                {"search": {"enabled": False}},
+            ]
+        ),
+    )
+
+    with pytest.warns(UserWarning, match="Plugin 'search'.*multiple times"):
+        parsed = parse_config(str(config_file))
+
+    assert len(parsed["config_warnings"]) == 1
+
+
+def test_duplicate_singleton_plugin_fails_strict_validation(
+    tmp_path: Path,
+) -> None:
+    config_file = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(plugins=["search", "search"], strict=True),
+    )
+
+    with (
+        pytest.warns(UserWarning, match="specified multiple times"),
+        pytest.raises(ConfigurationError, match="specified multiple times"),
+    ):
+        parse_config(str(config_file))
+
+
+def test_theme_configuration_keeps_environment_tags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    theme_file = tmp_path / "mkdocs_theme.yml"
+    theme_file.write_text("language: !ENV ZENSICAL_TEST_THEME_LANGUAGE\n")
+    monkeypatch.setenv("ZENSICAL_TEST_THEME_LANGUAGE", "fr")
+
+    with theme_file.open() as source:
+        parsed = cfg_module._yaml_load_theme_config(source)
+
+    assert parsed["language"] == "fr"
+
+
+def test_root_documentation_directory_keeps_existing_path_policy(
+    tmp_path: Path,
+) -> None:
+    config_file = _write_mkdocs_config(tmp_path, _minimal_yaml(docs_dir="."))
+
+    parsed = parse_config(str(config_file))
+
+    assert parsed["docs_dir"] == "."
+    assert parsed["site_dir"] == "site"
