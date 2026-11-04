@@ -1014,7 +1014,7 @@ fn render_templates(
               assets: &minify::Manifest| {
             let ((input, nav), pages) = input;
             let extra = id.context() == config.project.docs_dir;
-            let output = template_output(id, extra)?;
+            let output = template_output(id)?;
             let name = output.as_str();
 
             // Render template and write to disk
@@ -1054,13 +1054,10 @@ fn render_templates(
 }
 
 /// A template provider identity is mapped to its MkDocs-compatible output.
-fn template_output(id: &Id, extra: bool) -> Result<SitePath, PathError> {
+fn template_output(id: &Id) -> Result<SitePath, PathError> {
     let source = id.location().parse::<SourcePath>()?;
-    if extra {
-        source.as_str().parse()
-    } else {
-        source.file_name().parse()
-    }
+    // Nested paths are preserved for both theme and extra templates.
+    source.as_str().parse()
 }
 
 /// Render pages.
@@ -1201,17 +1198,19 @@ mod tests {
 
     #[test]
     fn template_outputs_use_logical_provider_identity() {
-        let id = Id::builder()
-            .provider("file")
-            .context("templates/0")
-            .location("nested/café.html")
-            .build()
-            .unwrap();
+        // Nested Unicode paths are retained for both template providers.
+        for context in ["templates/0", "docs"] {
+            let id = Id::builder()
+                .provider("file")
+                .context(context)
+                .location("nested/café.html")
+                .build()
+                .unwrap();
 
-        assert_eq!(template_output(&id, false).unwrap().as_str(), "café.html");
-        assert_eq!(
-            template_output(&id, true).unwrap().as_str(),
-            "nested/café.html"
-        );
+            assert_eq!(
+                template_output(&id).unwrap().as_str(),
+                "nested/café.html"
+            );
+        }
     }
 }

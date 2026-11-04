@@ -1738,3 +1738,61 @@ def test_root_documentation_directory_keeps_existing_path_policy(
 
     assert parsed["docs_dir"] == "."
     assert parsed["site_dir"] == "site"
+
+
+def test_static_templates_accumulate_theme_inheritance(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "parent"
+    child = tmp_path / "child"
+    parent.mkdir()
+    child.mkdir()
+    (parent / "mkdocs_theme.yml").write_text(
+        "static_templates: [parent.html, shared.html]\n"
+    )
+    (child / "mkdocs_theme.yml").write_text(
+        "extends: parent\nstatic_templates: [child.html, shared.html]\n"
+    )
+    monkeypatch.setattr(cfg_module, "get_theme_dir", lambda name: str(parent))
+    config_path = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(
+            theme={
+                "name": None,
+                "custom_dir": "child",
+                "static_templates": ["user.html", "shared.html"],
+            }
+        ),
+    )
+
+    config = parse_mkdocs_config(str(config_path))
+
+    assert config["theme"]["static_templates"] == [
+        "404.html",
+        "sitemap.xml",
+        "parent.html",
+        "shared.html",
+        "child.html",
+        "user.html",
+    ]
+
+
+@pytest.mark.parametrize(
+    "templates",
+    ["page.html", None, [1], {"page.html": True}],
+)
+def test_invalid_static_templates_are_rejected(
+    tmp_path: Path,
+    templates: Any,
+) -> None:
+    config_path = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(theme={"static_templates": templates}),
+    )
+
+    with pytest.raises(
+        ConfigurationError,
+        match="static_templates must be a list of strings",
+    ):
+        parse_mkdocs_config(str(config_path))

@@ -65,10 +65,12 @@ def test_descriptions_are_html_escaped(
     site_description = description if source == "site" else "Site fallback"
     config = tmp_path / "mkdocs.yml"
     config.write_text(
-        yaml.safe_dump({
-            "site_name": "Descriptions",
-            "site_description": site_description,
-        }),
+        yaml.safe_dump(
+            {
+                "site_name": "Descriptions",
+                "site_description": site_description,
+            }
+        ),
         encoding="utf-8",
     )
 

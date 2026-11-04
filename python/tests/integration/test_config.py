@@ -837,3 +837,56 @@ def test_null_navigation_infers_pages(tmp_path: Path) -> None:
 
     html = (tmp_path / "site" / "index.html").read_text()
     assert re.search(r'href="(?:\./)?other/"', html)
+
+
+@pytest.mark.parametrize("standalone", [False, True])
+def test_theme_static_templates_are_rendered(
+    tmp_path: Path,
+    standalone: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    custom = _make_custom_dir(tmp_path)
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    parent_config = "static_templates: [parent.html, theme.html]\n"
+    if not standalone:
+        parent_config += "extends: material\n"
+    (parent / "mkdocs_theme.yml").write_text(parent_config)
+    (parent / "parent.html").write_text("{{ config.site_name }}: parent.html")
+    (custom / "mkdocs_theme.yml").write_text(
+        "extends: parent\nstatic_templates: [theme.html, nested/theme.html]\n"
+    )
+    original_get_theme_dir = cfg_module.get_theme_dir
+
+    def get_theme_dir(name: str) -> str:
+        if name == "parent":
+            return str(parent)
+        return original_get_theme_dir(name)
+
+    monkeypatch.setattr(cfg_module, "get_theme_dir", get_theme_dir)
+
+    (custom / "nested").mkdir()
+    templates = [
+        "theme.html",
+        "nested/theme.html",
+        "user.html",
+        "nested/user.html",
+    ]
+    for name in templates:
+        (custom / name).write_text("{{ config.site_name }}: " + name)
+
+    # A minimal page template is supplied for the standalone custom theme.
+    (custom / "main.html").write_text("{{ page.content | safe }}")
+    name = "null" if standalone else "material"
+    config = _make_yml_project(
+        tmp_path,
+        yml_extra=(
+            f"theme:\n  name: {name}\n  custom_dir: overrides\n"
+            "  static_templates: [user.html, nested/user.html, theme.html]\n"
+        ),
+    )
+
+    _build(config)
+
+    for name in [*templates, "parent.html"]:
+        assert (tmp_path / "site" / name).read_text() == "Test: " + name

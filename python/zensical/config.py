@@ -484,6 +484,21 @@ def _yaml_load_theme_config(source: IO) -> dict[str, Any]:
     return config
 
 
+def _static_templates(*configs: dict[str, Any]) -> list[str]:
+    """Collect and validate static template names in declaration order."""
+    names = []
+    for config in configs:
+        values = config.get("static_templates", [])
+        if not isinstance(values, list) or any(
+            not isinstance(value, str) for value in values
+        ):
+            raise ConfigurationError(
+                "theme.static_templates must be a list of strings"
+            )
+        names.extend(values)
+    return list(dict.fromkeys(names))
+
+
 def _load_theme_config(theme_dir: str) -> tuple[dict[str, Any], list[str]]:
     # Keep track of the theme directories,
     # so that we can pass them up to Minijinja.
@@ -501,7 +516,11 @@ def _load_theme_config(theme_dir: str) -> tuple[dict[str, Any], list[str]]:
                 parent_config, parent_dirs = _load_theme_config(
                     parent_theme_dir
                 )
+                static_templates = _static_templates(
+                    parent_config, theme_config
+                )
                 parent_config.update(theme_config)
+                parent_config["static_templates"] = static_templates
                 theme_dirs.extend(parent_dirs)
                 return parent_config, theme_dirs
             # Otherwise we just return the current theme configuration.
@@ -755,7 +774,11 @@ def _apply_defaults(config: dict, path: str) -> dict:
             # so we use it as base theme.
             theme_dir = get_theme_dir(theme_name)
             base_theme_config, base_theme_dirs = _load_theme_config(theme_dir)
+            static_templates = _static_templates(
+                base_theme_config, theme_config
+            )
             theme_config = {**base_theme_config, **theme_config}
+            theme_config["static_templates"] = static_templates
             theme_dirs = theme_dirs + base_theme_dirs
     else:
         # No custom theme directory
@@ -764,9 +787,14 @@ def _apply_defaults(config: dict, path: str) -> dict:
 
     # Store theme directories for Minijinja and merge theme configuration
     config["theme_dirs"] = theme_dirs
+    static_templates = _static_templates(
+        {"static_templates": ["404.html", "sitemap.xml"]},
+        theme_config,
+        config["theme"],
+    )
     config["theme"] = {**theme_config, **config["theme"]}
 
-    theme = config["theme"]
+    theme: dict[str, Any] = config["theme"]
     theme["font_explicit"] = font_explicit
 
     # Set defaults for theme name
@@ -783,7 +811,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
         font = {"text": "Roboto", "code": "Roboto Mono"}
 
     # Ensure presence of static templates
-    theme["static_templates"] = ["404.html", "sitemap.xml"]
+    theme["static_templates"] = static_templates
 
     # Set defaults for theme settings
     set_default(theme, "language", "en", str)
