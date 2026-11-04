@@ -47,6 +47,9 @@ def _project(
     docs = root / "docs"
     docs.mkdir()
     (docs / "index.md").write_text("# Home\n", encoding="utf-8")
+    (docs / "export.html").write_text(
+        "{{ config.site_name }}", encoding="utf-8"
+    )
     overrides = root / "overrides"
     overrides.mkdir()
     if toml:
