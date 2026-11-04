@@ -419,8 +419,8 @@ mod tests {
         // Decoded quotes and spaces are kept inside their original attributes.
         for (source, expected) in [
             (
-                r#"<a href='it&#39;s.md'>Notes</a>"#,
-                r#"<a href='../it&#x27;s/'>Notes</a>"#,
+                r"<a href='it&#39;s.md'>Notes</a>",
+                r"<a href='../it&#x27;s/'>Notes</a>",
             ),
             (
                 r#"<a href="say&quot;hello.md">Notes</a>"#,
