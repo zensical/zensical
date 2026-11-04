@@ -36,7 +36,7 @@ from importlib.metadata import EntryPoint, entry_points
 from importlib.util import find_spec
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, cast
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
@@ -573,10 +573,28 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(config, "edit_uri_template", None, str)
     set_default(config, "edit_uri", None, str)
 
+    # Absolute URLs are required by MkDocs; empty values remain accepted.
+    for setting in ("site_url", "repo_url"):
+        value = config.get(setting)
+        if value:
+            try:
+                parsed = urlsplit(value)
+            except ValueError as error:
+                raise ConfigurationError(
+                    f"Invalid {setting}: {error}"
+                ) from error
+            if not parsed.scheme or not parsed.netloc:
+                raise ConfigurationError(
+                    f"{setting} must include a scheme and host"
+                )
+            if setting == "site_url" and not parsed.path.endswith("/"):
+                parsed = parsed._replace(path=parsed.path + "/")
+            config[setting] = urlunsplit(parsed)
+
     # Set defaults for repository name settings
     repo_names = {
         "github.com": "GitHub",
-        "gitlab.com": "Gitlab",
+        "gitlab.com": "GitLab",
         "bitbucket.org": "Bitbucket",
     }
     rel_docs_dir = docs_dir.relative_to(project_root)
@@ -587,7 +605,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     }
     repo_url = config.get("repo_url")
     if repo_url:
-        host = urlparse(repo_url).hostname or ""
+        host = urlsplit(repo_url).netloc.lower()
         if not config.get("repo_name"):
             if host in repo_names:
                 set_default(config, "repo_name", repo_names[host], str)
@@ -599,7 +617,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     # Remove trailing slash from edit_uri if present
     edit_uri = config.get("edit_uri")
     if isinstance(edit_uri, str) and edit_uri.endswith("/"):
-        config["edit_uri"] = edit_uri.rstrip("/")
+        config["edit_uri"] = edit_uri.rstrip("/") or edit_uri
 
     # Set defaults for theme font settings
     if "theme" in config and isinstance(config["theme"], str):

@@ -1370,3 +1370,63 @@ class TestGetThemeDir:
 
         assert theme_dir.endswith(r"a\overrides")
         assert theme_dir == str(custom_dir)
+
+
+@pytest.mark.parametrize("setting", ["site_url", "repo_url"])
+@pytest.mark.parametrize(
+    "value", ["relative/path", "//example.org/path", "https:path"]
+)
+def test_project_urls_require_scheme_and_host(
+    tmp_path: Path,
+    setting: str,
+    value: str,
+) -> None:
+    config_file = _write_toml_config(tmp_path, **{setting: value})
+
+    with pytest.raises(ConfigurationError, match="scheme and host"):
+        parse_config(str(config_file))
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (
+            "https://example.org/base?key=value#part",
+            "https://example.org/base/?key=value#part",
+        ),
+        ("https://example.org", "https://example.org/"),
+        ("", ""),
+    ],
+)
+def test_site_url_directory_path(
+    tmp_path: Path,
+    value: str,
+    expected: str,
+) -> None:
+    config_file = _write_toml_config(tmp_path, site_url=value)
+
+    config = parse_config(str(config_file))
+
+    assert config["site_url"] == expected
+
+
+@pytest.mark.parametrize(
+    ("repo_url", "name", "edit_uri"),
+    [
+        ("https://gitlab.com/team/repo", "GitLab", "edit/master/docs"),
+        ("https://github.com:443/team/repo", "Github", None),
+        ("https://user@github.com/team/repo", "User@Github", None),
+    ],
+)
+def test_repository_defaults_use_complete_netloc(
+    tmp_path: Path,
+    repo_url: str,
+    name: str,
+    edit_uri: str | None,
+) -> None:
+    config_file = _write_toml_config(tmp_path, repo_url=repo_url)
+
+    config = parse_config(str(config_file))
+
+    assert config["repo_name"] == name
+    assert config["edit_uri"] == edit_uri
