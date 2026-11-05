@@ -3534,7 +3534,7 @@ dependencies = [
 
 [[package]]
 name = "zensical"
-version = "0.0.74"
+version = "0.1.0"
 dependencies = [
  "ahash",
  "anyhow",
