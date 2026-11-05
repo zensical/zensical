@@ -36,7 +36,7 @@ license-files = ["LICENSE.md"]
 readme = "README.md"
 requires-python = ">=3.11"
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Environment :: Web Environment",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Rust",
@@ -45,6 +45,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Documentation",
     "Topic :: Software Development :: Documentation",
     "Topic :: Text Processing :: Markup :: HTML",
@@ -53,7 +54,6 @@ classifiers = [
 dynamic = ["version"]
 dependencies = [
     "click>=8.1.8",
-    "deepmerge>=2.0",
     "jinja2>=3.1",
     "markdown>=3.7",
     "pathspec>=1.0.4",
