@@ -272,7 +272,7 @@ def _literal_arguments(source: str) -> tuple[list[Any], dict[str, Any]]:
 
 def _fix_indentation(text: str, leading_spaces: str) -> str:
     """Apply the indentation behavior of the standalone MkDocs plugin."""
-    prefix = " " * (len(leading_spaces) // 4)
+    prefix = "    " * (len(leading_spaces) // 4)
     return "\n".join(indent(line, prefix) for line in text.split("\n"))
 
 
