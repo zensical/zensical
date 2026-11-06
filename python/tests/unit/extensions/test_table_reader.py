@@ -76,6 +76,60 @@ class TestTableReaderExtension:
     @pytest.mark.parametrize(
         "md",
         [
+            {
+                "config": {
+                    "markdown_extensions": {
+                        "admonition": {},
+                        "tables": {},
+                        "pymdownx.tabbed": {"alternate_style": True},
+                        "zensical.extensions.table_reader": {},
+                    },
+                },
+            },
+        ],
+        indirect=["md"],
+    )
+    @pytest.mark.parametrize("reader", ["read_csv", "read_raw"])
+    @pytest.mark.parametrize("nested_tabs", [False, True])
+    def test_keeps_tables_inside_containing_blocks(
+        self, md: Markdown, tmp_path: Path, reader: str, nested_tabs: bool
+    ) -> None:
+        # The same table is provided as CSV and raw Markdown.
+        (tmp_path / "people.csv").write_text(
+            "Name,Age\nAlice,30\n", encoding="utf-8"
+        )
+        (tmp_path / "people.md").write_text(
+            "Name | Age\n--- | ---\nAlice | 30\n", encoding="utf-8"
+        )
+        filename = "people.csv" if reader == "read_csv" else "people.md"
+        tag = f"{{{{ {reader}('{filename}') }}}}"
+        if nested_tabs:
+            source = (
+                '!!! note "People"\n\n'
+                '    === "First tab"\n\n'
+                f"        {tag}\n\n"
+                '    === "Second tab"\n\n'
+                "        Second tab content.\n"
+            )
+        else:
+            source = f'!!! note "People"\n\n    {tag}\n'
+
+        html = soup(md.convert(source))
+
+        # The table is kept in the admonition and, when present, its tab.
+        table = html.select_one(".admonition table")
+        assert table is not None
+        assert "Alice" in table.get_text()
+        if nested_tabs:
+            panels = html.select(".admonition .tabbed-block")
+            assert len(panels) == 2
+            assert panels[0].select_one("table") is table
+            assert panels[1].get_text(strip=True) == "Second tab content."
+            assert html.select_one("pre code") is None
+
+    @pytest.mark.parametrize(
+        "md",
+        [
             pytest.param(
                 {
                     "config": {
