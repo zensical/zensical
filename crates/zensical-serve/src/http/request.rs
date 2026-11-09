@@ -155,9 +155,21 @@ impl<'a> Request<'a> {
                 // Determine the body length before collecting headers, since
                 // the typed header map stores only one value per name.
                 let mut content_length = None;
+                let mut host_seen = false;
+                let mut origin_seen = false;
                 for header in
                     req.headers.iter().take_while(|h| !h.name.is_empty())
                 {
+                    if header.name.eq_ignore_ascii_case("host")
+                        && std::mem::replace(&mut host_seen, true)
+                    {
+                        return Err(Error::Validation(Status::BadRequest));
+                    }
+                    if header.name.eq_ignore_ascii_case("origin")
+                        && std::mem::replace(&mut origin_seen, true)
+                    {
+                        return Err(Error::Validation(Status::BadRequest));
+                    }
                     if header.name.eq_ignore_ascii_case("transfer-encoding") {
                         // Chunked requests are not supported. Reject them,
                         // including requests that also carry Content-Length.
@@ -422,6 +434,19 @@ mod tests {
             &b"POST / HTTP/1.1\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\nx"[..],
             &b"POST / HTTP/1.1\r\nContent-Length: nope\r\n\r\n"[..],
             &b"POST / HTTP/1.1\r\n\r\nx"[..],
+        ] {
+            assert!(matches!(
+                Request::from_bytes(request),
+                Err(Error::Validation(Status::BadRequest))
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_host_and_origin_headers() {
+        for request in [
+            &b"GET / HTTP/1.1\r\nHost: localhost\r\nHost: attacker.example\r\n\r\n"[..],
+            &b"GET / HTTP/1.1\r\nOrigin: http://localhost\r\nOrigin: http://attacker.example\r\n\r\n"[..],
         ] {
             assert!(matches!(
                 Request::from_bytes(request),
