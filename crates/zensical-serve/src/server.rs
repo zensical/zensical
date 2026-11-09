@@ -394,6 +394,25 @@ mod tests {
         start.elapsed()
     }
 
+    fn wake_until_websocket_clients_removed<H>(server: &mut Server<H>)
+    where
+        H: crate::handler::Handler,
+    {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !server.clients.is_empty() {
+            let elapsed = wake_server(server);
+            assert!(
+                elapsed < Duration::from_secs(3),
+                "server poll took {elapsed:?}"
+            );
+            assert!(
+                Instant::now() < deadline,
+                "websocket client was not removed before the deadline"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     #[test]
     fn local_addrs_reports_assigned_port() {
         // An ephemeral port is requested on the loopback interface.
@@ -480,10 +499,7 @@ mod tests {
         server.clients.insert(socket);
         drop(peer);
 
-        let elapsed = wake_server(&mut server);
-
-        assert!(elapsed < Duration::from_secs(3));
-        assert!(server.clients.is_empty());
+        wake_until_websocket_clients_removed(&mut server);
     }
 
     #[test]
@@ -494,9 +510,6 @@ mod tests {
         peer.send(Message::Close(None)).unwrap();
         server.clients.insert(socket);
 
-        let elapsed = wake_server(&mut server);
-
-        assert!(elapsed < Duration::from_secs(3));
-        assert!(server.clients.is_empty());
+        wake_until_websocket_clients_removed(&mut server);
     }
 }
