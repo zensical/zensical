@@ -35,7 +35,7 @@ use tungstenite::protocol::WebSocketConfig;
 use crate::handler::Handler;
 use crate::http::request::Error;
 use crate::http::response::ResponseExt;
-use crate::http::{Request, Response, Status};
+use crate::http::{Header, Request, Response, Status};
 use crate::server::Result;
 
 // ----------------------------------------------------------------------------
@@ -68,8 +68,8 @@ pub enum Upgrade {
 enum Buffer {
     /// Currently reading data.
     Reading(Vec<u8>),
-    /// Currently writing data, with optional upgrade.
-    Writing(Cursor<Vec<u8>>, Option<Upgrade>),
+    /// Currently writing data, with optional upgrade or close-after-write.
+    Writing(Cursor<Vec<u8>>, Option<Upgrade>, bool),
 }
 
 // ----------------------------------------------------------------------------
@@ -121,7 +121,7 @@ impl Connection {
             self.time = Instant::now();
             // We try to read all remaining data - if the connection would
             // block, we return and wait for the next readable event
-            let (res, upgrade) = {
+            let (res, upgrade, close) = {
                 let mut temp = [0u8; 1024];
                 match self.socket.read(&mut temp) {
                     Ok(0) => {
@@ -144,7 +144,7 @@ impl Connection {
                                     .then_some(Upgrade::WebSocket(
                                         WebSocketConfig::default(),
                                     ));
-                                (res, upgrade)
+                                (res, upgrade, false)
                             }
 
                             // Request could not be parsed, as it is incomplete,
@@ -157,15 +157,17 @@ impl Connection {
 
                             // In case there was a validation error, return it
                             Err(Error::Validation(status)) => {
-                                let res = Response::from_status(status);
-                                (res, None)
+                                let res = Response::from_status(status)
+                                    .header(Header::Connection, "close");
+                                (res, None, true)
                             }
 
                             // If there was another parsing error, return 400
                             Err(_) => {
                                 let res =
-                                    Response::from_status(Status::BadRequest);
-                                (res, None)
+                                    Response::from_status(Status::BadRequest)
+                                        .header(Header::Connection, "close");
+                                (res, None, true)
                             }
                         }
                     }
@@ -188,7 +190,7 @@ impl Connection {
             // and if so, remember it to switch to the WebSocket protocol.
             let _ = mem::replace(
                 &mut self.buffer,
-                Buffer::Writing(Cursor::new(res.into_bytes()), upgrade),
+                Buffer::Writing(Cursor::new(res.into_bytes()), upgrade, close),
             );
         }
 
@@ -200,7 +202,7 @@ impl Connection {
     #[allow(clippy::cast_possible_truncation)]
     #[allow(clippy::unnecessary_wraps)]
     pub fn write(&mut self) -> Result<Signal> {
-        if let Buffer::Writing(cursor, _) = &mut self.buffer {
+        if let Buffer::Writing(cursor, _, _) = &mut self.buffer {
             self.time = Instant::now();
             // We try to write all remaining data - if the connection would
             // block, we return and wait for the next writable event
@@ -242,8 +244,12 @@ impl Connection {
         // if so, return it to switch to the WebSocket protocol.
         let buffer =
             mem::replace(&mut self.buffer, Buffer::Reading(Vec::new()));
-        if let Buffer::Writing(_, Some(upgrade)) = buffer {
-            return Ok(Signal::Upgrade(upgrade));
+        match buffer {
+            Buffer::Writing(_, Some(upgrade), _) => {
+                return Ok(Signal::Upgrade(upgrade));
+            }
+            Buffer::Writing(_, None, true) => return Ok(Signal::Close),
+            Buffer::Reading(_) | Buffer::Writing(_, None, false) => {}
         }
 
         // Switch back to reading state
@@ -252,7 +258,7 @@ impl Connection {
 
     /// Returns whether the connection is currently writing data.
     pub fn is_writing(&self) -> bool {
-        matches!(self.buffer, Buffer::Writing(_, _))
+        matches!(self.buffer, Buffer::Writing(_, _, _))
     }
 
     /// Check if connection has timed out
@@ -287,8 +293,11 @@ fn handle_socket_error(err: &io::Error) -> Signal {
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_socket_error, Signal};
-    use std::io::{Error, ErrorKind};
+    use super::{handle_socket_error, Connection, Signal};
+    use crate::handler::Teapot;
+    use std::io::{Error, ErrorKind, Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::time::{Duration, Instant};
 
     #[test]
     fn fatal_write_errors_close_connection() {
@@ -303,5 +312,45 @@ mod tests {
                 Signal::Close
             ));
         }
+    }
+
+    #[test]
+    fn malformed_request_gets_a_response_then_closes_connection() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client =
+            TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_nonblocking(true).unwrap();
+        let mut connection =
+            Connection::new(mio::net::TcpStream::from_std(stream));
+
+        client
+            .write_all(b"POST / HTTP/1.1\r\nContent-Length: 1\r\n\r\nxy")
+            .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            match connection.read(&Teapot).unwrap() {
+                Signal::Interest(interest) if interest.is_writable() => break,
+                Signal::Interest(interest) if interest.is_readable() => {
+                    assert!(Instant::now() < deadline);
+                    std::thread::yield_now();
+                }
+                Signal::Continue => {
+                    assert!(Instant::now() < deadline);
+                    std::thread::yield_now();
+                }
+                _ => panic!("unexpected connection signal"),
+            }
+        }
+        assert!(matches!(connection.write().unwrap(), Signal::Close));
+        drop(connection);
+
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).unwrap();
+        assert!(response.starts_with(b"HTTP/1.1 400 Bad Request\r\n"));
+        assert!(response
+            .windows(b"Connection: close".len())
+            .any(|window| window == b"Connection: close"));
     }
 }
