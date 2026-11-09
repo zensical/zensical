@@ -39,6 +39,13 @@ use crate::http::{Header, Request, Response, Status};
 use crate::server::Result;
 
 // ----------------------------------------------------------------------------
+// Constants
+// ----------------------------------------------------------------------------
+
+/// Maximum size of a WebSocket frame or message received by the preview server.
+const MAX_WEBSOCKET_SIZE: usize = 64 * 1024;
+
+// ----------------------------------------------------------------------------
 // Enums
 // ----------------------------------------------------------------------------
 
@@ -142,7 +149,7 @@ impl Connection {
                                 let upgrade = (res.status
                                     == Status::SwitchingProtocols)
                                     .then_some(Upgrade::WebSocket(
-                                        WebSocketConfig::default(),
+                                        websocket_config(),
                                     ));
                                 (res, upgrade, false)
                             }
@@ -287,17 +294,50 @@ fn handle_socket_error(err: &io::Error) -> Signal {
     Signal::Close
 }
 
+/// Creates a WebSocket configuration with bounded incoming frame and message
+/// sizes.
+fn websocket_config() -> WebSocketConfig {
+    WebSocketConfig::default()
+        .max_frame_size(Some(MAX_WEBSOCKET_SIZE))
+        .max_message_size(Some(MAX_WEBSOCKET_SIZE))
+}
+
 // ----------------------------------------------------------------------------
 // Tests
 // ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
-    use super::{handle_socket_error, Connection, Signal};
+    use super::{
+        handle_socket_error, websocket_config, Connection, Signal,
+        MAX_WEBSOCKET_SIZE,
+    };
     use crate::handler::Teapot;
-    use std::io::{Error, ErrorKind, Read, Write};
+    use std::io::{Cursor, Error, ErrorKind, Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::time::{Duration, Instant};
+    use tungstenite::protocol::Role;
+    use tungstenite::{Error as WebSocketError, WebSocket};
+
+    #[test]
+    fn rejects_websocket_frame_exceeding_size_limit_from_header() {
+        let payload_size = MAX_WEBSOCKET_SIZE + 1;
+        let mut frame = vec![0x82, 0xff];
+        frame.extend_from_slice(
+            &u64::try_from(payload_size).unwrap().to_be_bytes(),
+        );
+        frame.extend_from_slice(&[0; 4]);
+        let config = websocket_config();
+        assert_eq!(config.max_frame_size, Some(MAX_WEBSOCKET_SIZE));
+        assert_eq!(config.max_message_size, Some(MAX_WEBSOCKET_SIZE));
+        let mut socket = WebSocket::from_raw_socket(
+            Cursor::new(frame),
+            Role::Server,
+            Some(config),
+        );
+
+        assert!(matches!(socket.read(), Err(WebSocketError::Capacity(_))));
+    }
 
     #[test]
     fn fatal_write_errors_close_connection() {
