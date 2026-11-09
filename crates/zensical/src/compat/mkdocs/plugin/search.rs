@@ -27,8 +27,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs;
-use std::io::{BufWriter, Write};
+use std::io::{self, BufWriter, Write};
 use std::sync::Arc;
 
 use zrx::id::Id;
@@ -169,24 +168,25 @@ impl Search {
 
     /// Writes search artifacts without retaining serialized copies.
     fn write(&self, index: &SearchIndex) -> anyhow::Result<()> {
-        let path = self.output.join(
-            &"search.json".parse::<SitePath>().expect("static site path"),
-        );
-        fs::create_dir_all(path.parent().expect("invariant"))?;
-        let mut writer = BufWriter::new(fs::File::create(path)?);
-        serde_json::to_writer(&mut writer, index)?;
-        writer.flush()?;
+        let path = "search.json".parse::<SitePath>().expect("static site path");
+        self.output.write_with(&path, |file| {
+            let mut writer = BufWriter::new(file);
+            serde_json::to_writer(&mut writer, index)
+                .map_err(io::Error::other)?;
+            writer.flush()
+        })?;
 
         if self.offline {
-            let path = self.output.join(
-                &"search.js".parse::<SitePath>().expect("static site path"),
-            );
-            fs::create_dir_all(path.parent().expect("invariant"))?;
-            let mut writer = BufWriter::new(fs::File::create(path)?);
-            writer.write_all(b"var __index = ")?;
-            serde_json::to_writer(&mut writer, index)?;
-            writer.write_all(b";")?;
-            writer.flush()?;
+            let path =
+                "search.js".parse::<SitePath>().expect("static site path");
+            self.output.write_with(&path, |file| {
+                let mut writer = BufWriter::new(file);
+                writer.write_all(b"var __index = ")?;
+                serde_json::to_writer(&mut writer, index)
+                    .map_err(io::Error::other)?;
+                writer.write_all(b";")?;
+                writer.flush()
+            })?;
         }
         Ok(())
     }

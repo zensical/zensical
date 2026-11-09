@@ -26,9 +26,6 @@
 //! Page-output ownership and reconciliation.
 
 use anyhow::{anyhow, bail};
-use std::fs;
-use std::io;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use zrx::id::Id;
@@ -93,29 +90,24 @@ impl Artifact {
 }
 
 impl Writer {
-    fn path(&self, key: &Key<Id>) -> anyhow::Result<PathBuf> {
+    fn path(key: &Key<Id>) -> anyhow::Result<SitePath> {
         let id = key.try_as_id()?;
         if id.context() != "." {
             return Err(anyhow!("page output escaped the site directory"));
         }
-        let path = id.location().parse::<SitePath>()?;
-        Ok(self.output.join(&path))
+        Ok(id.location().parse::<SitePath>()?)
     }
 
     fn insert(&self, key: &Key<Id>, artifact: &Artifact) -> anyhow::Result<()> {
-        let path = self.path(key)?;
-        fs::create_dir_all(path.parent().expect("site page has parent"))?;
-        fs::write(path, artifact.contents.as_slice())?;
+        let path = Self::path(key)?;
+        self.output.write(&path, artifact.contents.as_slice())?;
         Ok(())
     }
 
     fn remove(&self, key: &Key<Id>) -> anyhow::Result<()> {
-        let path = self.path(key)?;
-        match fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error.into()),
-        }
+        let path = Self::path(key)?;
+        self.output.remove(&path)?;
+        Ok(())
     }
 }
 
@@ -238,7 +230,7 @@ mod tests {
     use zrx::stream::{Key, Workflow};
 
     use super::{output_key, preferred, Artifact, Writer};
-    use crate::path::OutputRoot;
+    use crate::path::{OutputRoot, SitePath};
     use crate::structure::page::PageOrigin;
 
     fn source(source: &str, contents: &str) -> Artifact {
@@ -340,6 +332,101 @@ mod tests {
             std::fs::read(directory.path().join("new/index.html")).unwrap(),
             b"new"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn writer_rejects_hidden_symlinked_output_parents() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let site = directory.path().join("site");
+        let outside = directory.path().join("outside");
+        std::fs::create_dir(&site).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        symlink(&outside, site.join(".hidden")).unwrap();
+
+        let writer = Writer {
+            output: OutputRoot::prepare(&site).unwrap(),
+        };
+        crate::clear_dir(writer.output.as_path()).unwrap();
+
+        let artifact = Artifact::source(
+            ".hidden/index.md".parse().unwrap(),
+            ".hidden/index.html".parse().unwrap(),
+            b"outside write".to_vec(),
+        );
+        let key = output_key(&artifact.destination).unwrap();
+
+        assert!(writer.insert(&key, &artifact).is_err());
+        assert!(!outside.join("index.html").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn writer_rejects_removal_through_symlinked_output_parents() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let site = directory.path().join("site");
+        let outside = directory.path().join("outside");
+        std::fs::create_dir(&site).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        std::fs::write(outside.join("index.html"), b"keep me").unwrap();
+        symlink(&outside, site.join(".hidden")).unwrap();
+
+        let writer = Writer {
+            output: OutputRoot::prepare(&site).unwrap(),
+        };
+        crate::clear_dir(writer.output.as_path()).unwrap();
+
+        let path = ".hidden/index.html".parse::<SitePath>().unwrap();
+        let key = output_key(&path).unwrap();
+
+        assert!(writer.remove(&key).is_err());
+        assert_eq!(
+            std::fs::read(outside.join("index.html")).unwrap(),
+            b"keep me"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn writer_replaces_a_symlinked_output_file_without_following_it() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempfile::tempdir().unwrap();
+        let site = directory.path().join("site");
+        let outside = directory.path().join("outside.txt");
+        std::fs::create_dir(&site).unwrap();
+        std::fs::write(&outside, b"keep me").unwrap();
+        symlink(&outside, site.join(".hidden.html")).unwrap();
+
+        let writer = Writer {
+            output: OutputRoot::prepare(&site).unwrap(),
+        };
+        crate::clear_dir(writer.output.as_path()).unwrap();
+
+        let artifact = Artifact::source(
+            ".hidden.md".parse().unwrap(),
+            ".hidden.html".parse().unwrap(),
+            b"inside site".to_vec(),
+        );
+        let key = output_key(&artifact.destination).unwrap();
+
+        writer.insert(&key, &artifact).unwrap();
+
+        assert_eq!(std::fs::read(&outside).unwrap(), b"keep me");
+        assert_eq!(
+            std::fs::read(site.join(".hidden.html")).unwrap(),
+            b"inside site"
+        );
+        assert!(!site
+            .join(".hidden.html")
+            .symlink_metadata()
+            .unwrap()
+            .file_type()
+            .is_symlink());
     }
 
     #[test]

@@ -147,6 +147,12 @@ impl Middleware for NormalizePath {
     /// # }
     /// ```
     fn process(&self, req: Request, next: &dyn Handler) -> Response {
+        // Keep network-path references out of redirects, as browsers treat
+        // leading slashes and backslashes as an external authority.
+        if req.uri.path.starts_with("//") || req.uri.path.starts_with("/\\") {
+            return next.handle(req);
+        }
+
         // Create a path from a string reference, as it allows us to efficiently
         // check if it has an extension, regardless of which slashes are used in
         // file system paths. If it doesn't have an extension, it's either a
@@ -205,5 +211,28 @@ impl Default for NormalizePath {
     /// ```
     fn default() -> Self {
         Self { slash: TrailingSlash::Append }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::NormalizePath;
+    use crate::handler::NotFound;
+    use crate::http::{Header, Request, Status};
+    use crate::middleware::Middleware;
+
+    #[test]
+    fn does_not_redirect_network_path_references() {
+        for path in ["//attacker.example/path", "/%5Cattacker.example/path"] {
+            let req = Request::new().uri(path);
+            let res = NormalizePath::default().process(req, &NotFound);
+
+            assert_eq!(res.status, Status::NotFound);
+            assert_eq!(res.headers.get(Header::Location), None);
+        }
     }
 }

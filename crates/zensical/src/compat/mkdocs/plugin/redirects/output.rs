@@ -27,8 +27,7 @@
 
 use anyhow::{bail, Result};
 use std::collections::BTreeMap;
-use std::fs;
-use std::io::{BufWriter, Write};
+use std::io;
 
 use crate::path::OutputRoot;
 
@@ -71,23 +70,22 @@ pub fn write(
     output: &OutputRoot, snapshot: &Snapshot, strict: bool,
 ) -> Result<()> {
     for redirect in &snapshot.redirects {
-        let path = output.join(&redirect.output);
         if let Some(target) = &redirect.target {
-            fs::create_dir_all(path.parent().expect("redirect has parent"))?;
-            fs::write(path, render(target, &redirect.overrides))?;
-        } else if path.is_file() {
-            fs::remove_file(path)?;
+            output.write(
+                &redirect.output,
+                render(target, &redirect.overrides).as_bytes(),
+            )?;
+        } else if output.join(&redirect.output).is_file() {
+            output.remove(&redirect.output)?;
         }
     }
     if let Some(manifest) = &snapshot.manifest {
         // Fragments never reach the server, so anchor redirects are written
         // into one manifest for the browser integration to resolve.
-        let path =
-            output.join(&"redirect.json".parse().expect("static site path"));
-        fs::create_dir_all(path.parent().expect("invariant"))?;
-        let mut writer = BufWriter::new(fs::File::create(path)?);
-        serde_json::to_writer(&mut writer, manifest)?;
-        writer.flush()?;
+        let path = "redirect.json".parse().expect("static site path");
+        output.write_with(&path, |file| {
+            serde_json::to_writer(file, manifest).map_err(io::Error::other)
+        })?;
     }
     for warning in &snapshot.warnings {
         eprintln!("WARNING -  {warning}");

@@ -58,6 +58,7 @@ impl SourcePath {
     }
 
     /// Iterates over source path components.
+    #[must_use]
     pub fn components(&self) -> impl DoubleEndedIterator<Item = &str> {
         self.0.components()
     }

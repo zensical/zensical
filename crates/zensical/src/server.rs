@@ -81,6 +81,7 @@ pub fn create_server(
             // Ensure site directory exists
             fs::create_dir_all(&site_dir).unwrap();
             let stack = Stack::new()
+                .with(middleware::TrustedHosts::new(&addr))
                 .with(Client::default())
                 .with(middleware::WebSocketHandshake::default())
                 .with(middleware::NormalizePath::default())

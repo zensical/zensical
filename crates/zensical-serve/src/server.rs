@@ -29,12 +29,12 @@ use crossbeam::channel::{Receiver, TryRecvError};
 use mio::net::{TcpListener, TcpStream};
 use mio::{Interest, Token, Waker};
 use slab::Slab;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tungstenite::protocol::Role;
-use tungstenite::{Message, WebSocket};
+use tungstenite::{Error as WebSocketError, Message, WebSocket};
 
 use super::handler::{Handler, TryIntoHandler};
 use super::server::connection::{Connection, Signal, Upgrade};
@@ -47,6 +47,13 @@ mod poller;
 pub use builder::Builder;
 pub use error::{Error, Result};
 use poller::Poller;
+
+// ----------------------------------------------------------------------------
+// Constants
+// ----------------------------------------------------------------------------
+
+/// Maximum number of active HTTP and WebSocket connections.
+const MAX_CONNECTIONS: usize = 64;
 
 // ----------------------------------------------------------------------------
 // Structs
@@ -210,6 +217,13 @@ where
                 loop {
                     match acceptor.accept() {
                         Ok((socket, _addr)) => {
+                            if self.connections.len() + self.clients.len()
+                                >= MAX_CONNECTIONS
+                            {
+                                drop(socket);
+                                continue;
+                            }
+
                             let n = self
                                 .connections
                                 .insert(Connection::new(socket));
@@ -294,6 +308,11 @@ where
             }
         }
 
+        // WebSocket clients are not registered with the poller, so check
+        // them after each poll to notice disconnected peers and process
+        // control frames while the server is otherwise idle.
+        self.clients.retain(|_, socket| websocket_is_alive(socket));
+
         // Keep on polling
         Ok(true)
     }
@@ -305,16 +324,109 @@ where
 }
 
 // ----------------------------------------------------------------------------
+// Functions
+// ----------------------------------------------------------------------------
+
+/// Checks a WebSocket peer and flushes any automatic control-frame response.
+fn websocket_is_alive<T>(socket: &mut WebSocket<T>) -> bool
+where
+    T: Read + Write,
+{
+    let close = match socket.read() {
+        Ok(Message::Close(_)) => true,
+        Ok(_) => false,
+        Err(WebSocketError::Io(err)) if err.kind() == ErrorKind::WouldBlock => {
+            return true;
+        }
+        Err(_) => return false,
+    };
+
+    match socket.flush() {
+        Ok(()) => !close,
+        Err(WebSocketError::Io(err)) if err.kind() == ErrorKind::WouldBlock => {
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+// ----------------------------------------------------------------------------
 // Tests
 // ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
-    use std::net::TcpStream;
+    use std::io::{self, Cursor, ErrorKind, Read, Write};
+    use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+    use std::time::{Duration, Instant};
+    use tungstenite::protocol::Role;
+    use tungstenite::{Message, WebSocket};
 
     use crate::handler::Teapot;
 
-    use super::*;
+    use super::connection::Connection;
+    use super::{websocket_is_alive, Server, MAX_CONNECTIONS};
+
+    struct WouldBlock;
+
+    impl Read for WouldBlock {
+        fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::WouldBlock.into())
+        }
+    }
+
+    impl Write for WouldBlock {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn websocket_pair() -> (TcpStream, WebSocket<mio::net::TcpStream>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let peer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_nonblocking(true).unwrap();
+        let socket = WebSocket::from_raw_socket(
+            mio::net::TcpStream::from_std(stream),
+            Role::Server,
+            None,
+        );
+
+        (peer, socket)
+    }
+
+    fn wake_server<H>(server: &mut Server<H>) -> Duration
+    where
+        H: crate::handler::Handler,
+    {
+        let start = Instant::now();
+        server.waker().wake().unwrap();
+        assert!(server.poll(None).unwrap());
+        start.elapsed()
+    }
+
+    fn wake_until_websocket_clients_removed<H>(server: &mut Server<H>)
+    where
+        H: crate::handler::Handler,
+    {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !server.clients.is_empty() {
+            let elapsed = wake_server(server);
+            assert!(
+                elapsed < Duration::from_secs(3),
+                "server poll took {elapsed:?}"
+            );
+            assert!(
+                Instant::now() < deadline,
+                "websocket client was not removed before the deadline"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
 
     #[test]
     fn local_addrs_reports_assigned_port() {
@@ -352,5 +464,114 @@ mod tests {
             assert_ne!(addr.port(), 0);
             TcpStream::connect(addr).unwrap();
         }
+    }
+
+    #[test]
+    fn drops_connections_above_the_active_connection_limit() {
+        let mut server = Server::new(Teapot, "127.0.0.1:0").unwrap();
+        let filler_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let filler_addr = filler_listener.local_addr().unwrap();
+        let mut peers = Vec::with_capacity(MAX_CONNECTIONS);
+
+        for _ in 0..MAX_CONNECTIONS {
+            let peer = TcpStream::connect(filler_addr).unwrap();
+            let (stream, _) = filler_listener.accept().unwrap();
+            stream.set_nonblocking(true).unwrap();
+            server
+                .connections
+                .insert(Connection::new(mio::net::TcpStream::from_std(stream)));
+            peers.push(peer);
+        }
+
+        let mut excess =
+            TcpStream::connect(server.local_addrs().unwrap()[0]).unwrap();
+        excess.set_nonblocking(true).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let elapsed = wake_server(&mut server);
+            assert!(elapsed < Duration::from_secs(3));
+
+            let mut buffer = [0; 1];
+            match excess.read(&mut buffer) {
+                Ok(0) => break,
+                Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                    assert!(Instant::now() < deadline);
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(err) => {
+                    panic!("rejected connection failed unexpectedly: {err}")
+                }
+                Ok(_) => {
+                    panic!("rejected connection unexpectedly received data")
+                }
+            }
+        }
+
+        assert_eq!(
+            server.connections.len() + server.clients.len(),
+            MAX_CONNECTIONS
+        );
+    }
+
+    #[test]
+    fn removes_websocket_clients_after_a_close_frame() {
+        // A masked empty close frame from a WebSocket client.
+        let frame = vec![0x88, 0x80, 1, 2, 3, 4];
+        let mut socket =
+            WebSocket::from_raw_socket(Cursor::new(frame), Role::Server, None);
+
+        assert!(!websocket_is_alive(&mut socket));
+    }
+
+    #[test]
+    fn removes_websocket_clients_after_eof() {
+        let mut socket = WebSocket::from_raw_socket(
+            Cursor::new(Vec::new()),
+            Role::Server,
+            None,
+        );
+
+        assert!(!websocket_is_alive(&mut socket));
+    }
+
+    #[test]
+    fn retains_idle_nonblocking_websocket_clients() {
+        let mut socket =
+            WebSocket::from_raw_socket(WouldBlock, Role::Server, None);
+
+        assert!(websocket_is_alive(&mut socket));
+    }
+
+    #[test]
+    fn server_poll_keeps_open_idle_websocket_clients_without_blocking() {
+        let mut server = Server::new(Teapot, "127.0.0.1:0").unwrap();
+        let (_peer, socket) = websocket_pair();
+        server.clients.insert(socket);
+
+        let elapsed = wake_server(&mut server);
+
+        assert!(elapsed < Duration::from_secs(3));
+        assert_eq!(server.clients.len(), 1);
+    }
+
+    #[test]
+    fn server_poll_removes_disconnected_websocket_clients_without_blocking() {
+        let mut server = Server::new(Teapot, "127.0.0.1:0").unwrap();
+        let (peer, socket) = websocket_pair();
+        server.clients.insert(socket);
+        drop(peer);
+
+        wake_until_websocket_clients_removed(&mut server);
+    }
+
+    #[test]
+    fn server_poll_removes_close_frame_clients_without_blocking() {
+        let mut server = Server::new(Teapot, "127.0.0.1:0").unwrap();
+        let (peer, socket) = websocket_pair();
+        let mut peer = WebSocket::from_raw_socket(peer, Role::Client, None);
+        peer.send(Message::Close(None)).unwrap();
+        server.clients.insert(socket);
+
+        wake_until_websocket_clients_removed(&mut server);
     }
 }

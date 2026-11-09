@@ -32,11 +32,13 @@ use super::http::{Request, Response};
 
 mod convert;
 mod files;
+mod host;
 mod path;
 mod websocket;
 
 pub use convert::TryIntoMiddleware;
 pub use files::StaticFiles;
+pub use host::TrustedHosts;
 pub use path::{BasePath, NormalizePath, TrailingSlash};
 pub use websocket::WebSocketHandshake;
 
