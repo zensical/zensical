@@ -26,7 +26,7 @@
 //! Middleware for livereload client.
 
 use zensical_serve::handler::Handler;
-use zensical_serve::http::{Header, Request, Response, Status};
+use zensical_serve::http::{Header, Method, Request, Response, Status};
 use zensical_serve::middleware::Middleware;
 
 // ----------------------------------------------------------------------------
@@ -118,18 +118,20 @@ pub struct Client;
 impl Middleware for Client {
     /// Processes the given request.
     fn process(&self, req: Request, next: &dyn Handler) -> Response {
+        let is_head = req.method == Method::Head;
         let uri = req.uri.path.clone();
         let mut res = next.handle(req);
 
         // Inject the client into HTML pages, including custom error pages
-        if let Some(value) = res.headers.get(Header::ContentType)
+        if !is_head
+            && let Some(value) = res.headers.get(Header::ContentType)
             && value.contains("text/html")
         {
             append_client(&mut res.body, &uri);
 
             // Update content length
             res.headers.insert(Header::ContentLength, res.body.len());
-        } else if res.status == Status::NotFound {
+        } else if !is_head && res.status == Status::NotFound {
             // If no HTML page is available yet, attach the client to the
             // generic error response so it reloads once the build finishes
             res.body.clear();
@@ -195,5 +197,27 @@ mod tests {
 
         assert!(body.contains("const path = \"/\\u003c/script\\u003e\";"));
         assert_eq!(body.matches("</script>").count(), 1);
+    }
+
+    #[test]
+    fn head_responses_do_not_include_livereload_client() {
+        let req = Request::new().method(Method::Head).uri("/preview/guide/");
+        let res = Client.process(req, &|_: Request| {
+            Response::new()
+                .header(Header::ContentType, "text/html")
+                .header(Header::ContentLength, 7)
+                .body([])
+        });
+
+        assert!(res.body.is_empty());
+        assert_eq!(res.headers.get(Header::ContentLength), Some("7"));
+
+        let req = Request::new().method(Method::Head).uri("/missing");
+        let res = Client.process(req, &|_: Request| {
+            Response::new().status(Status::NotFound)
+        });
+
+        assert!(res.body.is_empty());
+        assert_eq!(res.headers.get(Header::ContentLength), None);
     }
 }
