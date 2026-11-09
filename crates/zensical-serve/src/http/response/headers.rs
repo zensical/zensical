@@ -132,6 +132,9 @@ impl Headers {
 
     /// Updates the given header.
     ///
+    /// Values with control characters other than horizontal tab are ignored
+    /// to prevent malformed fields and response splitting.
+    ///
     /// # Examples
     ///
     /// ```
@@ -148,7 +151,15 @@ impl Headers {
     where
         V: ToString,
     {
-        self.inner.insert(header, value.to_string());
+        let value = value.to_string();
+        if value
+            .bytes()
+            .any(|byte| byte.is_ascii_control() && byte != b'\t')
+        {
+            return;
+        }
+
+        self.inner.insert(header, value);
     }
 
     /// Removes the given header.
@@ -254,5 +265,27 @@ impl fmt::Display for Headers {
 
         // No errors occurred
         Ok(())
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use crate::http::{Header, Response};
+
+    #[test]
+    fn drops_header_values_with_control_characters() {
+        let response = Response::new()
+            .header(Header::Location, "/safe\r\nSet-Cookie: injected=true");
+
+        assert_eq!(response.headers.get(Header::Location), None);
+
+        let bytes = response.into_bytes();
+        assert!(!bytes
+            .windows(b"Set-Cookie".len())
+            .any(|window| window == b"Set-Cookie"));
     }
 }
