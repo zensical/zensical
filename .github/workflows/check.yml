@@ -53,7 +53,8 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: stable
+          toolchain: 1.98.0
+          components: clippy
 
       - name: Run clippy
         run: cargo clippy --locked -- -D warnings
@@ -74,7 +75,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: stable
+          toolchain: 1.98.0
 
       - name: Run tests
         run: cargo test --locked
@@ -133,7 +134,8 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
-          toolchain: stable
+          toolchain: 1.98.0
+          components: rustfmt
 
       - name: Run rustfmt
         run: cargo fmt --all -- --check

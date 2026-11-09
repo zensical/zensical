@@ -104,12 +104,11 @@ impl TrustedHosts {
                 || matches!(host, Host::Name(name) if name == "localhost");
         }
 
-        if self.allow_loopback {
-            if matches!(host, Host::Name(name) if name == "localhost")
-                || matches!(host, Host::Ip(address) if address.is_loopback())
-            {
-                return true;
-            }
+        if self.allow_loopback
+            && (matches!(host, Host::Name(name) if name == "localhost")
+                || matches!(host, Host::Ip(address) if address.is_loopback()))
+        {
+            return true;
         }
 
         self.configured.as_ref() == Some(host)

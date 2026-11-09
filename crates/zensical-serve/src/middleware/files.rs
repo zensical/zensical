@@ -70,12 +70,11 @@ impl StaticFiles {
         let res = next.handle(req);
 
         // In case the path was not found, try to load `404.html`
-        if res.status == Status::NotFound {
-            if let Some(full) = self.resolve(Path::new("404.html"))
-                && let Ok(res) = Response::from_file(full)
-            {
-                return res.status(Status::NotFound);
-            }
+        if res.status == Status::NotFound
+            && let Some(full) = self.resolve(Path::new("404.html"))
+            && let Ok(res) = Response::from_file(full)
+        {
+            return res.status(Status::NotFound);
         }
 
         // Otherwise, return original request

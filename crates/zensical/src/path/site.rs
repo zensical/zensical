@@ -58,6 +58,7 @@ impl SitePath {
     }
 
     /// Iterates over site path components.
+    #[must_use]
     pub fn components(&self) -> impl DoubleEndedIterator<Item = &str> {
         self.0.components()
     }
