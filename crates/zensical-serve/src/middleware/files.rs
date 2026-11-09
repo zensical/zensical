@@ -28,7 +28,7 @@
 use httpdate::parse_http_date;
 use std::fs;
 use std::io::Result;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 use crate::handler::Handler;
@@ -71,14 +71,21 @@ impl StaticFiles {
 
         // In case the path was not found, try to load `404.html`
         if res.status == Status::NotFound {
-            let full = self.base.join("404.html");
-            if let Ok(res) = Response::from_file(full) {
+            if let Some(full) = self.resolve(Path::new("404.html"))
+                && let Ok(res) = Response::from_file(full)
+            {
                 return res.status(Status::NotFound);
             }
         }
 
         // Otherwise, return original request
         res
+    }
+
+    /// Resolves a path only when it remains inside the canonical site root.
+    fn resolve(&self, path: &Path) -> Option<PathBuf> {
+        let path = self.base.join(path).canonicalize().ok()?;
+        path.starts_with(&self.base).then_some(path)
     }
 }
 
@@ -96,10 +103,16 @@ impl Middleware for StaticFiles {
         // Remove leading slash from path. In case the path ends with a slash,
         // add "index.html", so we can correctly resolve the associated file
         let path = PathBuf::from(req.uri.path.trim_start_matches('/'));
-        let mut full = self.base.join(&path);
+        let mut path = path;
         if req.uri.path.ends_with('/') {
-            full.push("index.html");
+            path.push("index.html");
         }
+
+        // Canonicalization follows symlinks, so a file or directory linked
+        // outside the configured site root is treated as not found.
+        let Some(full) = self.resolve(&path) else {
+            return self.fallback(req, next);
+        };
 
         // Attempt to load file, or delegate to fallback
         let Ok(mut res) = Response::from_file(&full) else {
@@ -138,5 +151,98 @@ impl Middleware for StaticFiles {
 
         // Otherwise just return response
         res
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use crate::handler::NotFound;
+    use crate::http::{Request, Status};
+    use crate::middleware::Middleware;
+
+    use super::StaticFiles;
+
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new() -> Self {
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "zensical-serve-static-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn serves_files_inside_the_site_root() {
+        let site = TestDir::new();
+        fs::write(site.0.join("index.html"), b"site content").unwrap();
+        let middleware = StaticFiles::new(&site.0).unwrap();
+
+        let response = middleware.process(Request::new().uri("/"), &NotFound);
+
+        assert_eq!(response.status, Status::Ok);
+        assert_eq!(response.body, b"site content");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn does_not_serve_symlinks_that_escape_the_site_root() {
+        use std::os::unix::fs::symlink;
+
+        let site = TestDir::new();
+        let outside = TestDir::new();
+        fs::write(outside.0.join("secret.txt"), b"outside secret").unwrap();
+        symlink(outside.0.join("secret.txt"), site.0.join("secret.txt"))
+            .unwrap();
+        let middleware = StaticFiles::new(&site.0).unwrap();
+
+        let response =
+            middleware.process(Request::new().uri("/secret.txt"), &NotFound);
+
+        assert_eq!(response.status, Status::NotFound);
+        assert!(!response
+            .body
+            .windows(b"outside secret".len())
+            .any(|window| window == b"outside secret"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn does_not_serve_an_escaping_404_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let site = TestDir::new();
+        let outside = TestDir::new();
+        fs::write(outside.0.join("404.html"), b"outside page").unwrap();
+        symlink(outside.0.join("404.html"), site.0.join("404.html")).unwrap();
+        let middleware = StaticFiles::new(&site.0).unwrap();
+
+        let response =
+            middleware.process(Request::new().uri("/missing"), &NotFound);
+
+        assert_eq!(response.status, Status::NotFound);
+        assert!(!response
+            .body
+            .windows(b"outside page".len())
+            .any(|window| window == b"outside page"));
     }
 }
