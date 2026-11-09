@@ -26,9 +26,6 @@
 //! Removal-aware social card output.
 
 use anyhow::anyhow;
-use std::fs;
-use std::io;
-use std::path::PathBuf;
 
 use zrx::id::Id;
 use zrx::scheduler::action::{Action, Concurrency, Context};
@@ -55,18 +52,9 @@ struct Writer {
 // ----------------------------------------------------------------------------
 
 impl Writer {
-    /// Resolves a card's site-relative output path.
-    fn path(&self, card: &Card) -> PathBuf {
-        self.output.join(&card.path)
-    }
-
     /// Copies a cached card into the generated site.
     fn insert(&self, card: &Card) -> anyhow::Result<()> {
-        let path = self.path(card);
-        fs::create_dir_all(path.parent().expect("social card has parent"))?;
-        let mut source = fs::File::open(&card.source)?;
-        let mut target = fs::File::create(path)?;
-        io::copy(&mut source, &mut target)?;
+        self.output.copy(&card.path, &card.source)?;
         Ok(())
     }
 
@@ -74,12 +62,8 @@ impl Writer {
     fn remove(&self, key: &Key<Id>) -> anyhow::Result<()> {
         let id = key.try_as_id()?;
         let path = id.location().parse::<SitePath>()?;
-        let path = self.output.join(&path);
-        match fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error.into()),
-        }
+        self.output.remove(&path)?;
+        Ok(())
     }
 }
 

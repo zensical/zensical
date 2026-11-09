@@ -26,9 +26,6 @@
 //! Minify asset writer.
 
 use anyhow::anyhow;
-use std::fs;
-use std::io;
-use std::path::{Path, PathBuf};
 
 use zrx::id::Id;
 use zrx::scheduler::action::{Action, Concurrency, Context};
@@ -54,32 +51,27 @@ struct Writer {
 // ----------------------------------------------------------------------------
 
 impl Writer {
-    fn path(&self, key: &Key<Id>) -> anyhow::Result<PathBuf> {
+    fn path(key: &Key<Id>) -> anyhow::Result<SitePath> {
         let id = key.try_as_id()?;
         if id.context() != "." {
             return Err(anyhow!("asset output escaped the site directory"));
         }
-        let path = id.location().parse::<SitePath>()?;
-        Ok(self.output.join(&path))
+        Ok(id.location().parse::<SitePath>()?)
     }
 
     fn insert(&self, key: &Key<Id>, emission: &Emission) -> anyhow::Result<()> {
-        let path = self.path(key)?;
-        fs::create_dir_all(path.parent().expect("site asset has parent"))?;
+        let path = Self::path(key)?;
         match &emission.contents {
-            Contents::Copy(source) => copy(source, path)?,
-            Contents::Bytes(bytes) => fs::write(path, bytes)?,
+            Contents::Copy(source) => self.output.copy(&path, source)?,
+            Contents::Bytes(bytes) => self.output.write(&path, bytes)?,
         }
         Ok(())
     }
 
     fn remove(&self, key: &Key<Id>) -> anyhow::Result<()> {
-        let path = self.path(key)?;
-        match fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error.into()),
-        }
+        let path = Self::path(key)?;
+        self.output.remove(&path)?;
+        Ok(())
     }
 }
 
@@ -113,18 +105,7 @@ impl Action<Key<Id>> for Writer {
     }
 }
 
-// ----------------------------------------------------------------------------
-// Functions
-// ----------------------------------------------------------------------------
-
 /// Installs a removal-aware writer for the emission relation.
 pub fn setup(output: OutputRoot, emissions: &Stream<Id, Emission>) {
     let _ = emissions.subscribe(Writer { output });
-}
-
-/// Copies one physical source into its output file.
-fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<()> {
-    let mut from = fs::File::open(from)?;
-    let mut to = fs::File::create(to)?;
-    io::copy(&mut from, &mut to).map(|_| ())
 }

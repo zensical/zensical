@@ -28,7 +28,6 @@
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
-use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Deref;
 use std::str::FromStr;
@@ -1025,9 +1024,7 @@ fn render_templates(
                     Err(error) => {
                         // Source assets are copied before extra templates are parsed by MkDocs.
                         // Only compilation failures are downgraded to warnings.
-                        let path = config.output_root().join(&output);
-                        fs::create_dir_all(path.parent().expect("invariant"))?;
-                        fs::write(path, source)?;
+                        config.output_root().write(&output, source.as_bytes())?;
                         eprintln!("WARNING -  Error reading template '{name}': {error}");
                         anyhow::ensure!(!strict, "Aborted because --strict flag is set");
                         return Ok(privacy::Assets::default());
@@ -1045,9 +1042,7 @@ fn render_templates(
                 (data, privacy::Assets::default())
             };
             let data = minify.template(name, data);
-            let path = config.output_root().join(&output);
-            fs::create_dir_all(path.parent().expect("invariant"))?;
-            fs::write(path, &data)?;
+            config.output_root().write(&output, data.as_bytes())?;
             Ok::<_, anyhow::Error>(downloads)
         },
     )

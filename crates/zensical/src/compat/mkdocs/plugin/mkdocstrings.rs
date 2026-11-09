@@ -31,7 +31,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use zrx::id::Id;
 use zrx::stream::Signal;
@@ -232,10 +232,10 @@ impl Mkdocstrings {
                 Ok::<_, pyo3::PyErr>((data, enabled, auto_enabled))
             })?;
 
-            let path = pipeline.output.join(
-                &"objects.inv".parse::<SitePath>().expect("static site path"),
-            );
+            let path =
+                "objects.inv".parse::<SitePath>().expect("static site path");
             publish(
+                &pipeline.output,
                 &path,
                 &data,
                 enabled,
@@ -347,13 +347,13 @@ impl Mkdocstrings {
 /// When disabled, remove the generated file unless the docs directory contains
 /// its own `objects.inv`.
 fn publish(
-    path: &Path, data: &[u8], enabled: bool, has_source: bool,
+    output: &OutputRoot, path: &SitePath, data: &[u8], enabled: bool,
+    has_source: bool,
 ) -> std::io::Result<()> {
     if enabled {
-        fs::create_dir_all(path.parent().expect("inventory has a parent"))?;
-        fs::write(path, data)
-    } else if !has_source && path.is_file() {
-        fs::remove_file(path)
+        output.write(path, data)
+    } else if !has_source && output.join(path).is_file() {
+        output.remove(path)
     } else {
         Ok(())
     }
@@ -370,7 +370,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{publish, BacklinkCache};
+    use super::{publish, BacklinkCache, OutputRoot, SitePath};
 
     #[test]
     fn backlink_pages_are_reused_without_computing_again() {
@@ -434,22 +434,26 @@ mod tests {
     #[test]
     fn retracts_generated_inventory_and_can_publish_again() {
         let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("site/objects.inv");
-        publish(&path, b"old inventory", true, false).unwrap();
-        assert_eq!(fs::read(&path).unwrap(), b"old inventory");
-        publish(&path, b"new inventory", false, false).unwrap();
-        assert!(!path.exists());
-        publish(&path, b"new inventory", false, false).unwrap();
-        publish(&path, b"new inventory", true, false).unwrap();
-        assert_eq!(fs::read(&path).unwrap(), b"new inventory");
+        let output = OutputRoot::prepare(root.path().join("site")).unwrap();
+        let path = "objects.inv".parse::<SitePath>().unwrap();
+        let physical = output.join(&path);
+        publish(&output, &path, b"old inventory", true, false).unwrap();
+        assert_eq!(fs::read(&physical).unwrap(), b"old inventory");
+        publish(&output, &path, b"new inventory", false, false).unwrap();
+        assert!(!physical.exists());
+        publish(&output, &path, b"new inventory", false, false).unwrap();
+        publish(&output, &path, b"new inventory", true, false).unwrap();
+        assert_eq!(fs::read(&physical).unwrap(), b"new inventory");
     }
 
     #[test]
     fn disabling_export_preserves_a_documentation_resource() {
         let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("objects.inv");
-        fs::write(&path, b"user-provided inventory").unwrap();
-        publish(&path, b"generated", false, true).unwrap();
-        assert_eq!(fs::read(path).unwrap(), b"user-provided inventory");
+        let output = OutputRoot::prepare(root.path().join("site")).unwrap();
+        let path = "objects.inv".parse::<SitePath>().unwrap();
+        let physical = output.join(&path);
+        fs::write(&physical, b"user-provided inventory").unwrap();
+        publish(&output, &path, b"generated", false, true).unwrap();
+        assert_eq!(fs::read(physical).unwrap(), b"user-provided inventory");
     }
 }

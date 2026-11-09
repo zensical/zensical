@@ -26,8 +26,9 @@
 //! Canonical physical roots for logical paths.
 
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -121,13 +122,130 @@ impl OutputRoot {
         &self.0
     }
 
-    /// Resolves one validated site path below this root.
-    ///
-    /// This guarantees lexical containment. Preventing an existing symlinked
-    /// parent from escaping the root remains an output-reconciler concern.
+    /// Resolves one validated site path below this root lexically.
     #[must_use]
     pub fn join(&self, path: &SitePath) -> PathBuf {
         self.0.join(path.as_str())
+    }
+
+    /// Atomically writes a file without following symlinked output parents.
+    pub fn write(&self, path: &SitePath, contents: &[u8]) -> io::Result<()> {
+        self.write_with(path, |file| file.write_all(contents))
+    }
+
+    /// Writes generated data through a temporary file below this root.
+    pub fn write_with(
+        &self, path: &SitePath,
+        write: impl FnOnce(&mut fs::File) -> io::Result<()>,
+    ) -> io::Result<()> {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+
+        let parent = self.parent(path, true)?;
+        let target = parent.join(path.file_name());
+        let (temporary, mut file) = loop {
+            let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
+            let temporary = parent.join(format!(
+                ".zensical-{}-{sequence}.tmp",
+                std::process::id()
+            ));
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)
+            {
+                Ok(file) => break (temporary, file),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error),
+            }
+        };
+
+        let result = write(&mut file).and_then(|()| file.flush());
+        drop(file);
+        if let Err(error) = result {
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
+        }
+        if let Err(error) = fs::rename(&temporary, &target) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Copies a file into the output tree without following output symlinks.
+    pub fn copy(
+        &self, path: &SitePath, source: impl AsRef<Path>,
+    ) -> io::Result<()> {
+        let mut source = fs::File::open(source)?;
+        self.write_with(path, |target| {
+            io::copy(&mut source, target).map(|_| ())
+        })
+    }
+
+    /// Removes a file while refusing to traverse symlinked output parents.
+    pub fn remove(&self, path: &SitePath) -> io::Result<()> {
+        let parent = match self.parent(path, false) {
+            Ok(parent) => parent,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+        };
+        match fs::remove_file(parent.join(path.file_name())) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Creates missing parents and rejects symlinks or non-directory parents.
+    fn parent(&self, path: &SitePath, create: bool) -> io::Result<PathBuf> {
+        let mut parent = self.0.to_path_buf();
+        let mut components = path.components().peekable();
+        while let Some(component) = components.next() {
+            if components.peek().is_none() {
+                break;
+            }
+            parent.push(component);
+            let metadata = match fs::symlink_metadata(&parent) {
+                Ok(metadata) => metadata,
+                Err(error)
+                    if error.kind() == io::ErrorKind::NotFound && create =>
+                {
+                    match fs::create_dir(&parent) {
+                        Ok(()) => {}
+                        Err(error)
+                            if error.kind() == io::ErrorKind::AlreadyExists => {
+                        }
+                        Err(error) => return Err(error),
+                    }
+                    fs::symlink_metadata(&parent)?
+                }
+                Err(error) => return Err(error),
+            };
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!(
+                        "refusing output through symlink or non-directory parent '{}'",
+                        parent.display()
+                    ),
+                ));
+            }
+            let resolved = fs::canonicalize(&parent)?;
+            if !resolved.starts_with(self.as_path()) {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!(
+                        "output parent '{}' escapes root '{}'",
+                        resolved.display(),
+                        self.as_path().display()
+                    ),
+                ));
+            }
+            parent = resolved;
+        }
+        Ok(parent)
     }
 }
 

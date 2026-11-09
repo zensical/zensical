@@ -186,6 +186,33 @@ def test_default_exclusions_can_be_negated(
     assert (site / "nested/templates/page/index.html").is_file()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="requires symlink support")
+def test_hidden_output_symlink_cannot_escape_site_root(tmp_path: Path) -> None:
+    config = _project(
+        tmp_path,
+        {
+            ".hidden.md": "# Hidden",
+            ".assets/logo.svg": "asset",
+            "nested/.hidden/page.md": "# Nested hidden",
+            "templates/page.md": "# Template",
+            "templates/data.txt": "data",
+            "nested/templates/page.md": "# Ordinary page",
+        },
+        exclude_docs="!.*\n!/templates/",
+    )
+    site = tmp_path / "site"
+    site.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (site / ".hidden").symlink_to(outside, target_is_directory=True)
+
+    _build(config)
+
+    search = json.loads((site / "search.json").read_text(encoding="utf-8"))
+    assert any(item["location"] == ".hidden/" for item in search["items"])
+    assert not (outside / "index.html").exists()
+
+
 @pytest.mark.parametrize("setting", ["exclude_docs", "draft_docs"])
 def test_exclusions_cover_resources_and_templates_before_processing(
     tmp_path: Path, setting: str
