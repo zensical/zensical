@@ -49,6 +49,13 @@ pub use error::{Error, Result};
 use poller::Poller;
 
 // ----------------------------------------------------------------------------
+// Constants
+// ----------------------------------------------------------------------------
+
+/// Maximum number of active HTTP and WebSocket connections.
+const MAX_CONNECTIONS: usize = 64;
+
+// ----------------------------------------------------------------------------
 // Structs
 // ----------------------------------------------------------------------------
 
@@ -210,6 +217,13 @@ where
                 loop {
                     match acceptor.accept() {
                         Ok((socket, _addr)) => {
+                            if self.connections.len() + self.clients.len()
+                                >= MAX_CONNECTIONS
+                            {
+                                drop(socket);
+                                continue;
+                            }
+
                             let n = self
                                 .connections
                                 .insert(Connection::new(socket));
@@ -342,7 +356,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::io::{self, Cursor, Read, Write};
+    use std::io::{self, Cursor, ErrorKind, Read, Write};
     use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
     use std::time::{Duration, Instant};
     use tungstenite::protocol::Role;
@@ -350,7 +364,8 @@ mod tests {
 
     use crate::handler::Teapot;
 
-    use super::{websocket_is_alive, Server};
+    use super::connection::Connection;
+    use super::{websocket_is_alive, Server, MAX_CONNECTIONS};
 
     struct WouldBlock;
 
@@ -449,6 +464,53 @@ mod tests {
             assert_ne!(addr.port(), 0);
             TcpStream::connect(addr).unwrap();
         }
+    }
+
+    #[test]
+    fn drops_connections_above_the_active_connection_limit() {
+        let mut server = Server::new(Teapot, "127.0.0.1:0").unwrap();
+        let filler_listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let filler_addr = filler_listener.local_addr().unwrap();
+        let mut peers = Vec::with_capacity(MAX_CONNECTIONS);
+
+        for _ in 0..MAX_CONNECTIONS {
+            let peer = TcpStream::connect(filler_addr).unwrap();
+            let (stream, _) = filler_listener.accept().unwrap();
+            stream.set_nonblocking(true).unwrap();
+            server
+                .connections
+                .insert(Connection::new(mio::net::TcpStream::from_std(stream)));
+            peers.push(peer);
+        }
+
+        let mut excess =
+            TcpStream::connect(server.local_addrs().unwrap()[0]).unwrap();
+        excess.set_nonblocking(true).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let elapsed = wake_server(&mut server);
+            assert!(elapsed < Duration::from_secs(3));
+
+            let mut buffer = [0; 1];
+            match excess.read(&mut buffer) {
+                Ok(0) => break,
+                Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                    assert!(Instant::now() < deadline);
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(err) => {
+                    panic!("rejected connection failed unexpectedly: {err}")
+                }
+                Ok(_) => {
+                    panic!("rejected connection unexpectedly received data")
+                }
+            }
+        }
+
+        assert_eq!(
+            server.connections.len() + server.clients.len(),
+            MAX_CONNECTIONS
+        );
     }
 
     #[test]

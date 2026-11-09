@@ -92,6 +92,8 @@ pub struct Connection {
     buffer: Buffer,
     /// Last activity time.
     time: Instant,
+    /// Start time of the current request.
+    started: Instant,
 }
 
 // ----------------------------------------------------------------------------
@@ -101,10 +103,12 @@ pub struct Connection {
 impl Connection {
     /// Creates a connection.
     pub fn new(socket: TcpStream) -> Self {
+        let now = Instant::now();
         Connection {
             socket,
             buffer: Buffer::Reading(Vec::new()),
-            time: Instant::now(),
+            time: now,
+            started: now,
         }
     }
 
@@ -260,6 +264,7 @@ impl Connection {
         }
 
         // Switch back to reading state
+        self.started = Instant::now();
         Ok(Signal::Interest(Interest::READABLE))
     }
 
@@ -271,6 +276,8 @@ impl Connection {
     /// Check if connection has timed out
     pub fn is_timed_out(&self, now: Instant) -> bool {
         now.duration_since(self.time).as_secs() > 30
+            || (matches!(&self.buffer, Buffer::Reading(_))
+                && now.duration_since(self.started).as_secs() > 30)
     }
 }
 
@@ -392,5 +399,22 @@ mod tests {
         assert!(response
             .windows(b"Connection: close".len())
             .any(|window| window == b"Connection: close"));
+    }
+
+    #[test]
+    fn times_out_trickled_request_after_absolute_deadline() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client =
+            TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_nonblocking(true).unwrap();
+        let mut connection =
+            Connection::new(mio::net::TcpStream::from_std(stream));
+        let now = Instant::now();
+        connection.time = now;
+        connection.started = now.checked_sub(Duration::from_secs(31)).unwrap();
+
+        assert!(connection.is_timed_out(now));
+        drop(client);
     }
 }
