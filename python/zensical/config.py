@@ -30,6 +30,7 @@ import importlib
 import os
 import pickle
 import re
+import sys
 import warnings
 from datetime import datetime
 from importlib.metadata import EntryPoint, entry_points
@@ -170,6 +171,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
     "markdown-exec": (),
     "markdownextradata": (),
     "meta": (),
+    "meta-descriptions": (),
     "mike": (
         "css_dir",
         "javascript_dir",
@@ -2452,6 +2454,52 @@ def _convert_plugins(value: Any, config: dict) -> dict:
     _validate_boolean_options("meta", meta, ("enabled",))
     _validate_string_options("meta", meta, ("meta_file",))
     plugins["meta"] = meta
+
+    # Description generation is enabled by plugin presence. Settings are
+    # normalized before being passed to the native HTML visitor.
+    present = "meta-descriptions" in plugins
+    descriptions = plugins.pop("meta-descriptions", {})
+    defaults = {
+        "enabled": present,
+        "export_csv": False,
+        "quiet": False,
+        "enable_checks": False,
+        "min_length": 50,
+        "max_length": 160,
+        "trim": False,
+        "fallback_if_short": False,
+    }
+    _reject_unknown_options("meta-descriptions", descriptions, set(defaults))
+    for name, default in defaults.items():
+        set_default(descriptions, name, default)
+    _validate_boolean_options(
+        "meta-descriptions",
+        descriptions,
+        (
+            "enabled",
+            "export_csv",
+            "quiet",
+            "enable_checks",
+            "trim",
+            "fallback_if_short",
+        ),
+    )
+    for name in ("min_length", "max_length"):
+        length = descriptions[name]
+        valid_length = (
+            not isinstance(length, bool)
+            and isinstance(length, int)
+            and 0 <= length <= sys.maxsize
+        )
+        if not valid_length:
+            raise ConfigurationError(
+                f"meta-descriptions {name} must be a non-negative integer"
+            )
+    if descriptions["trim"] and descriptions["max_length"] == 0:
+        raise ConfigurationError(
+            "meta-descriptions max_length must be positive when trim is enabled"
+        )
+    plugins["meta_descriptions"] = descriptions
 
     # Normalize file exclusion without importing or executing the plugin.
     present = "exclude" in plugins

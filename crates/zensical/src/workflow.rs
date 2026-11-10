@@ -48,8 +48,8 @@ use crate::compat::mkdocs::{
     links::Links,
     plugin::{
         self, autorefs, awesome_nav, blog, exclude, literate_nav, llmstxt,
-        meta, minify, mkdocstrings, nav_weight, optimize, privacy, redirects,
-        rss, search, social, tags,
+        meta, meta_descriptions, minify, mkdocstrings, nav_weight, optimize,
+        privacy, redirects, rss, search, social, tags,
     },
     resource,
 };
@@ -159,6 +159,8 @@ struct SitePage {
     page: Page,
     /// Page-local autorefs replaced with stable slots.
     autorefs: Arc<autorefs::References>,
+    /// Whether a description was generated from the first paragraph.
+    meta_description_generated: bool,
 }
 
 impl Value for SitePage {}
@@ -180,6 +182,8 @@ struct RenderedSitePage {
     unresolved: UnresolvedAutorefs,
     /// Downloads retained by this rendered page.
     assets: privacy::Assets,
+    /// Final HTML description retained for optional CSV export.
+    description: Option<meta_descriptions::Document>,
 }
 
 impl Value for RenderedSitePage {}
@@ -393,6 +397,9 @@ impl Main {
         let site_page = rendered_page.map(|rendered: &RenderedPage| SitePage {
             page: rendered.page.clone(),
             autorefs: rendered.html.autorefs.clone(),
+            meta_description_generated: rendered
+                .html
+                .meta_description_generated,
         });
         let search_document =
             rendered_page.filter_map(|rendered: &RenderedPage| {
@@ -457,6 +464,9 @@ impl Main {
             &mkdocstrings,
             &extra_artifacts,
             &privacy,
+            &plugins.meta_descriptions,
+            &sources_ready,
+            self.strict,
         );
         privacy
             .setup(&(resource_assets, template_assets, page_assets).coalesce());
@@ -768,7 +778,7 @@ fn process_markdown(
                     &config,
                     document.source.as_str(),
                     (
-                        20_u8,
+                        21_u8,
                         config.hash,
                         origin,
                         document.clone(),
@@ -1068,6 +1078,8 @@ fn render_pages(
     assets: &Stream<Id, minify::Manifest>, minify: &minify::Minify,
     mkdocstrings: &mkdocstrings::Mkdocstrings,
     extra: &Stream<Id, output::Artifact>, privacy: &privacy::Privacy,
+    descriptions: &meta_descriptions::MetaDescriptions,
+    sources_ready: &Stream<Id, SourcesReady>, strict: bool,
 ) -> (Stream<Id, UnresolvedAutorefs>, Stream<Id, privacy::Assets>) {
     let pages = (pages.clone(), social.clone())
         .join()
@@ -1099,8 +1111,10 @@ fn render_pages(
     let output = config.output_root().clone();
     let mkdocstrings = mkdocstrings.clone();
     let config = config.clone();
+    let meta_descriptions = descriptions.clone();
     let rendered = pages.map(move |input: &PageRender| {
         let mut page = input.input.page.clone();
+        meta_descriptions.check(&page, strict)?;
         if config.inclusion.is_draft(page.source().as_str())? {
             let content = format!(
                 "<div class=\"mkdocs-draft-marker zensical-draft-marker\" title=\"This page will not be included in the built site.\">DRAFT</div>{}",
@@ -1144,6 +1158,9 @@ fn render_pages(
         let data = input.social.inject(data);
         let (data, assets) = privacy.html(data, page.destination())?;
         let data = minify.html(data);
+        let description = meta_descriptions.document(
+            &page, &data, input.input.meta_description_generated,
+        );
 
         Ok::<_, anyhow::Error>(RenderedSitePage {
             artifact: output::Artifact::page(
@@ -1153,11 +1170,15 @@ fn render_pages(
             ),
             unresolved,
             assets,
+            description,
         })
     });
     let artifacts =
         rendered.map(|rendered: &RenderedSitePage| rendered.artifact.clone());
-    output::setup(output, &(artifacts, extra.clone()).coalesce());
+    let documents = rendered
+        .filter_map(|rendered: &RenderedSitePage| rendered.description.clone());
+    let csv = descriptions.setup(&documents, sources_ready, strict);
+    output::setup(output, &(artifacts, extra.clone(), csv).coalesce());
     (
         rendered.map(|rendered: &RenderedSitePage| rendered.unresolved.clone()),
         rendered.map(|rendered: &RenderedSitePage| rendered.assets.clone()),
