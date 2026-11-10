@@ -924,8 +924,11 @@ fn link_url(base: &str, value: &str) -> String {
         return value.into();
     }
     let mut url = absolute(base, value);
-    if url.ends_with('/') {
-        url.push_str("index.md");
+    let path_end = url.find(['?', '#']).unwrap_or(url.len());
+    // Query-only links are kept on the current page. Directory targets are
+    // rewritten before their query or fragment.
+    if !value.starts_with('?') && url[..path_end].ends_with('/') {
+        url.insert_str(path_end, "index.md");
     }
     url
 }
@@ -1586,6 +1589,16 @@ mod tests {
         let markdown = convert(html, true);
 
         assert_eq!(markdown, "[Topic](<https://example.org/docs/topic/index.md>) [Other](<https://example.org/docs/other.html?x=1&amp;y=2#part>) [Local](<#local>) [Root](</root>) [External](<https://elsewhere.org/>)\n");
+    }
+
+    #[test]
+    fn resolves_directory_links_with_fragments_and_queries() {
+        // Directory targets are exported as index.md, including anchored links.
+        let html = "<p><a href='../topic/#part'>Topic</a> <a href='../other/?view=1#part'>Other</a></p>";
+
+        let markdown = convert(html, true);
+
+        assert_eq!(markdown, "[Topic](<https://example.org/docs/topic/index.md#part>) [Other](<https://example.org/docs/other/index.md?view=1#part>)\n");
     }
 
     #[test]

@@ -228,6 +228,75 @@ def test_emits_selected_pages_in_section_order_and_uses_final_titles(
     assert (site / "ai" / "full.txt").read_text(encoding="utf-8") == full
 
 
+@pytest.mark.parametrize("directory_urls", [True, False])
+@pytest.mark.parametrize("autoclean", [True, False])
+def test_preserves_autorefs_and_refreshes_cached_targets(
+    tmp_path: Path, directory_urls: bool, autoclean: bool
+) -> None:
+    # References to pages outside the export are also resolved.
+    docs = tmp_path / "docs"
+    (docs / "guide").mkdir(parents=True)
+    (docs / "guide" / "index.md").write_text(
+        dedent("""\
+            # Guide
+
+            A [relative link](../other.md), an [**autoref**][ref-other]
+            and an [external link](https://example.com).
+
+            [Local][guide]
+
+            | Reference |
+            | --------- |
+            | [Table][ref-other] |
+
+            - [List][ref-other]
+
+            <autoref identifier="missing" optional>Optional</autoref>
+        """),
+        encoding="utf-8",
+    )
+    target = docs / "other.md"
+    target.write_text("[](){#ref-other}\n\n# Other\n", encoding="utf-8")
+    base_url = "https://cdn.example.org/exports/"
+    config = dedent(f"""\
+        use_directory_urls: {str(directory_urls).lower()}
+        plugins:
+          - autorefs:
+              link_titles: false
+          - llmstxt:
+              autoclean: {str(autoclean).lower()}
+              base_url: {base_url}
+              full_output: llms-full.txt
+              sections: {{Pages: [guide/index.md]}}
+    """)
+
+    # Links are checked after a cold build, a cache hit, and a target move.
+    for destination in ("other", "other", "moved"):
+        if destination == "moved":
+            target.rename(docs / "moved.md")
+
+        site = build(tmp_path, config)
+        markdown = (site / "guide" / "index.md").read_text(encoding="utf-8")
+        suffix = "/index.md" if directory_urls else ".html"
+        url = f"{base_url}{destination}{suffix}#other"
+
+        assert f"[**autoref**](<{url}>)" in markdown
+        assert f"| [Table](<{url}>) |" in markdown
+        assert f"- [List](<{url}>)" in markdown
+        assert f"[relative link](<{base_url}other{suffix}>)" in markdown
+        local = "#guide"
+        if directory_urls:
+            local = f"{base_url}guide/index.md#guide"
+        assert f"[Local](<{local}>)" in markdown
+        assert "[external link](<https://example.com>)" in markdown
+        assert "Optional" in markdown
+        assert "<autoref" not in markdown
+        assert "zensical:autoref:" not in markdown
+
+        full = (site / "llms-full.txt").read_text(encoding="utf-8")
+        assert markdown.strip() in full
+
+
 def test_rebuilds_gfm_from_generated_html_with_search_disabled(
     tmp_path: Path,
 ) -> None:

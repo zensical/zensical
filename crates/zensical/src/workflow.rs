@@ -419,15 +419,19 @@ impl Main {
         });
         let llmstxt_documents =
             rendered_page.filter_map(|rendered: &RenderedPage| {
-                rendered.html.llmstxt.as_ref().map(|markdown| {
-                    llmstxt::Document {
+                rendered
+                    .html
+                    .llmstxt
+                    .as_ref()
+                    .map(|content| llmstxt::Input {
                         page: rendered.page.clone(),
-                        markdown: markdown.clone(),
-                    }
-                })
+                        content: content.clone(),
+                        references: rendered.html.autorefs.clone(),
+                    })
             });
         let llmstxt_artifacts = plugins.llmstxt.setup(
             &llmstxt_documents,
+            &autorefs,
             &sources_ready,
             self.strict,
         );
@@ -764,7 +768,7 @@ fn process_markdown(
                     &config,
                     document.source.as_str(),
                     (
-                        18_u8,
+                        20_u8,
                         config.hash,
                         origin,
                         document.clone(),

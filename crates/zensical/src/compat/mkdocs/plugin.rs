@@ -69,9 +69,9 @@ pub struct HtmlFacts {
     pub search: Arc<search::Facts>,
     /// Page-local tag mappings and listing slots.
     pub tags: Arc<tags::Facts>,
-    /// CommonMark rebuilt for a page selected by llmstxt.
+    /// Conversion inputs retained for a page selected by llmstxt.
     #[serde(default)]
-    pub llmstxt: Option<Arc<str>>,
+    pub llmstxt: Option<Arc<llmstxt::Content>>,
 }
 
 // ----------------------------------------------------------------------------
@@ -232,6 +232,16 @@ pub fn prepare(
         })
         .unwrap_or_default();
 
+    let llmstxt = llmstxt.map(|parser| {
+        Arc::new(if references.is_empty() {
+            llmstxt::Content::Markdown(Arc::from(parser.finish()))
+        } else {
+            // Conversion is deferred so links are serialized in their full
+            // context after the revision-complete registry has been built.
+            llmstxt::Content::Html(Arc::from(markdown.content.as_str()))
+        })
+    });
+
     Ok(HtmlFacts {
         autorefs: references,
         autorefs_registrations: registrations,
@@ -241,6 +251,6 @@ pub fn prepare(
             Arc::default()
         },
         tags: Arc::new(tag_facts),
-        llmstxt: llmstxt.map(|parser| Arc::from(parser.finish())),
+        llmstxt,
     })
 }
