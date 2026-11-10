@@ -25,18 +25,21 @@
 
 use anyhow::{bail, Result};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
 use std::sync::Arc;
 
 use zrx::id::Id;
 use zrx::stream::function::Collection;
-use zrx::stream::{Key, Stream, StreamSetExt, Value};
+use zrx::stream::{Key, Signal, Stream, StreamSetExt, Value};
 
 use crate::config::{plugins::LlmstxtPluginConfig, Config};
 use crate::path::{SitePath, SourcePath};
 use crate::structure::page::{Page, PageOrigin};
 use crate::workflow::{output::Artifact, SourcesReady};
+
+use super::{autorefs, html};
 
 mod markdown;
 
@@ -51,7 +54,27 @@ pub struct Llmstxt {
     header: String,
 }
 
-/// Selected page paired with Markdown from its shared HTML pass.
+/// Page content retained until the autorefs registry has settled.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+pub enum Content {
+    /// CommonMark converted during the shared HTML pass.
+    Markdown(Arc<str>),
+    /// Prepared HTML whose autoref slots must be expanded before conversion.
+    Html(Arc<str>),
+}
+
+/// Selected page paired with cached conversion inputs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Input {
+    /// Final page title, route and ownership.
+    pub page: Page,
+    /// Converted Markdown or HTML awaiting reference resolution.
+    pub content: Arc<Content>,
+    /// Page-local references used to expand the retained HTML slots.
+    pub references: Arc<autorefs::References>,
+}
+
+/// Selected page paired with Markdown after reference resolution.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Document {
     /// Final page title, route and ownership.
@@ -66,6 +89,7 @@ struct Documents(Vec<Document>);
 
 impl Value for Document {}
 impl Value for Documents {}
+impl Value for Input {}
 
 impl Llmstxt {
     /// Prepares selectors and site metadata once per workflow.
@@ -137,7 +161,8 @@ impl Llmstxt {
 
     /// Index generation is enabled after initial source discovery settles.
     pub fn setup(
-        &self, documents: &Stream<Id, Document>,
+        &self, inputs: &Stream<Id, Input>,
+        registry: &Signal<Id, autorefs::Registry>,
         sources_ready: &Stream<Id, SourcesReady>, strict: bool,
     ) -> Stream<Id, Artifact> {
         if !self.settings.enabled {
@@ -145,6 +170,36 @@ impl Llmstxt {
                 Ok::<Vec<(Key<Id>, Artifact)>, anyhow::Error>(Vec::new())
             });
         }
+        let pipeline = self.clone();
+        let documents = inputs.product(registry).map(
+            move |(input, registry): &(Input, autorefs::Registry)| {
+                let markdown = match input.content.as_ref() {
+                    Content::Markdown(markdown) => markdown.clone(),
+                    Content::Html(content) => {
+                        // Unresolved references are reported by the HTML page pipeline.
+                        let content = registry.replace_slots(
+                            content.to_string(),
+                            &input.references,
+                            &input.page.url,
+                            &mut autorefs::UnresolvedAutorefs::default(),
+                        );
+                        let mut parser = Parser::new(
+                            pipeline.settings.autoclean,
+                            markdown::absolute(
+                                &pipeline.base_url,
+                                &input.page.url,
+                            ),
+                        );
+                        html::scan(&content, &mut [&mut parser]);
+                        Arc::from(parser.finish())
+                    }
+                };
+                Document {
+                    page: input.page.clone(),
+                    markdown,
+                }
+            },
+        );
         let markdown = documents.flat_map(|document: &Document| {
             Ok::<_, anyhow::Error>(vec![document.artifact()?])
         });
