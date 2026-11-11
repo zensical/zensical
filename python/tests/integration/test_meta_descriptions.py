@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import csv
 import json
-from html import escape
 from textwrap import dedent, shorten
 from typing import TYPE_CHECKING, Any
 
@@ -162,8 +161,8 @@ def exported_rows(site: Path) -> list[list[str]]:
         pytest.param(
             "# Title\n\n&\n",
             {"min_length": 5, "fallback_if_short": True},
-            "&amp;",
-            id="escaped-length-before-fallback",
+            None,
+            id="text-length-before-fallback",
         ),
         pytest.param(
             "# Title\n\nIntro.\n",
@@ -174,8 +173,8 @@ def exported_rows(site: Path) -> list[list[str]]:
         pytest.param(
             "# Title\n\nA & B with <em>HTML</em>.\n",
             {},
-            "A &amp; B with HTML.",
-            id="escaped-text",
+            "A & B with HTML.",
+            id="plain-text",
         ),
         pytest.param(
             "# Title\n\n<div class='admonition note'><p>Skip</p></div>\n"
@@ -258,10 +257,20 @@ def test_export_uses_final_templates_and_published_urls(
         ]
 
 
+@pytest.mark.parametrize(
+    ("introduction", "description"),
+    [
+        ("Generated introduction.", "Generated introduction."),
+        (
+            "Café & <em>naïve</em> 🦀, \"quotes\", 'apostrophe', &lt;tag&gt;.",
+            "Café & naïve 🦀, \"quotes\", 'apostrophe', <tag>.",
+        ),
+    ],
+)
 def test_theme_receives_generated_and_fallback_descriptions(
-    tmp_path: Path,
+    tmp_path: Path, introduction: str, description: str
 ) -> None:
-    project(tmp_path, "# Home\n\nGenerated introduction.\n")
+    project(tmp_path, f"# Home\n\n{introduction}\n")
     (tmp_path / "overrides/main.html").unlink()
     missing = tmp_path / "docs/missing.md"
     missing.write_text("# Missing\n\n## Section\n\nLater.\n", encoding="utf-8")
@@ -276,12 +285,30 @@ def test_theme_receives_generated_and_fallback_descriptions(
     assert home_description is not None
     fallback = missing_page.find("meta", attrs={"name": "description"})
     assert fallback is not None
-    assert home_description["content"] == "Generated introduction."
+    assert home_description["content"] == description
     assert fallback["content"] == "Site fallback"
     assert exported_rows(site)[1:] == [
-        ["https://example.org/docs/", "Generated introduction."],
+        ["https://example.org/docs/", description],
         ["https://example.org/docs/missing/", "Site fallback"],
     ]
+
+
+def test_checks_count_plain_text_characters(tmp_path: Path) -> None:
+    # Strict bounds are checked against text lengths, excluding HTML escaping.
+    description = "& \"quoted\" 'text' <tag> 🦀."
+    project(tmp_path, "# Home\n\n& \"quoted\" 'text' &lt;tag&gt; 🦀.\n")
+    options = {
+        "enable_checks": True,
+        "min_length": len(description),
+        "max_length": len(description),
+        "quiet": True,
+    }
+
+    # The same exact bounds are applied to fresh and cached descriptions.
+    for _ in range(2):
+        site = build(tmp_path, options, strict=True)
+
+        assert metadata(site)["description"] == description
 
 
 @pytest.mark.parametrize(
@@ -405,9 +432,9 @@ def test_trimming_matches_python_textwrap(tmp_path: Path, width: int) -> None:
 
     site = build(tmp_path, {"trim": True, "max_length": width, "quiet": True})
 
-    # The reference result is produced by the upstream escape and shorten calls.
+    # The reference result is produced by shortening the unescaped text.
     for index, paragraph in enumerate(paragraphs):
         page = site / f"example-{index}/index.html"
         description = json.loads(page.read_text())["description"]
 
-        assert description == shorten(escape(paragraph), width, placeholder="")
+        assert description == shorten(paragraph, width, placeholder="")
