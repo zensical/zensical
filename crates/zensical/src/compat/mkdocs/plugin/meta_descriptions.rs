@@ -140,17 +140,11 @@ impl MetaDescriptions {
 }
 
 impl Parser {
-    /// The paragraph is escaped before length checks, matching the plugin.
+    /// Surrounding whitespace is removed from the paragraph.
     fn finish(self) -> String {
-        // Upstream html.escape is applied before textwrap.shorten. This order
-        // is retained because escaped entities count toward the length limits.
-        self.text
-            .trim()
-            .replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('>', "&gt;")
-            .replace('"', "&quot;")
-            .replace('\'', "&#x27;")
+        // Descriptions are escaped by the UI when rendered into HTML attributes.
+        // Plain text is retained here for length checks and trimming.
+        self.text.trim().into()
     }
 
     fn open(&mut self, self_closing: bool) {
@@ -386,7 +380,7 @@ mod tests {
         let html = "<h1>Title</h1><div class='note admonition'><p>Note</p></div>\
             <p> First <em>intro</em> &amp; &#x1f980;.</p><p>Second</p><h2>Section</h2>";
 
-        assert_eq!(paragraph(html), "First intro &amp; 🦀.");
+        assert_eq!(paragraph(html), "First intro & 🦀.");
         assert_eq!(paragraph("<h1>Title</h1><H2>Section</H2><p>Later</p>"), "");
         assert_eq!(paragraph("<p></p><p>Second</p>"), "");
     }
@@ -407,7 +401,7 @@ mod tests {
             <script>hidden</script><style>hidden</style><template>hidden</template>\
             &lt; &gt; &quot; &#39;  </p>";
 
-        assert_eq!(paragraph(html), "cafénaïve\n code&lt; &gt; &quot; &#x27;");
+        assert_eq!(paragraph(html), "cafénaïve\n code< > \" '");
     }
 
     #[test]
