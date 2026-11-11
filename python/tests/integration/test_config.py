@@ -804,6 +804,70 @@ def test_page_urls_in_generated_html(
 
 
 @pytest.mark.parametrize(
+    "source", ["[draft] page.md", "[draft]/[EN] café 100%.md"]
+)
+@pytest.mark.parametrize(
+    ("repo_url", "edit_uri", "edit_base"),
+    [
+        (
+            "https://github.com/team/repo",
+            None,
+            "https://github.com/team/repo/edit/master/docs/",
+        ),
+        (
+            "https://gitlab.com/team/repo",
+            None,
+            "https://gitlab.com/team/repo/edit/master/docs/",
+        ),
+        (
+            "https://github.com/team/repo",
+            "edit/main/docs",
+            "https://github.com/team/repo/edit/main/docs/",
+        ),
+        (
+            "https://github.com/team/repo",
+            "https://edit.example.org/docs",
+            "https://edit.example.org/docs/",
+        ),
+        (
+            "https://github.com/team/repo",
+            "//[::1]:8000/docs",
+            "https://[::1]:8000/docs/",
+        ),
+        ("https://github.com/team/repo", "", None),
+    ],
+)
+def test_edit_links_with_brackets_in_source_paths(
+    tmp_path: Path,
+    source: str,
+    repo_url: str,
+    edit_uri: str | None,
+    edit_base: str | None,
+) -> None:
+    # Both default and explicit edit URLs are used with bracketed source paths.
+    extra = f'repo_url = "{repo_url}"\n'
+    if edit_uri is not None:
+        extra += f'edit_uri = "{edit_uri}"\n'
+    extra += (
+        '[project.theme]\nfeatures = ["content.action.edit"]\nfont = false\n'
+    )
+    config_path = _make_toml_project(tmp_path, toml_extra=extra)
+    document = tmp_path / "docs" / source
+    document.parent.mkdir(parents=True, exist_ok=True)
+    document.write_text("# Draft\n", encoding="utf-8")
+
+    _build(config_path)
+
+    # The page must be built, with the original path retained in its edit link.
+    output = tmp_path / "site" / source.removesuffix(".md") / "index.html"
+    html = output.read_text(encoding="utf-8")
+    if edit_base is None:
+        assert 'title="Edit this page"' not in html
+    else:
+        assert f'href="{edit_base}{source}"' in html
+
+
+@pytest.mark.parametrize(
     "setting",
     ["site_descripton: typo", "plugins: [search, search]"],
 )
