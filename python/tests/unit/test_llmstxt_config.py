@@ -25,21 +25,27 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from zensical.config import ConfigurationError, _convert_plugins
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 def convert(
-    value: Any, site_url: str | None = "https://example.org/docs/"
+    value: Any,
+    site_url: str | None = "https://example.org/docs/",
+    *,
+    root_dir: str = ".",
 ) -> dict[str, Any]:
     """Normalize plugin settings with the project fields they use."""
     project = {
         "site_url": site_url,
         "extra": {"polyfills": []},
-        "root_dir": ".",
+        "root_dir": root_dir,
     }
     return _convert_plugins(value, project)["llmstxt"]["config"]
 
@@ -85,32 +91,42 @@ def test_sections_preserve_order_patterns_and_descriptions() -> None:
     assert inputs[1]["expression"].startswith(r"\A(?s:")
 
 
-@pytest.mark.parametrize(
-    "preprocess",
-    [
-        None,
-        "custom.py",
-        False,
-        42,
-        ["custom.py"],
-        {"function": "preprocess"},
-        object(),
-    ],
-)
-def test_silently_ignores_preprocess(
-    preprocess: Any,
-    capsys: pytest.CaptureFixture[str],
-    caplog: pytest.LogCaptureFixture,
+def test_preprocess_path_is_resolved_relative_to_project(
+    tmp_path: Path,
 ) -> None:
-    expected = convert(["llmstxt"])
+    script = tmp_path / "custom.py"
+    script.write_text(
+        "def preprocess(html, output): return html\n", encoding="utf-8"
+    )
 
-    settings = convert({"llmstxt": {"preprocess": preprocess}})
+    settings = convert(
+        {"llmstxt": {"preprocess": "custom.py"}}, root_dir=str(tmp_path)
+    )
 
-    assert settings == expected
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert captured.err == ""
-    assert not caplog.records
+    assert settings["preprocess"] == str(script)
+    assert convert(["llmstxt"])["preprocess"] is None
+
+
+def test_disabled_preprocess_script_does_not_need_to_exist(
+    tmp_path: Path,
+) -> None:
+    settings = convert(
+        {"llmstxt": {"enabled": False, "preprocess": "missing.py"}},
+        root_dir=str(tmp_path),
+    )
+
+    assert settings["preprocess"] == str(tmp_path / "missing.py")
+
+
+def test_missing_preprocess_script_reports_configuration_error(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        ConfigurationError, match="llmstxt preprocess script not found"
+    ):
+        convert(
+            {"llmstxt": {"preprocess": "missing.py"}}, root_dir=str(tmp_path)
+        )
 
 
 @pytest.mark.parametrize(
@@ -125,6 +141,26 @@ def test_silently_ignores_preprocess(
         ({"full_output": "/full.txt"}, "relative file path"),
         ({"full_output": "full/../file.txt"}, "relative file path"),
         ({"full_output": "llms.txt"}, "must differ from llms.txt"),
+        (
+            {"preprocess": ""},
+            "preprocess must be a non-empty script path or null",
+        ),
+        (
+            {"preprocess": False},
+            "preprocess must be a non-empty script path or null",
+        ),
+        (
+            {"preprocess": 42},
+            "preprocess must be a non-empty script path or null",
+        ),
+        (
+            {"preprocess": ["custom.py"]},
+            "preprocess must be a non-empty script path or null",
+        ),
+        (
+            {"preprocess": {"function": "preprocess"}},
+            "preprocess must be a non-empty script path or null",
+        ),
         ({"sections": []}, "sections must be a mapping"),
         ({"sections": {"Pages": "index.md"}}, "map strings to lists"),
         ({"sections": {"Pages": [False]}}, "single-entry mappings"),

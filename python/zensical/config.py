@@ -165,7 +165,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
         "recursive",
     ),
     "literate-nav": (),
-    "llmstxt": ("preprocess",),
+    "llmstxt": (),
     "macros": (),
     "mkdocs-nav-weight": (),
     "markdown-exec": (),
@@ -1021,6 +1021,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
         | _list_snippet_files(config, path)  # pymdownx.snippets
         | _list_macros_files(config, path)  # macros
         | _list_markdownextradata_files(config)  # markdownextradata
+        | _list_llmstxt_files(config)  # llmstxt
         | _list_watch_files(config, path)  # watch
     )
 
@@ -1574,6 +1575,15 @@ def _list_markdownextradata_files(config: dict) -> set[tuple[str, int]]:
     }
 
 
+def _list_llmstxt_files(config: dict) -> set[tuple[str, int]]:
+    """Track the preproces script's contents for watch and cache."""
+    settings = config["plugins"]["llmstxt"]["config"]
+    if not settings["enabled"] or settings["preprocess"] is None:
+        return set()
+    path = Path(settings["preprocess"])
+    return {(str(path), _hash(path.read_bytes()))}
+
+
 def _list_watch_files(config: dict, config_file: str) -> set[tuple[str, int]]:
     """List files for user-defined watch paths."""
     root = Path(config_file).parent.resolve()
@@ -1933,6 +1943,7 @@ def _normalize_llmstxt(
         "base_url": None,
         "markdown_description": None,
         "full_output": None,
+        "preprocess": None,
         "sections": {},
     }
     _reject_unknown_options("llmstxt", raw, set(defaults))
@@ -1943,6 +1954,18 @@ def _normalize_llmstxt(
             raise ConfigurationError(f"llmstxt {name} must be a string or null")
     if settings["enabled"] and not config.get("site_url"):
         raise ConfigurationError("llmstxt requires site_url")
+    if settings["preprocess"] is not None:
+        script = settings["preprocess"]
+        if not isinstance(script, str) or not script:
+            raise ConfigurationError(
+                "llmstxt preprocess must be a non-empty script path or null"
+            )
+        script_path = Path(config["root_dir"], script).resolve()
+        if settings["enabled"] and not script_path.is_file():
+            raise ConfigurationError(
+                f"llmstxt preprocess script not found: {script_path}"
+            )
+        settings["preprocess"] = str(script_path)
     if settings["full_output"] is not None:
         filename = settings["full_output"]
         invalid_character = any(

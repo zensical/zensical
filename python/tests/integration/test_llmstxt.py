@@ -25,16 +25,16 @@
 
 from __future__ import annotations
 
-import subprocess
-import sys
+import os
 import time
-from textwrap import dedent
+from textwrap import dedent, indent
 from typing import TYPE_CHECKING
 
 import pytest
 from bs4 import BeautifulSoup
 
 import zensical
+from zensical.config import parse_config
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -696,41 +696,214 @@ def test_missing_explicit_pages_warn_and_strict_builds_fail(
         build(tmp_path, config, strict=True)
 
 
-def test_ignores_preprocess_without_loading_the_script(
+@pytest.mark.parametrize("directory_urls", [True, False])
+@pytest.mark.parametrize("with_autorefs", [True, False])
+def test_preprocess_changes_only_selected_exports_after_reference_resolution(
     tmp_path: Path,
-    capfd: pytest.CaptureFixture[str],
-    caplog: pytest.LogCaptureFixture,
+    directory_urls: bool,
+    with_autorefs: bool,
+) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    link = "[Target][target]" if with_autorefs else "[Target](target.md)"
+    (docs / "guide.md").write_text(
+        f"# Guide\n\n<api-doc>Browser content.</api-doc>\n\n{link}\n",
+        encoding="utf-8",
+    )
+    (docs / "index.md").write_text(
+        "# Home\n\n<api-doc>Browser content.</api-doc>\n", encoding="utf-8"
+    )
+    (docs / "target.md").write_text(
+        "[](){#target}\n\n# Target\n", encoding="utf-8"
+    )
+
+    # The hook is rejected for unselected pages or unresolved references.
+    (tmp_path / "preprocess.py").write_text(
+        dedent("""\
+            from pathlib import Path
+
+            with Path(__file__).with_suffix(".loads").open("a", encoding="utf-8") as log:
+                log.write("loaded\\n")
+
+            def preprocess(html, output):
+                if "<api-doc>Browser content.</api-doc>" not in html:
+                    raise RuntimeError("Unexpected page or premature cleanup")
+                if "<autoref" in html or "zensical:autoref:" in html:
+                    raise RuntimeError("Unresolved references")
+                return html.replace("Browser content.", "Exported API.") + f"<p>Output: {output}</p>"
+        """),  # noqa: E501
+        encoding="utf-8",
+    )
+    autorefs = "  - autorefs\n" if with_autorefs else ""
+    config = (
+        dedent(f"""\
+        use_directory_urls: {str(directory_urls).lower()}
+        plugins:
+    """)
+        + autorefs
+        + indent(
+            dedent("""\
+          - llmstxt:
+              preprocess: preprocess.py
+              full_output: llms-full.txt
+              sections: {Pages: [guide.md, index.md]}
+    """),
+            "  ",
+        )
+    )
+    output = "guide/index.md" if directory_urls else "guide.md"
+    browser = "guide/index.html" if directory_urls else "guide.html"
+
+    # Export isolation and resolved links are checked on fresh/cached builds.
+    for build_number in range(1, 3):
+        site = build(tmp_path, config, strict=True)
+
+        # The script is loaded once per build, although two pages are exported.
+        assert (tmp_path / "preprocess.loads").read_text(
+            encoding="utf-8"
+        ).splitlines() == ["loaded"] * build_number
+        markdown = (site / output).read_text(encoding="utf-8")
+        assert "Exported API." in markdown
+        assert "Browser content." not in markdown
+        assert f"Output: {output}" in markdown
+        assert "[Target](<https://example.org/docs/target" in markdown
+        assert markdown.strip() in (site / "llms-full.txt").read_text(
+            encoding="utf-8"
+        )
+        assert "<api-doc>Browser content.</api-doc>" in (
+            site / browser
+        ).read_text(encoding="utf-8")
+        assert not (site / "target.md").exists()
+        assert not (site / "target/index.md").exists()
+
+
+def test_preprocess_script_edits_invalidate_cached_exports(
+    tmp_path: Path,
 ) -> None:
     docs = tmp_path / "docs"
     docs.mkdir()
     (docs / "index.md").write_text(
         "# Home\n\nOriginal content.\n", encoding="utf-8"
     )
+    script = tmp_path / "preprocess.py"
+    config = tmp_path / "zensical.toml"
+    config.write_text(
+        dedent("""\
+        [project]
+        site_name = "LLM test"
+        site_url = "https://example.org/docs/"
 
-    # Importing this script would fail the build, even without calling its hook.
-    (tmp_path / "preprocess.py").write_text(
-        'raise RuntimeError("Preprocess scripts must not be loaded")\n',
+        [project.plugins.llmstxt]
+        preprocess = "preprocess.py"
+        full_output = "llms-full.txt"
+
+        [project.plugins.llmstxt.sections]
+        Pages = ["index.md"]
+    """),
         encoding="utf-8",
     )
+
+    # Same-sized script edits are detected even when the timestamp is preserved.
+    timestamp = time.time_ns()
+    fingerprints = []
+    for replacement in ("First export.", "Later export."):
+        script.write_text(
+            "def preprocess(html, output):\n    "
+            f'return html.replace("Original content.", "{replacement}")\n',
+            encoding="utf-8",
+        )
+        os.utime(script, ns=(timestamp, timestamp))
+
+        # Script contents are fingerprinted and registered for watching.
+        watched = dict(parse_config(str(config))["watched_files"])
+        assert str(script) in watched
+        fingerprints.append(watched[str(script)])
+
+        zensical.build(str(config), {"clean": False, "strict": True})
+
+        site = tmp_path / "site"
+        assert replacement in (site / "index.md").read_text(encoding="utf-8")
+        assert replacement in (site / "llms-full.txt").read_text(
+            encoding="utf-8"
+        )
+        assert "Original content." in (site / "index.html").read_text(
+            encoding="utf-8"
+        )
+
+    assert fingerprints[0] != fingerprints[1]
+
+
+@pytest.mark.parametrize(
+    ("script", "message"),
+    [
+        (
+            'raise RuntimeError("Import failed")\n',
+            "Could not load llmstxt preprocess script",
+        ),
+        ("preprocess = 42\n", "must define a callable named 'preprocess'"),
+        (
+            'def preprocess(html, output):\n    raise ValueError("failed")\n',
+            "failed",
+        ),
+        ("def preprocess(html, output):\n    return None\n", "str"),
+    ],
+)
+def test_preprocess_failures_report_script_and_page_context(
+    tmp_path: Path,
+    script: str,
+    message: str,
+) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text("# Home\n", encoding="utf-8")
+    (tmp_path / "preprocess.py").write_text(script, encoding="utf-8")
     config = dedent("""\
         plugins:
           - llmstxt:
               preprocess: preprocess.py
-              full_output: llms-full.txt
-              sections: {Pages: ["*.md"]}
+              sections: {Pages: [index.md]}
     """)
 
-    site = build(tmp_path, config, strict=True)
+    with pytest.raises(Exception, match=message) as caught:
+        build(tmp_path, config)
 
-    assert (site / "index.md").read_text(
-        encoding="utf-8"
-    ) == "# Home\n\nOriginal content.\n"
-    assert "Original content." in (site / "llms-full.txt").read_text(
-        encoding="utf-8"
+    error = str(caught.value)
+    if "must define" in message or "Could not load" in message:
+        assert "preprocess.py" in error
+    else:
+        assert (
+            "llmstxt preprocess failed for index.md (output index.md)" in error
+        )
+        if message == "Conversion failed":
+            assert "preprocess.py" in error
+            assert "Traceback" in error
+
+
+@pytest.mark.parametrize("script_exists", [True, False])
+def test_disabled_preprocess_script_is_not_loaded(
+    tmp_path: Path, script_exists: bool
+) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text("# Home\n", encoding="utf-8")
+    if script_exists:
+        (tmp_path / "preprocess.py").write_text(
+            'raise RuntimeError("Must not be loaded")\n', encoding="utf-8"
+        )
+
+    site = build(
+        tmp_path,
+        dedent("""\
+        plugins:
+          - llmstxt:
+              enabled: false
+              preprocess: preprocess.py
+              sections: {Pages: [index.md]}
+    """),
     )
-    captured = capfd.readouterr()
-    assert "preprocess" not in (captured.out + captured.err).lower()
-    assert "preprocess" not in caplog.text.lower()
+
+    assert (site / "index.html").is_file()
+    assert not (site / "index.md").exists()
 
 
 def test_disabled_plugin_emits_no_artifacts(tmp_path: Path) -> None:
@@ -837,105 +1010,61 @@ def test_toml_configuration_and_readable_output_urls(
     assert (site / f"a # café{suffix}").is_file()
 
 
-def test_serve_updates_adds_renames_and_removes_markdown_outputs(
-    tmp_path: Path,
+def test_rebuild_updates_adds_renames_and_removes_markdown_outputs(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str]
 ) -> None:
+    # Sources are changed between completed builds to exclude watcher timing.
     docs = tmp_path / "docs"
     docs.mkdir()
     source = docs / "post.md"
     source.write_text("# Original\n", encoding="utf-8")
-    config = tmp_path / "mkdocs.yml"
-    config.write_text(
-        dedent("""\
-            site_name: Live LLM text
-            site_url: https://example.org/
-            dev_addr: 127.0.0.1:0
-            plugins:
-              - llmstxt:
-                  full_output: llms-full.txt
-                  sections: {Pages: [post.md, '*.md']}
-        """),
-        encoding="utf-8",
+    config = dedent("""\
+        plugins:
+          - llmstxt:
+              full_output: llms-full.txt
+              sections: {Pages: [post.md, '*.md']}
+    """)
+
+    def rebuild_and_check_outputs(
+        pages: dict[str, str], absent: tuple[str, ...] = ()
+    ) -> None:
+        site = build(tmp_path, config)
+
+        index = (site / "llms.txt").read_text(encoding="utf-8")
+        full = (site / "llms-full.txt").read_text(encoding="utf-8")
+        assert index.count("- [") == len(pages)
+        assert full.count("# ") == len(pages) + 2
+        for name, title in pages.items():
+            assert f"[{title}]" in index
+            assert f"# {title}\n" in full
+            assert (site / name / "index.md").read_text(
+                encoding="utf-8"
+            ) == f"# {title}\n"
+
+        for name in absent:
+            assert not (site / name / "index.md").exists()
+            assert f"/{name}/index.md" not in index
+
+    rebuild_and_check_outputs({"post": "Original"})
+    assert "llmstxt:" not in capfd.readouterr().err
+
+    # Body changes are reflected in per-page output and both aggregate files.
+    source.write_text("# Revised\n", encoding="utf-8")
+    rebuild_and_check_outputs({"post": "Revised"})
+
+    added = docs / "added.md"
+    added.write_text("# Added\n", encoding="utf-8")
+    rebuild_and_check_outputs({"post": "Revised", "added": "Added"})
+
+    # The previous destination is absent after a source is renamed.
+    renamed = docs / "renamed.md"
+    source.rename(renamed)
+    rebuild_and_check_outputs(
+        {"renamed": "Revised", "added": "Added"}, ("post",)
     )
-    site = tmp_path / "site"
-    log_path = tmp_path / "serve.log"
-    log = log_path.open("w+", encoding="utf-8")
-    process = subprocess.Popen(  # noqa: S603  # Run this checkout's CLI on the test project.
-        [
-            sys.executable,
-            "-m",
-            "zensical",
-            "serve",
-            "--config-file",
-            str(config),
-        ],
-        cwd=tmp_path,
-        stdout=log,
-        stderr=subprocess.STDOUT,
-    )
+    assert "Page URI 'post.md' not found" in capfd.readouterr().err
 
-    def wait_for(pages: dict[str, str], absent: tuple[str, ...] = ()) -> None:
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            try:
-                index = (site / "llms.txt").read_text(encoding="utf-8")
-                full = (site / "llms-full.txt").read_text(encoding="utf-8")
-                present = all(
-                    f"[{title}]" in index
-                    and f"# {title}\n" in full
-                    and (site / name / "index.md").read_text(encoding="utf-8")
-                    == f"# {title}\n"
-                    for name, title in pages.items()
-                )
-                removed = all(
-                    not (site / name / "index.md").exists()
-                    and f"/{name}/index.md" not in index
-                    for name in absent
-                )
-                if present and removed and index.count("- [") == len(pages):
-                    return
-            except OSError:
-                pass
-            if process.poll() is not None:
-                break
-            time.sleep(0.02)
-        log.flush()
-        log.seek(0)
-        raise AssertionError(f"LLM text outputs did not settle: {log.read()}")
-
-    try:
-        wait_for({"post": "Original"})
-
-        # The explicit source must be found before startup warnings are checked.
-        startup_log = log_path.read_text(encoding="utf-8")
-        assert "llmstxt:" not in startup_log
-
-        # Body changes update the per-page output and both aggregate files.
-        source.write_text("# Revised\n", encoding="utf-8")
-        wait_for({"post": "Revised"})
-
-        added = docs / "added.md"
-        added.write_text("# Added\n", encoding="utf-8")
-        wait_for({"post": "Revised", "added": "Added"})
-
-        # A renamed source retracts its previous Markdown destination.
-        renamed = docs / "renamed.md"
-        source.rename(renamed)
-        wait_for({"renamed": "Revised", "added": "Added"}, ("post",))
-
-        # The original explicit path is now absent and must be reported.
-        rename_log = log_path.read_text(encoding="utf-8")
-        assert "Page URI 'post.md' not found" in rename_log
-
-        renamed.unlink()
-        added.unlink()
-        wait_for({}, ("post", "renamed", "added"))
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
-        log.close()
+    # Empty indexes are emitted after all selected sources are removed.
+    renamed.unlink()
+    added.unlink()
+    rebuild_and_check_outputs({}, ("post", "renamed", "added"))

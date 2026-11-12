@@ -24,6 +24,8 @@
 //! Native mkdocs-llmstxt compatibility using the shared HTML pass.
 
 use anyhow::{bail, Result};
+use pyo3::types::{PyAnyMethods, PyTracebackMethods};
+use pyo3::{Py, PyAny, Python};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -52,6 +54,7 @@ pub struct Llmstxt {
     patterns: Arc<HashMap<String, std::result::Result<Regex, String>>>,
     base_url: String,
     header: String,
+    preprocess: Option<Arc<Py<PyAny>>>,
 }
 
 /// Page content retained until the autorefs registry has settled.
@@ -59,7 +62,7 @@ pub struct Llmstxt {
 pub enum Content {
     /// CommonMark converted during the shared HTML pass.
     Markdown(Arc<str>),
-    /// Prepared HTML whose autoref slots must be expanded before conversion.
+    /// HTML retained for reference resolution or export preprocessing.
     Html(Arc<str>),
 }
 
@@ -137,7 +140,13 @@ impl Llmstxt {
             patterns: Arc::new(patterns),
             base_url,
             header,
+            preprocess: config.llmstxt_preprocess.clone(),
         }
+    }
+
+    /// Whether export preprocessing has been configured is returned.
+    pub fn has_preprocess(&self) -> bool {
+        self.preprocess.is_some()
     }
 
     /// Starts conversion only for pages selected by the configured sections.
@@ -183,6 +192,8 @@ impl Llmstxt {
                             &input.page.url,
                             &mut autorefs::UnresolvedAutorefs::default(),
                         );
+                        let content =
+                            pipeline.preprocess(content, &input.page)?;
                         let mut parser = Parser::new(
                             pipeline.settings.autoclean,
                             markdown::absolute(
@@ -194,10 +205,10 @@ impl Llmstxt {
                         Arc::from(parser.finish())
                     }
                 };
-                Document {
+                Ok::<_, anyhow::Error>(Document {
                     page: input.page.clone(),
                     markdown,
-                }
+                })
             },
         );
         let markdown = documents.flat_map(|document: &Document| {
@@ -223,6 +234,27 @@ impl Llmstxt {
             },
         );
         (markdown, indexes).coalesce()
+    }
+
+    fn preprocess(&self, content: String, page: &Page) -> Result<String> {
+        let Some(callback) = &self.preprocess else {
+            return Ok(content);
+        };
+        let output = markdown_path(page.destination())?;
+        Python::attach(|py| {
+            callback.bind(py).call1((content, output.as_str()))?
+                .extract::<String>()
+        }).map_err(|error| {
+            Python::attach(|py| {
+                let traceback = error.traceback(py)
+                    .and_then(|tb| tb.format().ok())
+                    .unwrap_or_default();
+                anyhow::anyhow!(
+                    "llmstxt preprocess failed for {} (output {}): {error}\n{traceback}",
+                    page.source().as_str(), output.as_str(),
+                )
+            })
+        })
     }
 
     fn matches(&self, pattern: &str, source: &str) -> Result<bool> {
