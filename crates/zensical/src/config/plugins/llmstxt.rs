@@ -48,6 +48,8 @@ pub struct LlmstxtPluginConfig {
     pub markdown_description: Option<String>,
     /// Optional site-relative file containing all selected pages.
     pub full_output: Option<String>,
+    /// Optional Python script by which export HTML is transformed.
+    pub preprocess: Option<String>,
     /// Sections in configuration order.
     pub sections: Vec<Section>,
 }

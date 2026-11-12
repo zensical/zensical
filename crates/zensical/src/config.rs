@@ -28,7 +28,7 @@
 use fluent_uri::Uri;
 use pyo3::exceptions::PyValueError;
 use pyo3::types::{PyAnyMethods, PyDict};
-use pyo3::{PyErr, Python};
+use pyo3::{Py, PyAny, PyErr, Python};
 use regex::Regex;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -68,6 +68,8 @@ pub struct Config {
     pub inclusion: inclusion::Inclusion,
     /// API sources and navigation generated for this build.
     pub api: Arc<crate::compat::mkdocs::apidocs::Snapshot>,
+    /// The export callback is retained outside the serializable project settings.
+    pub(crate) llmstxt_preprocess: Option<Arc<Py<PyAny>>>,
     /// Path to configuration file.
     pub path: PathBuf,
     /// Project settings.
@@ -201,6 +203,23 @@ impl Config {
                 ))
             })?;
 
+        let llmstxt = &project.plugins.llmstxt.config;
+        let llmstxt_preprocess = if llmstxt.enabled {
+            Python::attach(|py| {
+                llmstxt
+                    .preprocess
+                    .as_ref()
+                    .map(|path| {
+                        py.import("zensical.compat.llmstxt")?
+                            .call_method1("load_preprocess", (path,))
+                            .map(|callback| Arc::new(callback.unbind()))
+                    })
+                    .transpose()
+            })?
+        } else {
+            None
+        };
+
         let snippet_pattern = snippet_pattern(include_syntax.as_ref().map(
             |(opening, plain, markdown)| {
                 (opening.as_str(), plain.as_str(), markdown.as_str())
@@ -238,6 +257,7 @@ impl Config {
         Ok(Config {
             inclusion: inclusion::Inclusion::new(&project)?,
             api: Arc::default(),
+            llmstxt_preprocess,
             path,
             project: Arc::new(project),
             theme_dirs,

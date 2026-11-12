@@ -214,7 +214,10 @@ pub fn prepare(
     if let Some(parser) = &mut tags {
         visitors.push(parser);
     }
-    if let Some(parser) = &mut llmstxt {
+    if let Some(parser) = llmstxt
+        .as_mut()
+        .filter(|_| !settings.llmstxt.has_preprocess())
+    {
         visitors.push(parser);
     }
     if let Some(parser) = &mut descriptions {
@@ -247,13 +250,15 @@ pub fn prepare(
         .unwrap_or_default();
 
     let llmstxt = llmstxt.map(|parser| {
-        Arc::new(if references.is_empty() {
-            llmstxt::Content::Markdown(Arc::from(parser.finish()))
-        } else {
-            // Conversion is deferred so links are serialized in their full
-            // context after the revision-complete registry has been built.
-            llmstxt::Content::Html(Arc::from(markdown.content.as_str()))
-        })
+        Arc::new(
+            if references.is_empty() && !settings.llmstxt.has_preprocess() {
+                llmstxt::Content::Markdown(Arc::from(parser.finish()))
+            } else {
+                // Export HTML is retained separately so preprocessing is applied
+                // after reference resolution without changing browser HTML.
+                llmstxt::Content::Html(Arc::from(markdown.content.as_str()))
+            },
+        )
     });
 
     Ok(HtmlFacts {
