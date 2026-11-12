@@ -709,7 +709,21 @@ fn join_url(base: &str, reference: &str) -> String {
         return base.into();
     }
     // Literal spaces and existing percent escapes are preserved for MkDocs.
-    let protect = |url: &str| url.replace('%', "%25").replace(' ', "%20");
+    // Brackets outside the authority are escaped for parsing and restored below.
+    // IPv6 host brackets must be retained in the authority.
+    let protect = |url: &str| {
+        let url = url.replace('%', "%25").replace(' ', "%20");
+        let authority = url.strip_prefix("//").or_else(|| {
+            let (scheme, rest) = url.split_once("://")?;
+            (!scheme.contains(['/', '?', '#'])).then_some(rest)
+        });
+        let path_start = authority.map_or(0, |authority| {
+            url.len() - authority.len()
+                + authority.find(['/', '?', '#']).unwrap_or(authority.len())
+        });
+        let (prefix, suffix) = url.split_at(path_start);
+        format!("{prefix}{}", suffix.replace('[', "%5B").replace(']', "%5D"))
+    };
     let base = protect(base);
     let reference = protect(reference);
     let base =
@@ -736,8 +750,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        destination, route_url, Page, PageData, PageDescriptor, PageOrigin,
-        PageRoute,
+        destination, join_url, route_url, Page, PageData, PageDescriptor,
+        PageOrigin, PageRoute,
     };
     use crate::structure::document::DocumentHeader;
 
@@ -816,6 +830,53 @@ mod tests {
                 route_url(&destination.parse().unwrap(), directory_urls),
                 expected
             );
+        }
+    }
+
+    #[test]
+    fn joins_urls_with_literal_brackets() {
+        // Brackets are retained in paths, queries, and fragments after joining.
+        let cases = [
+            (
+                "https://example.org/repo/",
+                "edit/main/docs/[draft] page.md",
+                "https://example.org/repo/edit/main/docs/[draft] page.md",
+            ),
+            (
+                "https://example.org/[repo]/",
+                "[draft]/../[EN] café 100%25.md",
+                "https://example.org/[repo]/[EN] café 100%25.md",
+            ),
+            (
+                "https://example.org/repo/",
+                "?branch=[main]#L[1]",
+                "https://example.org/repo/?branch=[main]#L[1]",
+            ),
+            (
+                "https://example.org/repo/",
+                "%5Bdraft%5D.md",
+                "https://example.org/repo/%5Bdraft%5D.md",
+            ),
+            // IPv6 authorities must be preserved during parsing.
+            (
+                "https://[::1]:8000/[repo]/",
+                "[draft] page.md",
+                "https://[::1]:8000/[repo]/[draft] page.md",
+            ),
+            (
+                "https://example.org/repo/",
+                "//[::1]:8000/[draft]/page.md",
+                "https://[::1]:8000/[draft]/page.md",
+            ),
+            (
+                "https://example.org/repo/",
+                "https://[::1]:8000/[draft]/page.md",
+                "https://[::1]:8000/[draft]/page.md",
+            ),
+        ];
+
+        for (base, reference, expected) in cases {
+            assert_eq!(join_url(base, reference), expected);
         }
     }
 
