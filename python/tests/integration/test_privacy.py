@@ -68,6 +68,7 @@ def remote(request: pytest.FixtureRequest) -> Any:
     scheme = getattr(request, "param", "http")
     if scheme == "https":
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(
             TLS_FIXTURES / "server.pem", TLS_FIXTURES / "server.key"
         )

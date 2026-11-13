@@ -100,6 +100,7 @@ jobs:
           python-version: "3.14"
           enable-cache: true
           cache-dependency-glob: uv.lock
+          cache-suffix: audit
           save-cache: >-
             ${{ github.event_name == 'push' &&
                 github.ref == 'refs/heads/master' }}

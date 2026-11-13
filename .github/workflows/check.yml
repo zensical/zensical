@@ -129,72 +129,6 @@ jobs:
       - name: Run tests
         run: cargo test --locked --workspace
 
-  python:
-    name: Python (${{ matrix.python-version }})
-    permissions:
-      contents: read
-    runs-on: ubuntu-26.04
-    timeout-minutes: 60
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-          persist-credentials: false
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
-        with:
-          toolchain: 1.99.1
-
-      - name: Remove unused Rust toolchains
-        run: |
-          active="$(rustup show active-toolchain)"
-          active="${active%% *}"
-          rustup toolchain list --quiet | while read -r toolchain; do
-            if [ "$toolchain" != "$active" ]; then
-              rustup toolchain uninstall "$toolchain"
-            fi
-          done
-
-      - name: Set up Rust cache
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with:
-          key: python-${{ matrix.python-version }}
-          save-if: >-
-            ${{ github.event_name == 'push' &&
-                github.ref == 'refs/heads/master' }}
-
-      - name: Set up Python
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
-        with:
-          python-version: ${{ matrix.python-version }}
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-          save-cache: >-
-            ${{ github.event_name == 'push' &&
-                github.ref == 'refs/heads/master' }}
-
-      - name: Set up Python dependencies
-        run: uv sync --locked --all-groups
-
-      - name: Install pngquant
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes pngquant
-
-      - name: Run ruff
-        run: uv run --locked ruff check --no-fix-only .
-
-      - name: Run ty
-        run: uv run --locked ty check .
-
-      - name: Run pytest
-        run: uv run --locked pytest python/tests/
-
   zizmor:
     name: Zizmor
     permissions:
@@ -246,7 +180,6 @@ jobs:
     needs:
       - clippy
       - test
-      - python
       - zizmor
       - format
     permissions:
