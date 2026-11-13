@@ -249,6 +249,64 @@ jobs:
           path: artifacts/*
           if-no-files-found: error
 
+  python:
+    name: Python (${{ matrix.python-version }})
+    needs: linux
+    permissions:
+      contents: read
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: python-tests
+          save-cache: >-
+            ${{ github.event_name == 'push' &&
+                github.ref == 'refs/heads/master' }}
+
+      - name: Set up Python dependencies
+        run: uv sync --locked --all-groups --no-install-project
+
+      - name: Download artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: wheel-linux-x64
+          path: artifacts
+
+      - name: Install package
+        run: >-
+          uv pip install --python .venv/bin/python --no-index --no-deps
+          --find-links artifacts zensical
+
+      - name: Install pngquant
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes pngquant
+
+      - name: Run ruff
+        run: uv run --locked --no-sync ruff check --no-fix-only .
+
+      - name: Run ty
+        run: uv run --locked --no-sync ty check .
+
+      - name: Run pytest
+        run: >-
+          uv run --locked --no-sync pytest
+          --import-mode=importlib python/tests/
+
   sdist:
     name: Source distribution
     permissions:
@@ -337,6 +395,7 @@ jobs:
       - musllinux
       - windows
       - macos
+      - python
       - sdist
       - docker
     runs-on: ubuntu-26.04
@@ -357,6 +416,7 @@ jobs:
       - musllinux
       - windows
       - macos
+      - python
       - sdist
     permissions:
       contents: read
