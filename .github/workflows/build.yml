@@ -39,18 +39,38 @@ on:
         required: true
         type: boolean
 
+permissions: {}
+defaults:
+  run:
+    shell: bash
+
+env:
+  SCCACHE_GHA_RW_MODE: >-
+    ${{ github.event_name == 'push' &&
+        github.ref == 'refs/heads/master' && 'READ_WRITE' || 'READ_ONLY' }}
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-build-${{
+        github.event_name == 'pull_request' &&
+        github.event.action != 'closed' &&
+        github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: >-
+    ${{ github.event_name == 'pull_request' &&
+        github.event.action != 'closed' }}
+
 jobs:
   linux:
     name: Wheel (Linux, ${{ matrix.platform.name }})
     permissions:
       contents: read
-    timeout-minutes: 60
     runs-on: ${{ matrix.platform.os }}
+    timeout-minutes: 60
     strategy:
       matrix:
         platform:
           - name: x64
-            os: ubuntu-latest
+            os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
           - name: arm64
             os: ubuntu-24.04-arm
@@ -58,7 +78,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -71,6 +91,7 @@ jobs:
       - name: Build artifact
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
+          rust-toolchain: 1.99.1
           target: ${{ matrix.platform.target }}
           manylinux: auto
           # Temporary fix for https://github.com/zensical/zensical/issues/425
@@ -78,13 +99,12 @@ jobs:
             --locked --release --out artifacts
             --interpreter python3.11
           # args: --locked --release --out artifacts
-          sccache: >
-            ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
+          sccache: true
 
       - name: Check package contents
         run: python scripts/check-package.py artifacts
 
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: wheel-linux-${{ matrix.platform.name }}
@@ -95,8 +115,8 @@ jobs:
     name: Wheel (Linux, musl, ${{ matrix.platform.name }})
     permissions:
       contents: read
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
-    runs-on: ubuntu-latest
     strategy:
       matrix:
         platform:
@@ -107,7 +127,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -120,16 +140,16 @@ jobs:
       - name: Build artifact
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
+          rust-toolchain: 1.99.1
           target: ${{ matrix.platform.target }}
           manylinux: musllinux_1_2
           args: --locked --release --out artifacts
-          sccache: >
-            ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
+          sccache: true
 
       - name: Check package contents
         run: python scripts/check-package.py artifacts
 
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: wheel-musllinux-${{ matrix.platform.name }}
@@ -140,8 +160,8 @@ jobs:
     name: Wheel (Windows, ${{ matrix.platform.name }})
     permissions:
       contents: read
-    timeout-minutes: 60
     runs-on: ${{ matrix.platform.os }}
+    timeout-minutes: 60
     strategy:
       matrix:
         platform:
@@ -154,7 +174,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -168,15 +188,15 @@ jobs:
       - name: Build artifact
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
+          rust-toolchain: 1.99.1
           target: ${{ matrix.platform.target }}
           args: --locked --release --out artifacts
-          sccache: >
-            ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
+          sccache: true
 
       - name: Check package contents
         run: python scripts/check-package.py artifacts
 
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: wheel-windows-${{ matrix.platform.name }}
@@ -187,8 +207,8 @@ jobs:
     name: Wheel (macOS, ${{ matrix.platform.name }})
     permissions:
       contents: read
-    timeout-minutes: 60
     runs-on: ${{ matrix.platform.os }}
+    timeout-minutes: 60
     strategy:
       matrix:
         platform:
@@ -201,7 +221,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -214,15 +234,15 @@ jobs:
       - name: Build artifact
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
+          rust-toolchain: 1.99.1
           target: ${{ matrix.platform.target }}
           args: --locked --release --out artifacts
-          sccache: >
-            ${{ !startsWith(github.event.pull_request.head.ref, 'release/') }}
+          sccache: true
 
       - name: Check package contents
         run: python scripts/check-package.py artifacts
 
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: wheel-macos-${{ matrix.platform.name }}
@@ -233,11 +253,11 @@ jobs:
     name: Source distribution
     permissions:
       contents: read
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
-    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -256,7 +276,7 @@ jobs:
       - name: Check package contents
         run: python scripts/check-package.py artifacts
 
-      - name: Upload sdist
+      - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: wheel-sdist
@@ -267,23 +287,21 @@ jobs:
     name: Docker image
     permissions:
       contents: read
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
-    runs-on: ubuntu-latest
     env:
       IMAGE: ${{ github.event.repository.full_name }}
       DOCKER_BUILDKIT: 1
       DOCKER_BUILD_SUMMARY: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
-        with:
-          buildkitd-flags: --debug
 
       - name: Build image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
@@ -291,8 +309,45 @@ jobs:
           context: .
           load: true
           tags: ${{ env.IMAGE }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max,ignore-error=true
+          cache-from: type=gha,scope=docker
+          cache-to: >-
+            ${{ github.event_name == 'push' &&
+                github.ref == 'refs/heads/master' &&
+                'type=gha,scope=docker,mode=max,ignore-error=true' || '' }}
+
+      - name: Check image
+        run: |
+          project_dir=$(mktemp -d "$RUNNER_TEMP/zensical-docker.XXXXXX")
+          trap 'rm -rf "$project_dir"' EXIT
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$project_dir,target=/docs" \
+            "$IMAGE:latest" new .
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$project_dir,target=/docs" \
+            "$IMAGE:latest" build --strict
+
+  release:
+    name: Release
+    if: |
+      always() &&
+      github.event.action != 'closed' &&
+      startsWith(github.head_ref, 'release/')
+    needs:
+      - linux
+      - musllinux
+      - windows
+      - macos
+      - sdist
+      - docker
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    steps:
+      - name: Check required jobs
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: >-
+          jq -e 'length > 0 and all(.[]; .result == "success")'
+          <<< "$RESULTS"
 
   attestations:
     name: Attestations
@@ -303,19 +358,19 @@ jobs:
       - windows
       - macos
       - sdist
-    timeout-minutes: 60
-    runs-on: ubuntu-latest
     permissions:
       contents: read
       attestations: write
       id-token: write
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: wheel-*
-          merge-multiple: true
           path: artifacts
+          merge-multiple: true
 
       - name: Create artifact attestation
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4

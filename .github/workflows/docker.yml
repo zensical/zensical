@@ -30,6 +30,11 @@ on:
     branches:
       - master
 
+permissions: {}
+defaults:
+  run:
+    shell: bash
+
 jobs:
   docker:
     name: Build and push
@@ -38,8 +43,8 @@ jobs:
       startsWith(github.event.pull_request.head.ref, 'release/')
     permissions:
       contents: read
+    runs-on: ubuntu-26.04
     timeout-minutes: 120
-    runs-on: ubuntu-latest
     environment: dockerhub
     env:
       IMAGE: ${{ github.event.repository.full_name }}
@@ -47,7 +52,7 @@ jobs:
       DOCKER_BUILD_SUMMARY: false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
           persist-credentials: false
@@ -57,13 +62,16 @@ jobs:
         env:
           RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
-          VERSION=${RELEASE_BRANCH#release/}
-          PACKAGE_VERSION=$(python -c 'import tomllib; print(tomllib.load(open("crates/zensical/Cargo.toml", "rb"))["package"]["version"])')
-          if [ "${VERSION#v}" != "$PACKAGE_VERSION" ]; then
+          version=${RELEASE_BRANCH#release/}
+          package_version=$(python -c \
+            'import tomllib; from pathlib import Path;
+          print(tomllib.loads(Path("crates/zensical/Cargo.toml").read_text())
+          ["package"]["version"])')
+          if [ "${version#v}" != "$package_version" ]; then
             echo "Release branch and Cargo.toml versions differ"
             exit 1
           fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
@@ -96,6 +104,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          cache-from: type=gha,scope=docker
           load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -106,16 +115,16 @@ jobs:
         env:
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          PROJECT_DIR=$(mktemp -d "$RUNNER_TEMP/zensical-docker.XXXXXX")
-          trap 'rm -rf "$PROJECT_DIR"' EXIT
+          project_dir=$(mktemp -d "$RUNNER_TEMP/zensical-docker.XXXXXX")
+          trap 'rm -rf "$project_dir"' EXIT
           docker run --rm --user "$(id -u):$(id -g)" \
-            --mount "type=bind,source=$PROJECT_DIR,target=/docs" \
+            --mount "type=bind,source=$project_dir,target=/docs" \
             "$IMAGE:$VERSION" new .
           docker run --rm --user "$(id -u):$(id -g)" \
-            --mount "type=bind,source=$PROJECT_DIR,target=/docs" \
+            --mount "type=bind,source=$project_dir,target=/docs" \
             "$IMAGE:$VERSION" build --strict
 
-      - name: Sign in to DockerHub
+      - name: Sign in to Docker Hub
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         with:
           username: zensical
@@ -125,6 +134,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          cache-from: type=gha,scope=docker
           platforms: |
             linux/amd64
             linux/arm64

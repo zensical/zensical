@@ -209,7 +209,7 @@ mod tests {
                 .body([])
         });
 
-        assert!(res.body.is_empty());
+        assert_eq!(res.body, Vec::<u8>::new());
         assert_eq!(res.headers.get(Header::ContentLength), Some("7"));
 
         let req = Request::new().method(Method::Head).uri("/missing");
@@ -217,7 +217,7 @@ mod tests {
             Response::new().status(Status::NotFound)
         });
 
-        assert!(res.body.is_empty());
+        assert_eq!(res.body, Vec::<u8>::new());
         assert_eq!(res.headers.get(Header::ContentLength), None);
     }
 }

@@ -24,29 +24,90 @@
 name: Security
 
 on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
   schedule:
-    - cron: "0 4 * * 1"
+    - cron: "30 3 * * *"
   workflow_dispatch:
+
+permissions: {}
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{
+        github.event_name == 'pull_request' &&
+        github.event.action != 'closed' &&
+        github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: >-
+    ${{ github.event_name == 'pull_request' &&
+        github.event.action != 'closed' }}
 
 jobs:
   audit:
     name: Audit
     permissions:
       contents: read
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
-    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Set up Rust cache
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - name: Restore cargo-audit
+        id: audit-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/cargo-audit/bin/cargo-audit
+          key: cargo-audit-0.22.2-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Set up Rust
+        if: steps.audit-cache.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.1
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        if: steps.audit-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked \
+            --root "$RUNNER_TEMP/cargo-audit"
+
+      - name: Save cargo-audit
+        if: >-
+          ${{ steps.audit-cache.outputs.cache-hit != 'true' &&
+              github.event_name != 'pull_request' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/cargo-audit/bin/cargo-audit
+          key: ${{ steps.audit-cache.outputs.cache-primary-key }}
 
       - name: Audit dependencies
-        run: cargo audit
+        run: '"$RUNNER_TEMP/cargo-audit/bin/cargo-audit" audit'
+
+      - name: Set up Python
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          python-version: "3.14"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          save-cache: >-
+            ${{ github.event_name == 'push' &&
+                github.ref == 'refs/heads/master' }}
+
+      - name: Audit Python dependencies
+        run: |
+          uv export --locked --all-groups --no-emit-project \
+            --output-file "$RUNNER_TEMP/requirements.txt"
+          uv tool run --from pip-audit==2.10.1 pip-audit \
+            --disable-pip --require-hashes --strict \
+            --requirement "$RUNNER_TEMP/requirements.txt"
