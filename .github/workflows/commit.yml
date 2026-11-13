@@ -30,30 +30,45 @@ on:
       - synchronize
       - reopened
 
+permissions: {}
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{
+        github.event_name == 'pull_request' &&
+        github.event.action != 'closed' &&
+        github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: >-
+    ${{ github.event_name == 'pull_request' &&
+        github.event.action != 'closed' }}
+
 jobs:
   validate:
     name: Validate
     permissions:
       contents: read
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
-    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
           fetch-depth: 0
 
       - name: Set up mono
-        uses: zensical/mono@2be38f5a76677c8e5c342f269b78aaccc8631b7c # v0
+        uses: zensical/mono@c6ece01fa0d0b2f46300e5998b1f07a5b77be616
 
       - name: Get commit messages
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          git log "$BASE_SHA..$HEAD_SHA" --format=%h > commits.txt
+          git log "$BASE..$HEAD" --format=%h > commits.txt
 
       - name: Validate commit messages
         run: |

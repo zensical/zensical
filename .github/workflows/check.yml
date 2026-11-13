@@ -36,72 +36,149 @@ on:
         required: true
         type: string
 
+permissions: {}
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: >-
+    ${{ github.workflow }}-check-${{
+        github.event_name == 'pull_request' &&
+        github.event.action != 'closed' &&
+        github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: >-
+    ${{ github.event_name == 'pull_request' &&
+        github.event.action != 'closed' }}
+
 jobs:
   clippy:
     name: Clippy
     permissions:
       contents: read
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
-    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
-          toolchain: 1.98.0
+          toolchain: 1.99.1
           components: clippy
 
+      - name: Remove unused Rust toolchains
+        run: |
+          active="$(rustup show active-toolchain)"
+          active="${active%% *}"
+          rustup toolchain list --quiet | while read -r toolchain; do
+            if [ "$toolchain" != "$active" ]; then
+              rustup toolchain uninstall "$toolchain"
+            fi
+          done
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          save-if: >-
+            ${{ github.event_name == 'push' &&
+                github.ref == 'refs/heads/master' }}
+
       - name: Run clippy
-        run: cargo clippy --locked -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
   test:
     name: Test
     permissions:
       contents: read
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
-    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
-          toolchain: 1.98.0
+          toolchain: 1.99.1
+
+      - name: Remove unused Rust toolchains
+        run: |
+          active="$(rustup show active-toolchain)"
+          active="${active%% *}"
+          rustup toolchain list --quiet | while read -r toolchain; do
+            if [ "$toolchain" != "$active" ]; then
+              rustup toolchain uninstall "$toolchain"
+            fi
+          done
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          save-if: >-
+            ${{ github.event_name == 'push' &&
+                github.ref == 'refs/heads/master' }}
 
       - name: Run tests
-        run: cargo test --locked
+        run: cargo test --locked --workspace
 
   python:
     name: Python (${{ matrix.python-version }})
     permissions:
       contents: read
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
-    runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.1
+
+      - name: Remove unused Rust toolchains
+        run: |
+          active="$(rustup show active-toolchain)"
+          active="${active%% *}"
+          rustup toolchain list --quiet | while read -r toolchain; do
+            if [ "$toolchain" != "$active" ]; then
+              rustup toolchain uninstall "$toolchain"
+            fi
+          done
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: python-${{ matrix.python-version }}
+          save-if: >-
+            ${{ github.event_name == 'push' &&
+                github.ref == 'refs/heads/master' }}
 
       - name: Set up Python
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          save-cache: >-
+            ${{ github.event_name == 'push' &&
+                github.ref == 'refs/heads/master' }}
 
-      - name: Install dependencies
+      - name: Set up Python dependencies
         run: uv sync --locked --all-groups
 
       - name: Install pngquant
@@ -118,40 +195,74 @@ jobs:
       - name: Run pytest
         run: uv run --locked pytest python/tests/
 
+  zizmor:
+    name: Zizmor
+    permissions:
+      contents: read
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          version: v1.32.0
+          collect: all
+          advanced-security: false
+
   format:
     name: Format
     permissions:
       contents: read
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
-    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
-          toolchain: 1.98.0
+          toolchain: 1.99.1
           components: rustfmt
 
       - name: Run rustfmt
-        run: cargo fmt --all -- --check
+        run: cargo fmt --all --check
 
   release:
     name: Release
+    if: |
+      always() &&
+      github.event.action != 'closed' &&
+      startsWith(github.head_ref, 'release/')
+    needs:
+      - clippy
+      - test
+      - python
+      - zizmor
+      - format
     permissions:
       contents: read
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
-    runs-on: ubuntu-latest
-    if: |
-      github.event.action != 'closed' &&
-      startsWith(github.event.pull_request.head.ref, 'release/')
     steps:
+      - name: Check required jobs
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: >-
+          jq -e 'length > 0 and all(.[]; .result == "success")'
+          <<< "$RESULTS"
+
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -159,11 +270,12 @@ jobs:
 
       - name: Check commit count
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          COMMITS=$(git rev-list --count "$HEAD_SHA" "^$BASE_SHA")
-          if [ "$COMMITS" -ne 1 ]; then
-            echo "Release branch must contain exactly one commit, found $COMMITS"
+          commits=$(git rev-list --count "$HEAD" "^$BASE")
+          if [ "$commits" -ne 1 ]; then
+            echo "Release branch must contain exactly one commit," \
+              "found $commits"
             exit 1
           fi
