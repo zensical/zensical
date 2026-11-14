@@ -115,7 +115,7 @@ class Cursor:
     * `shift` - offset added to all emitted spans.
     """
 
-    __slots__ = ("col", "data", "end", "pos", "shift")
+    __slots__ = ("_blank_prefix", "col", "data", "end", "pos", "shift")
 
     def __init__(self, data: bytes, shift: int = 0) -> None:
         self.data = data
@@ -123,10 +123,11 @@ class Cursor:
         self.pos = 0
         self.col = 0
         self.shift = shift
+        self._blank_prefix = True
 
     def at_line_start(self) -> bool:
         """Return whether the cursor is at the start of a line."""
-        return self.col == 0 or self._is_blank_prefix()
+        return self._blank_prefix
 
     def peek(self, offset: int = 0) -> int:
         """Return the byte at the current position plus the given offset."""
@@ -137,26 +138,37 @@ class Cursor:
 
     def advance(self, n: int = 1) -> None:
         """Advance the cursor by `n` bytes."""
-        for _ in range(n):
-            if self.pos < self.end:
-                if self.data[self.pos] in (_CR, _NL):
-                    self.col = 0
-                else:
-                    self.col += 1
-                self.pos += 1
+        if n <= 0 or self.pos >= self.end:
+            return
+        if n == 1:
+            byte = self.data[self.pos]
+            if byte in (_CR, _NL):
+                self.col = 0
+                self._blank_prefix = True
+            else:
+                self.col += 1
+                if self._blank_prefix and byte not in _WHITESPACE:
+                    self._blank_prefix = False
+            self.pos += 1
+            return
+
+        end = min(self.pos + n, self.end)
+        chunk = self.data[self.pos : end]
+        nl = chunk.rfind(b"\n")
+        cr = chunk.rfind(b"\r")
+        last_eol = max(cr, nl)
+        if last_eol != -1:
+            self.col = len(chunk) - last_eol - 1
+            self._blank_prefix = not chunk[last_eol + 1 :].strip(b" \t")
+        else:
+            self.col += len(chunk)
+            if self._blank_prefix and chunk.strip(b" \t"):
+                self._blank_prefix = False
+        self.pos = end
 
     def span(self, start: int, end: int) -> Span:
         """Create a `Span` in the outer coordinate system."""
         return Span(self.shift + start, self.shift + end)
-
-    def _is_blank_prefix(self) -> bool:
-        """Return whether there's only whitespace before the cursor."""
-        i = self.pos - 1
-        while i >= 0 and self.data[i] not in (_CR, _NL):
-            if self.data[i] not in _WHITESPACE:
-                return False
-            i -= 1
-        return True
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +194,12 @@ def _scan(cursor: Cursor) -> Iterator[Reference]:
             if end is not None:
                 cursor.advance(end - cursor.pos)
                 continue
+
+        # Skip horizontal whitespace runs in one step
+        if char in _WHITESPACE:
+            end = _skip_whitespace(cursor, cursor.pos + 1)
+            cursor.advance(end - cursor.pos)
+            continue
 
         # Escaped character or math
         if char == _BACKSLASH:
