@@ -2398,6 +2398,186 @@ class TestSpanOffsets:
 
 
 # ---------------------------------------------------------------------------
+
+
+class TestWhitespaceRuns:
+    """Tests for long runs of horizontal whitespace.
+
+    Text extracted from PDFs with a fixed layout can pad a line with tens of
+    thousands of spaces. Scanning such a run must take time linear in its
+    length, so these tests use runs long enough that a quadratic scan would
+    not finish in reasonable time.
+    """
+
+    RUN = 50_000
+
+    @pytest.mark.parametrize(
+        "whitespace",
+        [
+            pytest.param(b" ", id="spaces"),
+            pytest.param(b"\t", id="tabs"),
+            pytest.param(b" \t", id="spaces-and-tabs"),
+        ],
+    )
+    def test_link_after_leading_whitespace(self, whitespace: bytes) -> None:
+        prefix = whitespace * self.RUN
+        md = prefix + b"[text](href)"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert links[0].start == len(prefix)
+        assert text(md, links[0].text) == b"text"
+        assert text(md, links[0].href) == b"href"
+
+    def test_link_after_inline_whitespace(self) -> None:
+        prefix = b"text" + b" " * self.RUN
+        md = prefix + b"[text](href)"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert links[0].start == len(prefix)
+        assert text(md, links[0].href) == b"href"
+
+    def test_link_after_lines_with_trailing_whitespace(self) -> None:
+        line = b"text" + b" " * self.RUN + b"\n"
+        md = line * 3 + b"[text](href)"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert links[0].start == 3 * len(line)
+
+    def test_link_def_after_whitespace_only_line(self) -> None:
+        prefix = b" " * self.RUN + b"\n"
+        md = prefix + b"[id]: href"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_defs = link_defs_only(refs)
+        assert len(link_defs) == 1
+        assert link_defs[0].start == len(prefix)
+        assert text(md, link_defs[0].href) == b"href"
+
+    def test_no_link_def_after_inline_whitespace(self) -> None:
+        md = b"text" + b" " * self.RUN + b"[id]: href"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+
+    def test_no_link_def_after_leading_whitespace(self) -> None:
+        md = b" " * self.RUN + b"[id]: href"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+
+
+# ---------------------------------------------------------------------------
+
+
+class TestPlainTextRuns:
+    """Tests for references around long runs of plain text.
+
+    The scanner steps over text that can't start a construct, so these tests
+    check that references before, between and after such runs keep their
+    positions, with both kinds of line endings.
+    """
+
+    RUN = 50_000
+
+    def test_link_after_plain_text(self) -> None:
+        prefix = b"a" * self.RUN + b" "
+        md = prefix + b"[text](href)"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert links[0].start == len(prefix)
+        assert text(md, links[0].text) == b"text"
+        assert text(md, links[0].href) == b"href"
+
+    def test_links_between_plain_text(self) -> None:
+        run = b"a" * self.RUN
+        md = b"[one](1) " + run + b" [two](2) " + run + b" [three](3)"
+        refs = collect(md)
+        assert len(refs) == 3
+
+        links = links_only(refs)
+        assert [text(md, link.href) for link in links] == [b"1", b"2", b"3"]
+
+    @pytest.mark.parametrize(
+        "newline",
+        [
+            pytest.param(b"\n", id="lf"),
+            pytest.param(b"\r\n", id="crlf"),
+            pytest.param(b"\r", id="cr"),
+        ],
+    )
+    def test_link_def_after_plain_text_line(self, newline: bytes) -> None:
+        prefix = b"a" * self.RUN + newline
+        md = prefix + b"[id]: href"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_defs = link_defs_only(refs)
+        assert len(link_defs) == 1
+        assert link_defs[0].start == len(prefix)
+        assert text(md, link_defs[0].href) == b"href"
+
+    def test_no_link_def_after_plain_text(self) -> None:
+        md = b"a" * self.RUN + b" [id]: href"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+
+    def test_link_after_unmatched_bracket(self) -> None:
+        prefix = b"[" + b"a" * self.RUN + b"\n\n"
+        md = prefix + b"[text](href)"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert links[0].start == len(prefix)
+
+    def test_link_after_unclosed_html_tag(self) -> None:
+        prefix = b"<a " + b"a" * self.RUN + b"\n\n"
+        md = prefix + b"[text](href)"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert links[0].start == len(prefix)
+
+    def test_link_text_with_escapes_and_nested_brackets(self) -> None:
+        md = b"[a" + b"x" * self.RUN + b"\\] [b] c](href)"
+        refs = collect(md)
+        assert len(refs) == 2
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert links[0].start == 0
+        assert links[0].end == len(md)
+        assert text(md, links[0].href) == b"href"
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+        assert text(md, link_refs[0].text) == b"b"
+
+
+# ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
 
