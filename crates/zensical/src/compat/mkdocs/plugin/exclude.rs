@@ -39,7 +39,7 @@ use crate::path::SourcePath;
 
 mod pattern;
 
-use pattern::Pattern;
+pub(super) use pattern::Pattern;
 
 /// File exclusion shared by documentation and resource streams.
 #[derive(Clone, Debug)]
