@@ -84,9 +84,44 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
+        id: python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: 3.x
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.1
+          targets: ${{ matrix.platform.target }}
+
+      - name: Remove unused Rust toolchains
+        run: |
+          active="$(rustup show active-toolchain)"
+          active="${active%% *}"
+          rustup toolchain list --quiet | while read -r toolchain; do
+            if [ "$toolchain" != "$active" ]; then
+              rustup toolchain uninstall "$toolchain"
+            fi
+          done
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: >-
+            native-tests-${{ matrix.platform.target }}-${{
+                steps.python.outputs.python-version }}
+          workspaces: . -> target/native-tests
+          save-if: >-
+            ${{ github.event_name == 'push' &&
+                github.ref == 'refs/heads/master' }}
+
+      - name: Run tests
+        env:
+          CARGO_TARGET_DIR: target/native-tests
+          PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
+          TARGET: ${{ matrix.platform.target }}
+        run: cargo test --locked --workspace --target "$TARGET"
 
       - name: Build artifact
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
@@ -180,10 +215,45 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
+        id: python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: 3.x
           architecture: ${{ matrix.platform.name }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.1
+          targets: ${{ matrix.platform.target }}
+
+      - name: Remove unused Rust toolchains
+        run: |
+          active="$(rustup show active-toolchain)"
+          active="${active%% *}"
+          rustup toolchain list --quiet | while read -r toolchain; do
+            if [ "$toolchain" != "$active" ]; then
+              rustup toolchain uninstall "$toolchain"
+            fi
+          done
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: >-
+            native-tests-${{ matrix.platform.target }}-${{
+                steps.python.outputs.python-version }}
+          workspaces: . -> target/native-tests
+          save-if: >-
+            ${{ github.event_name == 'push' &&
+                github.ref == 'refs/heads/master' }}
+
+      - name: Run tests
+        env:
+          CARGO_TARGET_DIR: target/native-tests
+          PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
+          TARGET: ${{ matrix.platform.target }}
+        run: cargo test --locked --workspace --target "$TARGET"
 
       - name: Build artifact
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
@@ -227,9 +297,44 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
+        id: python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: 3.x
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.1
+          targets: ${{ matrix.platform.target }}
+
+      - name: Remove unused Rust toolchains
+        run: |
+          active="$(rustup show active-toolchain)"
+          active="${active%% *}"
+          rustup toolchain list --quiet | while read -r toolchain; do
+            if [ "$toolchain" != "$active" ]; then
+              rustup toolchain uninstall "$toolchain"
+            fi
+          done
+
+      - name: Set up Rust cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: >-
+            native-tests-${{ matrix.platform.target }}-${{
+                steps.python.outputs.python-version }}
+          workspaces: . -> target/native-tests
+          save-if: >-
+            ${{ github.event_name == 'push' &&
+                github.ref == 'refs/heads/master' }}
+
+      - name: Run tests
+        env:
+          CARGO_TARGET_DIR: target/native-tests
+          PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
+          TARGET: ${{ matrix.platform.target }}
+        run: cargo test --locked --workspace --target "$TARGET"
 
       - name: Build artifact
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
