@@ -32,6 +32,7 @@ use std::collections::BTreeMap;
 mod api_autonav;
 mod autoapi;
 mod blog;
+mod git_revision_date_localized;
 mod llmstxt;
 mod meta_descriptions;
 mod nav_weight;
@@ -44,6 +45,9 @@ mod tags;
 pub use api_autonav::{ApiAutonavConfig, ApiAutonavPlugin};
 pub use autoapi::AutoApiPlugin;
 pub use blog::{BlogPlugin, BlogPluginConfig, CategorySort, ExcerptPolicy};
+pub use git_revision_date_localized::{
+    GitRevisionDateLocalizedPlugin, GitRevisionDateLocalizedPluginConfig,
+};
 pub use llmstxt::{LlmstxtPlugin, LlmstxtPluginConfig};
 pub use meta_descriptions::{
     MetaDescriptionsPlugin, MetaDescriptionsPluginConfig,
@@ -74,6 +78,9 @@ pub use tags::{
 #[derive(Clone, Debug, Hash, FromPyObject, Serialize)]
 #[pyo3(from_item_all)]
 pub struct Plugins {
+    /// Localized Git revision and creation dates.
+    #[serde(rename = "git-revision-date-localized")]
+    pub git_revision_date_localized: GitRevisionDateLocalizedPlugin,
     /// Autorefs plugin, when explicitly configured.
     #[pyo3(default)]
     #[serde(skip_serializing_if = "Option::is_none")]

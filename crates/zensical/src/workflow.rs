@@ -47,9 +47,10 @@ use crate::compat::mkdocs::{
     html,
     links::Links,
     plugin::{
-        self, autorefs, awesome_nav, blog, exclude, literate_nav, llmstxt,
-        meta, meta_descriptions, minify, mkdocstrings, nav_weight, optimize,
-        privacy, redirects, rss, search, social, tags,
+        self, autorefs, awesome_nav, blog, exclude,
+        git_revision_date_localized, literate_nav, llmstxt, meta,
+        meta_descriptions, minify, mkdocstrings, nav_weight, optimize, privacy,
+        redirects, rss, search, social, tags,
     },
     resource,
 };
@@ -97,6 +98,8 @@ struct Main {
     privacy: privacy::Privacy,
     /// Image optimization shared by local and downloaded assets.
     optimize: optimize::Optimize,
+    /// Git dates are resolved before Markdown rendering and template caching.
+    git_revision_dates: git_revision_date_localized::GitRevisionDates,
 }
 
 /// File input enriched with immutable facts for the current revision.
@@ -312,7 +315,7 @@ impl Main {
         let view_pages = blog.view_pages;
         let ordered_views = blog.views;
         let posts = blog.posts;
-        let markdown = blog.pages;
+        let markdown = self.git_revision_dates.setup(&blog.pages, &sources);
 
         // Redirects depend on routes, not rendered Markdown. Settle their
         // compact input independently so they can proceed concurrently with
@@ -442,7 +445,9 @@ impl Main {
             &sources_ready,
             self.strict,
         );
-        let extra_artifacts = (rss_artifacts, llmstxt_artifacts).coalesce();
+        let revision_assets = self.git_revision_dates.assets(&configuration);
+        let extra_artifacts =
+            (rss_artifacts, llmstxt_artifacts, revision_assets).coalesce();
         let template_assets = render_templates(
             &self.config,
             self.strict,
@@ -1192,6 +1197,8 @@ pub fn create_workflow(
 ) -> anyhow::Result<Workflow<Id>> {
     let exclude = exclude::Exclude::new(config)?;
     let privacy = privacy::Privacy::new(config, strict, optimize.clone())?;
+    let git_revision_dates =
+        git_revision_date_localized::GitRevisionDates::new(config, strict)?;
     Ok(Workflow::build(|workflow| {
         Main {
             config: config.clone(),
@@ -1201,6 +1208,7 @@ pub fn create_workflow(
             exclude,
             privacy,
             optimize,
+            git_revision_dates,
         }
         .setup(workflow);
     }))

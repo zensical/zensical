@@ -47,6 +47,7 @@ PYTHON_PLUGINS = (
     "autorefs",
     "callouts",
     "gh-admonitions",
+    "git-revision-date-localized",
     "markdown-exec",
     "mkdocstrings",
     "glightbox",
@@ -120,6 +121,7 @@ def test_preserves_plugin_presence_semantics() -> None:
     for name in (
         "meta",
         "meta_descriptions",
+        "git_revision_date_localized",
         "exclude",
         "redirects",
         "minify",

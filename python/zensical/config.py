@@ -141,6 +141,7 @@ _PLUGIN_UNSUPPORTED_OPTIONS = {
     ),
     "exclude": (),
     "gh-admonitions": (),
+    "git-revision-date-localized": (),
     "glightbox": (
         "touchNavigation",
         "loop",
@@ -2523,6 +2524,76 @@ def _convert_plugins(value: Any, config: dict) -> dict:
             "meta-descriptions max_length must be positive when trim is enabled"
         )
     plugins["meta_descriptions"] = descriptions
+
+    # Git history is queried by the native compatibility module.
+    present = "git-revision-date-localized" in plugins
+    revision = plugins.pop("git-revision-date-localized", {})
+    defaults = {
+        "enabled": present,
+        "type": "date",
+        "locale": None,
+        "timezone": "UTC",
+        "custom_format": "%d. %B %Y",
+        "fallback_to_build_date": False,
+        "enable_creation_date": False,
+        "enable_git_follow": True,
+        "enable_parallel_processing": True,
+        "strict": True,
+        "exclude": [],
+        "ignored_commits_file": None,
+    }
+    _reject_unknown_options(
+        "git-revision-date-localized", revision, set(defaults)
+    )
+    for name, default in defaults.items():
+        set_default(revision, name, default)
+    _validate_boolean_options(
+        "git-revision-date-localized",
+        revision,
+        (
+            "enabled",
+            "fallback_to_build_date",
+            "enable_creation_date",
+            "enable_git_follow",
+            "enable_parallel_processing",
+            "strict",
+        ),
+    )
+    _validate_string_options(
+        "git-revision-date-localized",
+        revision,
+        ("type", "timezone", "custom_format"),
+    )
+    _validate_string_list("git-revision-date-localized", revision, "exclude")
+    for name in ("locale", "ignored_commits_file"):
+        if revision[name] is not None and not isinstance(revision[name], str):
+            raise ConfigurationError(
+                f"git-revision-date-localized {name} must be a string or null"
+            )
+    if revision["type"] not in {
+        "date",
+        "datetime",
+        "iso_date",
+        "iso_datetime",
+        "timeago",
+        "custom",
+    }:
+        raise ConfigurationError(
+            "git-revision-date-localized type must be date, datetime, "
+            "iso_date, iso_datetime, timeago or custom"
+        )
+    plugins["git_revision_date_localized"] = revision
+    if revision["enabled"] and revision["type"] == "timeago":
+        scripts = _convert_extra_javascript(
+            ["js/git-revision-date-localized.js"]
+        )
+        config["extra_javascript"] = scripts + config.get(
+            "extra_javascript", []
+        )
+        config["extra_css"] = [
+            "css/git-revision-date-localized.css",
+            *config.get("extra_css", []),
+        ]
 
     # Normalize file exclusion without importing or executing the plugin.
     present = "exclude" in plugins
