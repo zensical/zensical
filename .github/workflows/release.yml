@@ -139,7 +139,6 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          pattern: wheel-*
           path: artifacts
           merge-multiple: true
 
@@ -211,7 +210,6 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          pattern: wheel-*
           path: artifacts
           merge-multiple: true
 

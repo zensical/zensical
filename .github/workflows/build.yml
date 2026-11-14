@@ -450,7 +450,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: wheel-sdist
+          name: sdist
           path: artifacts/*
           if-no-files-found: error
 
@@ -541,7 +541,6 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          pattern: wheel-*
           path: artifacts
           merge-multiple: true
 
