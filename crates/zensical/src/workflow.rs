@@ -334,6 +334,13 @@ impl Main {
 
         // Navigation needs the final titles derived from Markdown.
         let provisional = generate_page(&self.config, &rendered);
+        // Published post links must be resolved before blog excerpts are
+        // derived from page content and rebased for their containing views.
+        let provisional = if blogs.is_empty() {
+            provisional
+        } else {
+            apply_routed_links(&self.config, &provisional, &markdown)
+        };
         let provisional_page =
             provisional.map(|rendered: &RenderedPage| rendered.page.clone());
         let navigation_page =
@@ -373,11 +380,6 @@ impl Main {
         // once the complete navigation is available.
         let rendered_page = apply_navigation_titles(&provisional, &resolution);
         let rendered_page = apply_blog(&rendered_page, &blog_patches);
-        let rendered_page = if blogs.is_empty() {
-            rendered_page
-        } else {
-            apply_routed_links(&self.config, &rendered_page, &markdown)
-        };
         let rendered_page = apply_tags(&plugins.tags, &rendered_page);
         let autorefs = if let Some(autorefs) = autorefs {
             autorefs
