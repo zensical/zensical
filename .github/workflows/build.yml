@@ -261,6 +261,8 @@ jobs:
 
       - name: Build artifact
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+        env:
+          LINK: /Brepro
         with:
           rust-toolchain: 1.99.1
           target: ${{ matrix.platform.target }}
