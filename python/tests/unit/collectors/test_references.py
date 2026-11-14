@@ -2481,6 +2481,103 @@ class TestWhitespaceRuns:
 
 
 # ---------------------------------------------------------------------------
+
+
+class TestPlainTextRuns:
+    """Tests for references around long runs of plain text.
+
+    The scanner steps over text that can't start a construct, so these tests
+    check that references before, between and after such runs keep their
+    positions, with both kinds of line endings.
+    """
+
+    RUN = 50_000
+
+    def test_link_after_plain_text(self) -> None:
+        prefix = b"a" * self.RUN + b" "
+        md = prefix + b"[text](href)"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert links[0].start == len(prefix)
+        assert text(md, links[0].text) == b"text"
+        assert text(md, links[0].href) == b"href"
+
+    def test_links_between_plain_text(self) -> None:
+        run = b"a" * self.RUN
+        md = b"[one](1) " + run + b" [two](2) " + run + b" [three](3)"
+        refs = collect(md)
+        assert len(refs) == 3
+
+        links = links_only(refs)
+        assert [text(md, link.href) for link in links] == [b"1", b"2", b"3"]
+
+    @pytest.mark.parametrize(
+        "newline",
+        [
+            pytest.param(b"\n", id="lf"),
+            pytest.param(b"\r\n", id="crlf"),
+            pytest.param(b"\r", id="cr"),
+        ],
+    )
+    def test_link_def_after_plain_text_line(self, newline: bytes) -> None:
+        prefix = b"a" * self.RUN + newline
+        md = prefix + b"[id]: href"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_defs = link_defs_only(refs)
+        assert len(link_defs) == 1
+        assert link_defs[0].start == len(prefix)
+        assert text(md, link_defs[0].href) == b"href"
+
+    def test_no_link_def_after_plain_text(self) -> None:
+        md = b"a" * self.RUN + b" [id]: href"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+
+    def test_link_after_unmatched_bracket(self) -> None:
+        prefix = b"[" + b"a" * self.RUN + b"\n\n"
+        md = prefix + b"[text](href)"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert links[0].start == len(prefix)
+
+    def test_link_after_unclosed_html_tag(self) -> None:
+        prefix = b"<a " + b"a" * self.RUN + b"\n\n"
+        md = prefix + b"[text](href)"
+        refs = collect(md)
+        assert len(refs) == 1
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert links[0].start == len(prefix)
+
+    def test_link_text_with_escapes_and_nested_brackets(self) -> None:
+        md = b"[a" + b"x" * self.RUN + b"\\] [b] c](href)"
+        refs = collect(md)
+        assert len(refs) == 2
+
+        links = links_only(refs)
+        assert len(links) == 1
+        assert links[0].start == 0
+        assert links[0].end == len(md)
+        assert text(md, links[0].href) == b"href"
+
+        link_refs = link_refs_only(refs)
+        assert len(link_refs) == 1
+        assert text(md, link_refs[0].text) == b"b"
+
+
+# ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
 
