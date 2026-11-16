@@ -28,6 +28,7 @@ _BUILD_OPTIONS: dict[str, Any] = {"clean": False, "strict": False}
 def _project(
     root: Path,
     *,
+    blog_dir: str = "blog",
     per_page: int = 10,
     archive: bool = False,
     categories: bool = False,
@@ -36,13 +37,15 @@ def _project(
     entrypoint: bool = True,
 ) -> Path:
     docs = root / "docs"
-    posts = docs / "blog" / "posts"
+    posts = docs / blog_dir / "posts"
     overrides = root / "overrides"
     posts.mkdir(parents=True)
     overrides.mkdir()
     (docs / "index.md").write_text("# Home\n", encoding="utf-8")
     if entrypoint:
-        (docs / "blog" / "index.md").write_text("# Journal\n", encoding="utf-8")
+        (docs / blog_dir / "index.md").write_text(
+            "# Journal\n", encoding="utf-8"
+        )
     (overrides / "main.html").write_text(
         "{{ page.title }}|{{ page.url }}|{{ page.content }}",
         encoding="utf-8",
@@ -92,6 +95,7 @@ theme:
   custom_dir: overrides
 plugins:
   - material/blog:
+      blog_dir: {blog_dir}
       archive: {str(archive).lower()}
       categories: {str(categories).lower()}
       authors: {str(authors).lower()}
@@ -109,13 +113,14 @@ def _post(
     title: str,
     date: str,
     *,
+    blog_dir: str = "blog",
     body: str = "Body.",
     **meta: object,
 ) -> None:
     lines = ["---", f"date: {date}", f"title: {title}"]
     lines.extend(f"{key}: {json.dumps(value)}" for key, value in meta.items())
     lines.extend(["---", f"# {title}", "", body])
-    (root / "docs" / "blog" / "posts" / name).write_text(
+    (root / "docs" / blog_dir / "posts" / name).write_text(
         "\n".join(lines) + "\n",
         encoding="utf-8",
     )
@@ -166,19 +171,21 @@ def test_source_links_follow_published_post_routes(
         "second.md",
         "Second post",
         "2024-09-02",
-        body=f"[First]({link_name}#details)",
+        body=f"[First]({link_name}#details)\n\n<!-- more -->\n\nRemainder.",
     )
 
     zensical.build(str(config), {"clean": False, "strict": True})
 
     site = tmp_path / "site"
     home = (site / "index.html").read_text("utf-8")
+    blog = (site / "blog" / "index.html").read_text("utf-8")
     second = site.joinpath(
         "blog", "2024", "09", "02", "second-post", "index.html"
     ).read_text("utf-8")
     assert 'href="blog/2024/09/01/first-post/#details"' in home
+    assert '<a href="2024/09/01/first-post/#details">First</a>' in blog
     assert 'href="../../01/first-post/#details"' in second
-    assert "blog/posts/first/" not in home + second
+    assert "blog/posts/first/" not in home + blog + second
 
     _post(
         tmp_path,
@@ -190,12 +197,62 @@ def test_source_links_follow_published_post_routes(
     zensical.build(str(config), {"clean": False, "strict": True})
 
     home = (site / "index.html").read_text("utf-8")
+    blog = (site / "blog" / "index.html").read_text("utf-8")
     second = site.joinpath(
         "blog", "2024", "09", "02", "second-post", "index.html"
     ).read_text("utf-8")
     assert 'href="blog/2024/08/31/renamed-post/#details"' in home
+    assert '<a href="2024/08/31/renamed-post/#details">First</a>' in blog
     assert 'href="../../../08/31/renamed-post/#details"' in second
-    assert "first-post/" not in home + second
+    assert "first-post/" not in home + blog + second
+
+
+@pytest.mark.parametrize("blog_dir", [".", "blog"])
+def test_excerpt_source_links_follow_post_routes_in_each_view(
+    tmp_path: Path, blog_dir: str
+) -> None:
+    config = _project(
+        tmp_path, blog_dir=blog_dir, per_page=1, archive=True, categories=True
+    )
+    _post(
+        tmp_path,
+        "first.md",
+        "First post",
+        "2024-09-01",
+        blog_dir=blog_dir,
+        body="## Details\n\nBody.",
+        categories=["Links"],
+    )
+
+    # The linked paragraph is included in both the first and last excerpts.
+    for name, date in [("second", "2024-09-02"), ("third", "2024-08-01")]:
+        _post(
+            tmp_path,
+            f"{name}.md",
+            name.title(),
+            date,
+            blog_dir=blog_dir,
+            body="[First](first.md#details)\n\n<!-- more -->\n\nRemainder.",
+            categories=["Links"],
+        )
+
+    zensical.build(str(config), {"clean": True, "strict": True})
+
+    # The published post URL is made relative to each containing view.
+    site = tmp_path / "site" / blog_dir
+    for view, prefix in [
+        ("index.html", ""),
+        ("page/3/index.html", "../../"),
+        ("archive/2024/index.html", "../../"),
+        ("archive/2024/page/3/index.html", "../../../../"),
+        ("category/links/index.html", "../../"),
+        ("category/links/page/3/index.html", "../../../../"),
+    ]:
+        content = (site / view).read_text("utf-8")
+
+        link = f'<a href="{prefix}2024/09/01/first-post/#details">First</a>'
+        assert link in content
+        assert "posts/first/" not in content
 
 
 def test_post_anchor_aliases_survive_routing(tmp_path: Path) -> None:
@@ -405,6 +462,7 @@ def test_serve_reconciles_routes_views_and_pagination(tmp_path: Path) -> None:
                 and contains(second, "One:")
                 and contains(home, 'href="blog/2026/09/01/one/"')
                 and contains(two, 'href="../../01/one/"')
+                and contains(index, '<a href="2026/09/01/one/">One</a>')
             )
         )
         _post(
@@ -423,6 +481,9 @@ def test_serve_reconciles_routes_views_and_pagination(tmp_path: Path) -> None:
                 and contains(second, "Two:")
                 and contains(home, 'href="blog/2026/09/03/moved/"')
                 and contains(two, 'href="../../03/moved/"')
+                and contains(
+                    second, '<a href="../../2026/09/03/moved/">One</a>'
+                )
             )
         )
         (tmp_path / "docs" / "blog" / "posts" / "two.md").unlink()
