@@ -26,7 +26,6 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -38,6 +37,7 @@ import yaml
 from bs4 import BeautifulSoup
 
 import zensical
+from tests.integration.helpers import wait_for_serve
 
 
 def project(
@@ -480,19 +480,11 @@ def test_serve_discovers_added_renamed_and_removed_modules(
         )
 
         def wait_for(condition: Callable[[], bool]) -> None:
-            deadline = time.monotonic() + 15
-            while time.monotonic() < deadline:
-                try:
-                    if condition():
-                        return
-                except FileNotFoundError:
-                    # A rebuild can remove output between checking and reading.
-                    pass
-                if process.poll() is not None:
-                    break
-                time.sleep(0.02)
-            log.seek(0)
-            raise AssertionError(log.read())
+            wait_for_serve(
+                condition,
+                process,
+                lambda: (tmp_path / "serve.log").read_text(encoding="utf-8"),
+            )
 
         try:
             wait_for(output.is_file)

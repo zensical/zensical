@@ -29,7 +29,6 @@ import json
 import os
 import subprocess
 import sys
-import time
 from textwrap import dedent
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlsplit
@@ -39,6 +38,7 @@ import yaml
 from bs4 import BeautifulSoup
 
 import zensical
+from tests.integration.helpers import wait_for_serve
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -154,32 +154,23 @@ def test_serve_reloads_after_watched_theme_discovery(
         )
 
         def wait_for(text: str, reloads: int) -> None:
-            deadline = time.monotonic() + 10
-            while time.monotonic() < deadline:
-                log.seek(0)
-                messages = log.read()
-                try:
-                    content = output.read_text(encoding="utf-8")
-                except FileNotFoundError:
-                    content = ""
-                if (
-                    text in content
-                    and messages.count("Reloading...") == reloads
-                    and messages.count("No issues found") == reloads + 1
-                ):
-                    return
-                if process.poll() is not None:
-                    break
-                time.sleep(0.02)
+            def matches() -> bool:
+                messages = (tmp_path / "serve.log").read_text()
+                return (
+                    text in output.read_text(encoding="utf-8")
+                    and messages.count("Reloading...") >= reloads
+                )
 
-            log.seek(0)
-            pytest.fail(
-                f"serve did not complete the expected build: {log.read()}",
+            wait_for_serve(
+                matches,
+                process,
+                lambda: (tmp_path / "serve.log").read_text(encoding="utf-8"),
             )
 
         try:
             # The initial build must be completed without restarting serve.
             wait_for("First value: 2", reloads=0)
+            assert "Reloading..." not in (tmp_path / "serve.log").read_text()
 
             changes = {
                 "icon": (
@@ -288,20 +279,11 @@ def test_serve_rebuilds_after_symlinked_macro_dependency_changes(
         )
 
         def wait_for(text: str) -> None:
-            deadline = time.monotonic() + 10
-            while time.monotonic() < deadline:
-                try:
-                    content = output.read_text(encoding="utf-8")
-                except FileNotFoundError:
-                    content = ""
-                if text in content:
-                    return
-                if process.poll() is not None:
-                    break
-                time.sleep(0.02)
-
-            log.seek(0)
-            pytest.fail(f"serve did not rebuild: {log.read()}")
+            wait_for_serve(
+                lambda: text in output.read_text(encoding="utf-8"),
+                process,
+                lambda: (tmp_path / "serve.log").read_text(encoding="utf-8"),
+            )
 
         try:
             wait_for("First value: 2")

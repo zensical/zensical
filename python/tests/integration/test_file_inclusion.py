@@ -29,13 +29,13 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
 
 import zensical
+from tests.integration.helpers import wait_for_serve
 from zensical.config import ConfigurationError
 
 if TYPE_CHECKING:
@@ -360,17 +360,10 @@ def test_serve_includes_marked_drafts_and_updates_inclusion(
         )
 
         def wait_for(condition: Callable[[], bool]) -> None:
-            deadline = time.monotonic() + 20
-            while time.monotonic() < deadline:
-                if condition():
-                    return
-                if process.poll() is not None:
-                    break
-                time.sleep(0.02)
-            log.flush()
-            log.seek(0)
-            raise AssertionError(
-                f"serve did not update file inclusion: {log.read()}"
+            wait_for_serve(
+                condition,
+                process,
+                lambda: (tmp_path / "serve.log").read_text(encoding="utf-8"),
             )
 
         try:

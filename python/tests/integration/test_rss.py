@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 import zensical
+from tests.integration.helpers import wait_for_serve
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -393,26 +394,20 @@ plugins:
     json_feed = tmp_path / "site" / "feed_json_created.json"
 
     def wait_for(titles: list[str]) -> None:
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            if feed.is_file():
-                try:
-                    json_titles = [
-                        item["title"]
-                        for item in json.loads(
-                            json_feed.read_text(encoding="utf-8")
-                        )["items"]
-                    ]
-                    if _titles(feed) == titles and json_titles == titles:
-                        return
-                except (OSError, json.JSONDecodeError, ET.ParseError):
-                    pass
-            if process.poll() is not None:
-                break
-            time.sleep(0.02)
-        log.flush()
-        log.seek(0)
-        raise AssertionError(f"feed did not become {titles}: {log.read()}")
+        def matches() -> bool:
+            try:
+                content = json_feed.read_text(encoding="utf-8")
+                items = json.loads(content)["items"]
+                json_titles = [item["title"] for item in items]
+                return _titles(feed) == titles and json_titles == titles
+            except (FileNotFoundError, json.JSONDecodeError, ET.ParseError):
+                return False
+
+        wait_for_serve(
+            matches,
+            process,
+            lambda: (tmp_path / "serve.log").read_text(encoding="utf-8"),
+        )
 
     try:
         wait_for(["Post", "Home"])

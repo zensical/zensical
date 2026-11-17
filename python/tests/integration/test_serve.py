@@ -29,12 +29,13 @@ import re
 import socket
 import subprocess
 import sys
-import time
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, build_opener
 
 import pytest
+
+from tests.integration.helpers import wait_for_serve
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -107,24 +108,25 @@ printf '%s\n' "$1" > "$ZENSICAL_TEST_OPENED_URL"
         monkeypatch.setenv("ZENSICAL_TEST_OPENED_URL", str(opened_url))
         command.append("--open")
 
-    # Output is captured until the initial page has been written.
+    # Output is captured until the initial build and browser launch complete.
     log_path = tmp_path / "serve.log"
     with log_path.open("w", encoding="utf-8") as log:
         process = subprocess.Popen(  # noqa: S603
             command, cwd=tmp_path, stdout=log, stderr=subprocess.STDOUT
         )
         try:
-            deadline = time.monotonic() + 30
-            while time.monotonic() < deadline:
-                output = log_path.read_text(encoding="utf-8")
-                page_ready = (tmp_path / "site" / "index.html").is_file()
-                browser_ready = not open_browser or opened_url.is_file()
-                if page_ready and browser_ready:
-                    break
-                assert process.poll() is None, output
-                time.sleep(0.02)
-            else:
-                pytest.fail(f"Server did not finish building:\n{output}")
+            page = tmp_path / "site/index.html"
+            wait_for_serve(
+                lambda: (
+                    "Ephemeral port test" in page.read_text()
+                    and (
+                        not open_browser or bool(opened_url.read_text().strip())
+                    )
+                ),
+                process,
+                log_path.read_text,
+            )
+            output = log_path.read_text(encoding="utf-8")
 
             # Every resolved address must have a concrete, reachable URL.
             urls = re.findall(

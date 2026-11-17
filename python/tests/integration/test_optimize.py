@@ -30,13 +30,13 @@ import shutil
 import struct
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 import zensical
+from tests.integration.helpers import wait_for_serve
 
 _FIXTURES = Path(__file__).parents[1] / "fixtures" / "optimize"
 
@@ -323,14 +323,11 @@ def test_serve_copies_images_without_encoding(tmp_path: Path) -> None:
         )
     try:
         output = tmp_path / "site" / "images" / "photo.jpg"
-        deadline = time.monotonic() + 20
-        while time.monotonic() < deadline:
-            assert process.poll() is None, log.read_text()
-            if output.exists() and output.read_bytes() == b"invalid JPEG":
-                break
-            time.sleep(0.05)
-        else:
-            pytest.fail(log.read_text())
+        wait_for_serve(
+            lambda: output.read_bytes() == b"invalid JPEG",
+            process,
+            log.read_text,
+        )
     finally:
         process.terminate()
         process.wait(timeout=10)
