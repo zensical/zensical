@@ -885,10 +885,15 @@ mod tests {
 
     #[test]
     fn vertical_anchor_preserves_material_axis_precedence() {
-        assert_eq!(vertical("center top", 100.0, 30.0, 20.0), 4.0);
-        assert_eq!(vertical("center bottom", 100.0, 30.0, 20.0), 69.0);
-        assert_eq!(vertical("end center", 100.0, 30.0, 20.0), 37.0);
-        assert_eq!(vertical("start", 100.0, 30.0, 20.0), 4.0);
+        for (align, expected) in [
+            ("center top", 4.0),
+            ("center bottom", 69.0),
+            ("end center", 37.0),
+            ("start", 4.0),
+        ] {
+            let actual = vertical(align, 100.0, 30.0, 20.0);
+            assert!((actual - expected).abs() < 1e-10, "{align}: {actual}");
+        }
     }
 
     #[test]
