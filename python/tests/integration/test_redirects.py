@@ -28,12 +28,12 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
 
 import zensical
+from tests.integration.helpers import wait_for_serve
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -390,23 +390,11 @@ def test_serve_removes_and_restores_redirect_with_its_target(
     output = tmp_path / "site" / "old" / "index.html"
     target_output = tmp_path / "site" / "new" / "index.html"
 
-    def wait_for(condition: Callable[[], bool], timeout: float = 10.0) -> None:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if condition():
-                return
-            if process.poll() is not None:
-                log.flush()
-                log.seek(0)
-                raise AssertionError(
-                    f"serve exited with status {process.returncode}: "
-                    f"{log.read()}"
-                )
-            time.sleep(0.02)
-        log.flush()
-        log.seek(0)
-        raise AssertionError(
-            f"serve did not reconcile the redirect output: {log.read()}"
+    def wait_for(condition: Callable[[], bool]) -> None:
+        wait_for_serve(
+            condition,
+            process,
+            lambda: (tmp_path / "serve.log").read_text(encoding="utf-8"),
         )
 
     try:

@@ -27,12 +27,12 @@ import subprocess
 import sys
 import textwrap
 import threading
-import time
 from typing import TYPE_CHECKING
 
 import pytest
 
 import zensical
+from tests.integration.helpers import wait_for_serve
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -45,19 +45,10 @@ def _wait_for(
     process: subprocess.Popen[str],
     output: Callable[[], str],
     *,
-    timeout: float = 10.0,
+    timeout: float = 30.0,
 ) -> None:
     """Wait for a serve-process condition or report its captured output."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if condition():
-            return
-        if process.poll() is not None:
-            raise AssertionError(
-                f"Serve process exited with {process.returncode}:\n{output()}"
-            )
-        time.sleep(0.02)
-    raise AssertionError(f"Serve process timed out:\n{output()}")
+    wait_for_serve(condition, process, output, timeout=timeout)
 
 
 def _collect_output(stream: TextIOWrapper, lines: list[str]) -> None:

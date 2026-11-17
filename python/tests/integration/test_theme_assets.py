@@ -28,12 +28,12 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
 
 import zensical
+from tests.integration.helpers import wait_for_serve
 from zensical.config import get_builtin_theme_dir
 
 
@@ -141,24 +141,17 @@ def test_nested_theme_asset_changes_and_fallbacks_in_serve(
         )
 
         def wait_for_assets(expected: dict[str, bytes | None]) -> None:
-            # Wait until all published asset copies match the current inputs.
-            deadline = time.monotonic() + 15
-            while True:
-                matches = True
+            def matches() -> bool:
                 for name, content in expected.items():
                     output = site / name
                     if content is None:
-                        matches &= not output.exists()
-                    else:
-                        try:
-                            matches &= output.read_bytes() == content
-                        except FileNotFoundError:
-                            matches = False
-                if matches:
-                    return
-                assert process.poll() is None, log_path.read_text()
-                assert time.monotonic() < deadline, log_path.read_text()
-                time.sleep(0.02)
+                        if output.exists():
+                            return False
+                    elif output.read_bytes() != content:
+                        return False
+                return True
+
+            wait_for_serve(matches, process, log_path.read_text)
 
         try:
             # Both logical copies are published during discovery

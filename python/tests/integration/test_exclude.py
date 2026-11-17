@@ -28,13 +28,13 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
 import yaml
 
 import zensical
+from tests.integration.helpers import wait_for_serve
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -273,17 +273,10 @@ def test_serve_filters_new_files_and_removes_renamed_outputs(
         )
 
         def wait_for(condition: Callable[[], bool]) -> None:
-            deadline = time.monotonic() + 15
-            while time.monotonic() < deadline:
-                if condition():
-                    return
-                if process.poll() is not None:
-                    break
-                time.sleep(0.02)
-            log.flush()
-            log.seek(0)
-            raise AssertionError(
-                f"serve did not update excluded files: {log.read()}"
+            wait_for_serve(
+                condition,
+                process,
+                lambda: (tmp_path / "serve.log").read_text(encoding="utf-8"),
             )
 
         try:

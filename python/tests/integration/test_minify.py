@@ -29,12 +29,12 @@ import hashlib
 import re
 import subprocess
 import sys
-import time
 from typing import TYPE_CHECKING
 
 import pytest
 
 import zensical
+from tests.integration.helpers import wait_for_serve
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -388,23 +388,11 @@ def test_disabled_minify_reconciles_asset_handoffs_and_removals(
         )
     output = tmp_path / "site" / "assets" / "shared.txt"
 
-    def wait_for(condition: Callable[[], bool], timeout: float = 10.0) -> None:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if condition():
-                return
-            if process.poll() is not None:
-                raise AssertionError(
-                    f"serve exited with status {process.returncode}:\n"
-                    f"{log_path.read_text(encoding='utf-8')}"
-                )
-            # Access notifications from frequent reads must be ignored
-            # so pending source changes can be processed by the watcher.
-            time.sleep(0.001)
-        current = output.read_text() if output.is_file() else None
-        raise AssertionError(
-            f"serve did not reconcile the expected asset: {current!r}\n"
-            f"{log_path.read_text(encoding='utf-8')}"
+    def wait_for(condition: Callable[[], bool]) -> None:
+        wait_for_serve(
+            condition,
+            process,
+            lambda: (tmp_path / "serve.log").read_text(encoding="utf-8"),
         )
 
     try:
@@ -428,31 +416,27 @@ def test_serve_retracts_superseded_cache_safe_assets(tmp_path: Path) -> None:
     with config.open("a", encoding="utf-8") as stream:
         stream.write("dev_addr: 127.0.0.1:0\n")
 
-    process = subprocess.Popen(  # noqa: S603
-        [
-            sys.executable,
-            "-m",
-            "zensical",
-            "serve",
-            "--config-file",
-            str(config),
-        ],
-        cwd=tmp_path,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    with (tmp_path / "serve.log").open("w", encoding="utf-8") as log:
+        process = subprocess.Popen(  # noqa: S603
+            [
+                sys.executable,
+                "-m",
+                "zensical",
+                "serve",
+                "--config-file",
+                str(config),
+            ],
+            cwd=tmp_path,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
 
-    def wait_for(condition: Callable[[], bool], timeout: float = 10.0) -> None:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if condition():
-                return
-            if process.poll() is not None:
-                raise AssertionError(
-                    f"serve exited with status {process.returncode}"
-                )
-            time.sleep(0.02)
-        raise AssertionError("serve did not produce the expected asset state")
+    def wait_for(condition: Callable[[], bool]) -> None:
+        wait_for_serve(
+            condition,
+            process,
+            lambda: (tmp_path / "serve.log").read_text(encoding="utf-8"),
+        )
 
     try:
         outputs = tmp_path / "site" / "assets"

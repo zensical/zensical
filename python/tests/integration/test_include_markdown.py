@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import subprocess
 import sys
-import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -33,6 +32,7 @@ import yaml
 from markdown import Markdown
 
 import zensical
+from tests.integration.helpers import wait_for_serve
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -170,16 +170,10 @@ def test_serve_rebuilds_multiline_include_tags(
         )
 
         def wait_for_content(expected: str) -> None:
-            deadline = time.monotonic() + 10
-            while time.monotonic() < deadline and process.poll() is None:
-                if output.exists() and expected in output.read_text(
-                    encoding="utf-8"
-                ):
-                    return
-                time.sleep(0.02)
-            log.seek(0)
-            raise AssertionError(
-                f"Included content was not rebuilt: {log.read()}"
+            wait_for_serve(
+                lambda: expected in output.read_text(encoding="utf-8"),
+                process,
+                lambda: (tmp_path / "serve.log").read_text(encoding="utf-8"),
             )
 
         try:

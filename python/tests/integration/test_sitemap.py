@@ -10,12 +10,12 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
-import time
 from typing import TYPE_CHECKING
 
 import pytest
 
 import zensical
+from tests.integration.helpers import wait_for_serve
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -101,16 +101,11 @@ def test_sitemap_tracks_unlisted_posts_during_serve(tmp_path: Path) -> None:
             return False
 
     def wait_for(condition: Callable[[], bool]) -> None:
-        deadline = time.monotonic() + 15
-        while time.monotonic() < deadline:
-            if condition():
-                return
-            if process.poll() is not None:
-                break
-            time.sleep(0.02)
-        log.flush()
-        log.seek(0)
-        raise AssertionError(f"sitemap did not update: {log.read()}")
+        wait_for_serve(
+            condition,
+            process,
+            lambda: (tmp_path / "serve.log").read_text(encoding="utf-8"),
+        )
 
     try:
         wait_for(sitemap.is_file)
