@@ -24,11 +24,17 @@
 name: Docker
 
 on:
-  pull_request:
-    types:
-      - closed
-    branches:
-      - master
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+    secrets:
+      DOCKERHUB_TOKEN:
+        required: true
 
 permissions: {}
 defaults:
@@ -38,9 +44,6 @@ defaults:
 jobs:
   docker:
     name: Build and push
-    if: |
-      github.event.pull_request.merged == true &&
-      startsWith(github.event.pull_request.head.ref, 'release/')
     permissions:
       contents: read
     runs-on: ubuntu-26.04
@@ -54,21 +57,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Determine version
         id: version
         env:
-          RELEASE_BRANCH: ${{ github.event.pull_request.head.ref }}
+          VERSION: ${{ inputs.version }}
         run: |
-          version=${RELEASE_BRANCH#release/}
+          version=$VERSION
           package_version=$(python -c \
             'import tomllib; from pathlib import Path;
           print(tomllib.loads(Path("crates/zensical/Cargo.toml").read_text())
           ["package"]["version"])')
           if [ "${version#v}" != "$package_version" ]; then
-            echo "Release branch and Cargo.toml versions differ"
+            echo "Release and Cargo.toml versions differ"
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -104,7 +107,11 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
-          cache-from: type=gha,scope=docker
+          pull: true
+          no-cache-filters: runtime
+          cache-from: |
+            type=gha,scope=docker-amd64
+            type=gha,scope=docker-arm64
           load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -123,6 +130,23 @@ jobs:
           docker run --rm --user "$(id -u):$(id -g)" \
             --mount "type=bind,source=$project_dir,target=/docs" \
             "$IMAGE:$VERSION" build --strict
+          # pip strips setuptools to pkg_resources; full copies need VEX review.
+          docker run --rm --network none --entrypoint python \
+            "$IMAGE:$VERSION" -c 'from pathlib import Path
+          from sysconfig import get_path
+          assert not any(Path(get_path("purelib")).rglob("setuptools"))'
+
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.76.2
+
+      - name: Scan image
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          trivy image --scanners vuln --exit-code 1 \
+            --vex .github/docker.vex.json --show-suppressed "$IMAGE:$VERSION"
 
       - name: Sign in to Docker Hub
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
@@ -134,7 +158,11 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
-          cache-from: type=gha,scope=docker
+          pull: true
+          no-cache-filters: runtime
+          cache-from: |
+            type=gha,scope=docker-amd64
+            type=gha,scope=docker-arm64
           platforms: |
             linux/amd64
             linux/arm64
@@ -154,3 +182,13 @@ jobs:
         run: |
           docker pull "$IMAGE:$VERSION"
           docker image inspect "$IMAGE:$VERSION"
+
+      - name: Scan published images
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          for arch in amd64 arm64; do
+            trivy image --image-src remote --platform "linux/$arch" \
+              --scanners vuln --exit-code 1 \
+              --vex .github/docker.vex.json --show-suppressed "$IMAGE:$VERSION"
+          done

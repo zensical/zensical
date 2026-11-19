@@ -220,6 +220,18 @@ jobs:
           attestations: true
           skip-existing: true
 
+  docker:
+    name: Docker
+    needs: tag
+    permissions:
+      contents: read
+    uses: ./.github/workflows/docker.yml # zizmor: ignore[self-repository]
+    with:
+      ref: ${{ github.event.pull_request.merge_commit_sha }}
+      version: ${{ needs.tag.outputs.version }}
+    secrets:
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
   publish-release:
     name: Publish release
     needs:

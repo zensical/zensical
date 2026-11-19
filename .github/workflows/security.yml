@@ -112,3 +112,48 @@ jobs:
           uv tool run --from pip-audit==2.10.1 pip-audit \
             --disable-pip --require-hashes --strict \
             --requirement "$RUNNER_TEMP/requirements.txt"
+
+  image:
+    name: Published image (${{ matrix.arch }})
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-26.04
+          - arch: arm64
+            runner: ubuntu-26.04-arm
+    env:
+      IMAGE: docker.io/zensical/zensical:latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Check vendored package exceptions
+        run: |
+          # pip strips setuptools to pkg_resources; full copies need VEX review.
+          docker run --rm --pull always --network none --entrypoint python \
+            "$IMAGE" -c 'from pathlib import Path
+          from sysconfig import get_path
+          assert not any(Path(get_path("purelib")).rglob("setuptools"))'
+
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.76.2
+
+      - name: Scan published image
+        run: |
+          trivy image --image-src remote \
+            --platform "linux/${{ matrix.arch }}" \
+            --scanners vuln --exit-code 1 \
+            --vex .github/docker.vex.json --show-suppressed "$IMAGE"
