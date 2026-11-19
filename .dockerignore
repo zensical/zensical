@@ -22,3 +22,13 @@
 # IN THE SOFTWARE.
 
 python/zensical/templates
+
+# Keep local state and build outputs out of the build context.
+.cache
+.git
+.pytest_cache
+.ruff_cache
+.venv
+target
+dist
+**/__pycache__

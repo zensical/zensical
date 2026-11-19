@@ -23,78 +23,82 @@
 
 # -----------------------------------------------------------------------------
 
-FROM python:3.14-alpine3.23@sha256:dd4d2bd5b53d9b25a51da13addf2be586beebd5387e289e798e4083d94ca837a AS base
+FROM python:3.14-alpine3.23@sha256:f6a7dec95e6205059dccfcb07faca3ca38729ea35df01231caf1d127bacedec8 AS base
 
 FROM base AS build
-
-# Disable bytecode caching during build
 ENV PYTHONDONTWRITEBYTECODE=1
+ARG TARGETARCH
+WORKDIR /build
 
-# Install build dependencies
-RUN apk upgrade --update-cache -a
+# Cache build tools independently of application manifests and sources.
+RUN apk upgrade --no-cache -a
 RUN apk add --no-cache \
     curl \
     git \
     gcc \
     libffi-dev \
     musl-dev \
-    tini \
     uv
 
-# Install Rust toolchain
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+# Let rustup read the repository's pinned toolchain and requested components.
 ENV PATH="/root/.cargo/bin:${PATH}"
+COPY rust-toolchain.toml rust-toolchain.toml
+RUN curl https://sh.rustup.rs -sSf | \
+    sh -s -- -y --profile minimal --default-toolchain none \
+    && rustup show
 
-# Create a stub project, which will allow us to install dependencies and have
-# them properly cached while changes to sources won't invalidate the cache
-RUN mkdir -p python/zensical crates
-RUN cargo new --lib crates/zensical
-RUN cargo add pyo3 \
-    --manifest-path crates/zensical/Cargo.toml \
-    --features extension-module
-
-# Copy files to install dependencies - these will get installed into a virtual
-# environment, which is fine, since uv can later reuse the cached versions
-COPY pyproject.toml pyproject.toml
-COPY README.md README.md
-COPY uv.lock uv.lock
-
-# Install dependencies
+# Cache backend setup and requirements until Python dependency inputs change.
+COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --dev --no-install-project
+    uv sync --locked --only-group build \
+    && mkdir -p /dist \
+    && uv export --locked --no-dev --group docker --no-emit-project \
+        --output-file /dist/requirements.txt
 
-# Copy files to build project
-COPY LICENSE.md LICENSE.md
+# Copy application inputs after the independently cached dependency setup.
+COPY Cargo.toml Cargo.lock README.md LICENSE.md ./
 COPY crates crates
 COPY python python
-COPY Cargo.lock Cargo.lock
-COPY Cargo.toml Cargo.toml
 
-# Build wheel
+# Enforce the Cargo lockfile and retain incremental compilation artifacts.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
-    --mount=type=cache,target=target \
-    uv build --wheel --out-dir /dist
+    --mount=type=cache,id=zensical-target-${TARGETARCH},target=/build/target \
+    uv build --no-build-isolation --python .venv/bin/python \
+        --config-setting maturin.build-args=--locked \
+        --wheel --out-dir /dist
 
 # -----------------------------------------------------------------------------
 
-FROM base AS image
+FROM base AS runtime
 
-# Add libgcc to allow running Rust extensions
-RUN apk add --no-cache \
-    libgcc \
-    tini
+# Refresh this stage in CI so OS updates leave the compiler cache intact.
+RUN apk upgrade --no-cache -a \
+    && apk add --no-cache \
+        libgcc \
+        tini
 
-# Install project and runtime dependency extensions
-COPY --from=build /dist /dist
-RUN pip install --no-cache-dir /dist/*.whl mkdocstrings-python \
+# -----------------------------------------------------------------------------
+
+FROM runtime AS image
+
+# Cache runtime dependencies independently of changes to the application wheel.
+COPY --from=build /dist/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --require-hashes \
+        --requirement /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
+
+# Install the application using the already installed runtime dependencies.
+COPY --from=build /dist/*.whl /dist/
+RUN pip install --no-cache-dir --no-deps /dist/*.whl \
+    && pip check \
     && rm -rf /dist
 
-# Set working directory and expose preview server port
+# Set working directory and expose preview server port.
 WORKDIR /docs
 EXPOSE 8000
 
-# Start preview server by default
+# Start the preview server by default; callers can select build or another user.
 ENTRYPOINT ["/sbin/tini", "--", "zensical"]
 CMD ["serve", "--dev-addr=0.0.0.0:8000"]

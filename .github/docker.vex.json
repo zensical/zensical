@@ -1,0 +1,51 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "urn:uuid:87f61e97-9cc8-43fb-bd96-81737125eab9",
+  "author": "Zensical",
+  "timestamp": "2026-11-19T11:55:06Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": {
+        "@id": "https://github.com/advisories/GHSA-5rjg-fvgr-3xxf",
+        "name": "CVE-2025-47273"
+      },
+      "products": [
+        {
+          "@id": "pkg:pypi/setuptools@70.3.0"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "pip omits setuptools/package_index.py."
+    },
+    {
+      "vulnerability": {
+        "@id": "https://github.com/advisories/GHSA-h35f-9h28-mq5c",
+        "name": "CVE-2026-59890"
+      },
+      "products": [
+        {
+          "@id": "pkg:pypi/setuptools@70.3.0"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "pip omits setuptools/command/egg_info.py."
+    },
+    {
+      "vulnerability": {
+        "@id": "https://github.com/advisories/GHSA-xmj3-9gf7-h52w",
+        "name": "GHSA-xmj3-9gf7-h52w"
+      },
+      "products": [
+        {
+          "@id": "pkg:pypi/setuptools@70.3.0"
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "pip omits setuptools/wheel.py."
+    }
+  ]
+}
