@@ -51,7 +51,7 @@ use client::Client;
 pub struct ServeOptions {
     /// Address to bind to.
     pub dev_addr: Option<String>,
-    /// Browser origins permitted through co-located reverse proxies.
+    /// Browser origins permitted through reverse proxies.
     pub external_origins: Vec<String>,
     /// Whether to open the browser automatically.
     pub open: bool,
@@ -88,8 +88,6 @@ pub fn create_server(
             }
         }
     };
-    let external_origin = !options.external_origins.is_empty();
-
     // Create new thread to run the server
     let base = config.get_base_path();
     thread::spawn({
@@ -110,20 +108,7 @@ pub fn create_server(
             // Listener addresses are obtained after the server has been bound.
             let (mut server, addrs) =
                 match Server::new(stack, &addr).and_then(|server| {
-                    let addrs = server.local_addrs()?;
-                    if external_origin
-                        && (addrs.is_empty()
-                            || addrs
-                                .iter()
-                                .any(|addr| !addr.ip().is_loopback()))
-                    {
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::InvalidInput,
-                            "external origin requires a loopback listener",
-                        )
-                        .into());
-                    }
-                    Ok((server, addrs))
+                    server.local_addrs().map(|addrs| (server, addrs))
                 }) {
                     Ok(server) => server,
                     Err(err) => {

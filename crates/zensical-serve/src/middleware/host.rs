@@ -44,7 +44,7 @@ pub struct TrustedHosts {
     allow_any_ip: bool,
     /// Whether loopback aliases are accepted.
     allow_loopback: bool,
-    /// Explicit browser origins for local reverse proxies.
+    /// Explicit browser origins for reverse proxies.
     origins: Vec<Origin>,
 }
 
@@ -114,26 +114,16 @@ impl TrustedHosts {
         }
     }
 
-    /// Allows external browser origins through co-located reverse proxies.
+    /// Allows external browser origins through reverse proxies.
     ///
-    /// The loopback requirement keeps the preview server inaccessible directly
-    /// from other machines. TLS, if any, ends at the proxy; the preview server
-    /// continues to speak HTTP. A proxy in another network namespace needs a
-    /// separate network-level access boundary and is not supported here.
+    /// TLS, if any, ends at the proxy; the preview server continues to speak
+    /// HTTP. Allowed origins do not restrict client IP addresses or prove that
+    /// a request came through the proxy. Non-loopback listeners must be kept
+    /// private through network-level access controls.
     pub fn with_external_origins(
         address: &str, origins: &[String],
     ) -> Result<Self, &'static str> {
         let mut trusted = Self::new(address);
-        let loopback = matches!(
-            &trusted.configured,
-            Some(Host::Ip(address)) if address.is_loopback()
-        ) || matches!(
-            &trusted.configured,
-            Some(Host::Name(name)) if name == "localhost"
-        );
-        if !loopback {
-            return Err("external origin requires a loopback bind address");
-        }
         for origin in origins {
             trusted.origins.push(parse_origin(origin).ok_or(
                 "external origin must be an HTTP or HTTPS origin without a path",
@@ -520,10 +510,10 @@ mod tests {
     }
 
     #[test]
-    fn external_origin_requires_loopback_and_an_exact_origin() {
+    fn external_origin_accepts_network_binds_and_requires_an_exact_origin() {
         for address in ["0.0.0.0:8000", "192.0.2.1:8000"] {
             assert!(
-                with_origins(address, &["https://docs.example.test"]).is_err()
+                with_origins(address, &["https://docs.example.test"]).is_ok()
             );
         }
         for origin in [

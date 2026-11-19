@@ -29,6 +29,7 @@ import re
 import socket
 import subprocess
 import sys
+from http.client import HTTPConnection
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, build_opener
@@ -144,6 +145,91 @@ printf '%s\n' "$1" > "$ZENSICAL_TEST_OPENED_URL"
                 with opener.open(url, timeout=5) as response:
                     assert response.status == 200
                     assert b"Ephemeral port test" in response.read()
+        finally:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+
+
+@pytest.mark.parametrize("bind", ["127.0.0.1", "0.0.0.0"])  # noqa: S104
+def test_serve_accepts_external_origin_with_path_prefix(
+    tmp_path: Path, bind: str
+) -> None:
+    """Serve a prefixed preview through an HTTPS proxy's browser origin."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text("# Preview page\n", encoding="utf-8")
+    config = tmp_path / "zensical.toml"
+    config.write_text(
+        "[project]\n"
+        'site_name = "Test"\n'
+        'site_url = "https://docs.example.test/preview/"\n'
+        f'dev_addr = "{bind}:0"\n',
+        encoding="utf-8",
+    )
+
+    command = [
+        sys.executable,
+        "-m",
+        "zensical",
+        "serve",
+        "--config-file",
+        str(config),
+        "--external-origin",
+        "https://docs.example.test",
+    ]
+    log_path = tmp_path / "serve.log"
+    page = tmp_path / "site/index.html"
+    with log_path.open("w", encoding="utf-8") as log:
+        process = subprocess.Popen(  # noqa: S603
+            command, cwd=tmp_path, stdout=log, stderr=subprocess.STDOUT
+        )
+        try:
+            wait_for_serve(
+                page.exists,
+                process,
+                log_path.read_text,
+            )
+            output = log_path.read_text(encoding="utf-8")
+            match = re.search(
+                rf"^Serving .+ on http://{re.escape(bind)}:(\d+)$",
+                output,
+                re.MULTILINE,
+            )
+            assert match, output
+            port = int(match.group(1))
+
+            def request(host: str, origin: str | None = None) -> int:
+                connection = HTTPConnection("127.0.0.1", port, timeout=5)
+                headers = {"Host": host}
+                if origin is not None:
+                    headers.update(
+                        {
+                            "Connection": "Upgrade",
+                            "Upgrade": "websocket",
+                            "Origin": origin,
+                            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+                            "Sec-WebSocket-Version": "13",
+                        }
+                    )
+                try:
+                    connection.request("GET", "/preview/", headers=headers)
+                    response = connection.getresponse()
+                    return response.status
+                finally:
+                    connection.close()
+
+            assert request("docs.example.test") == 200
+            assert (
+                request("docs.example.test", "https://docs.example.test") == 101
+            )
+            assert (
+                request("docs.example.test", "http://docs.example.test") == 400
+            )
+            assert request("other.example.test") == 400
         finally:
             process.terminate()
             try:

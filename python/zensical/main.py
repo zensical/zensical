@@ -100,7 +100,7 @@ def execute_build(config_file: str | None, **kwargs: Any) -> None:
     "external_origins",
     metavar="<HTTP(S)://HOST[:PORT]>",
     multiple=True,
-    help="Browser origin served by a local reverse proxy (repeatable).",
+    help="Allow preview access via this proxy URL.",
 )
 @click.option(
     "-o",
