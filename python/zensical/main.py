@@ -96,6 +96,13 @@ def execute_build(config_file: str | None, **kwargs: Any) -> None:
     help="IP address and port (default: localhost:8000).",
 )
 @click.option(
+    "--external-origin",
+    "external_origins",
+    metavar="<HTTP(S)://HOST[:PORT]>",
+    multiple=True,
+    help="Browser origin served by a local reverse proxy (repeatable).",
+)
+@click.option(
     "-o",
     "--open",
     default=False,

@@ -51,6 +51,8 @@ use client::Client;
 pub struct ServeOptions {
     /// Address to bind to.
     pub dev_addr: Option<String>,
+    /// Browser origins permitted through co-located reverse proxies.
+    pub external_origins: Vec<String>,
     /// Whether to open the browser automatically.
     pub open: bool,
 }
@@ -72,6 +74,21 @@ pub fn create_server(
     let addr = options
         .dev_addr
         .unwrap_or_else(|| config.project.dev_addr.clone());
+    let trusted_hosts = if options.external_origins.is_empty() {
+        middleware::TrustedHosts::new(&addr)
+    } else {
+        match middleware::TrustedHosts::with_external_origins(
+            &addr,
+            &options.external_origins,
+        ) {
+            Ok(trusted) => trusted,
+            Err(error) => {
+                eprintln!("Error: {error}");
+                std::process::exit(1);
+            }
+        }
+    };
+    let external_origin = !options.external_origins.is_empty();
 
     // Create new thread to run the server
     let base = config.get_base_path();
@@ -81,7 +98,7 @@ pub fn create_server(
             // Ensure site directory exists
             fs::create_dir_all(&site_dir).unwrap();
             let stack = Stack::new()
-                .with(middleware::TrustedHosts::new(&addr))
+                .with(trusted_hosts)
                 .with(Client::default())
                 .with(middleware::WebSocketHandshake::default())
                 .with(middleware::NormalizePath::default())
@@ -94,6 +111,18 @@ pub fn create_server(
             let (mut server, addrs) =
                 match Server::new(stack, &addr).and_then(|server| {
                     let addrs = server.local_addrs()?;
+                    if external_origin
+                        && (addrs.is_empty()
+                            || addrs
+                                .iter()
+                                .any(|addr| !addr.ip().is_loopback()))
+                    {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "external origin requires a loopback listener",
+                        )
+                        .into());
+                    }
                     Ok((server, addrs))
                 }) {
                     Ok(server) => server,
