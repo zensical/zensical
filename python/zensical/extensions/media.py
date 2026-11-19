@@ -185,10 +185,11 @@ class MediaTreeprocessor(Treeprocessor):
             for index, img in enumerate(list(parent)):
                 if img.tag != "img":
                     continue
-                # Markdown keeps entities in image attributes until its
-                # serialization step; HTMLParser has already decoded them.
+                # Markdown keeps entities until serialization and represents
+                # valueless attributes as None; HTMLParser already decodes them.
                 attrs = {
-                    name: unescape(value) for name, value in img.attrib.items()
+                    name: unescape(value or "")
+                    for name, value in img.attrib.items()
                 }
                 replacement = _replace_image(attrs, self.config)
                 if replacement is not None:

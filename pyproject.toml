@@ -61,7 +61,7 @@ dependencies = [
     "pymdown-extensions>=11.0",
     "pyyaml>=6.0.2",
     "tomli>=2.4.0",
-    "zensical-ui==0.0.42",
+    "zensical-ui==0.0.43",
 ]
 
 [project.urls]
@@ -75,10 +75,11 @@ Issues = "https://github.com/zensical/zensical/issues"
 zensical = "zensical.main:cli"
 
 [dependency-groups]
+build = ["maturin>=1.10.2"]
 dev = [
+    { include-group = "build" },
     "beautifulsoup4>=4.14.3",
     "lxml>=6.1.0",
-    "maturin>=1.10.2",
     "mkdocstrings[python]>=1.0.6",
     "pandas>=2.3.3",
     "pytest>=9.0.3",
@@ -87,6 +88,10 @@ dev = [
     "ty>=0.0.32",
     "types-markdown>=3.10.2",
     "types-pyyaml>=6.0.12",
+]
+docker = [
+    "mkdocstrings-python>=2.0.11",
+    "pip>=26.3",
 ]
 
 [tool.uv.dependency-groups]

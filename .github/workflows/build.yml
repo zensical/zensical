@@ -451,14 +451,21 @@ jobs:
           if-no-files-found: error
 
   docker:
-    name: Docker image
+    name: Docker image (${{ matrix.arch }})
     permissions:
       contents: read
-    runs-on: ubuntu-26.04
-    timeout-minutes: 60
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-26.04
+          - arch: arm64
+            runner: ubuntu-26.04-arm
     env:
-      IMAGE: ${{ github.event.repository.full_name }}
-      DOCKER_BUILDKIT: 1
+      IMAGE: zensical-docker-check:${{ matrix.arch }}
       DOCKER_BUILD_SUMMARY: false
     steps:
       - name: Checkout repository
@@ -474,24 +481,46 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
+          platforms: linux/${{ matrix.arch }}
+          pull: true
+          no-cache-filters: runtime
           load: true
-          tags: ${{ env.IMAGE }}:latest
-          cache-from: type=gha,scope=docker
+          tags: ${{ env.IMAGE }}
+          cache-from: type=gha,scope=docker-${{ matrix.arch }}
           cache-to: >-
             ${{ github.event_name == 'push' &&
                 github.ref == 'refs/heads/master' &&
-                'type=gha,scope=docker,mode=max,ignore-error=true' || '' }}
+                format(
+                  'type=gha,scope=docker-{0},mode=max,ignore-error=true',
+                  matrix.arch) || '' }}
 
       - name: Check image
         run: |
           project_dir=$(mktemp -d "$RUNNER_TEMP/zensical-docker.XXXXXX")
           trap 'rm -rf "$project_dir"' EXIT
-          docker run --rm --user "$(id -u):$(id -g)" \
+          docker run --rm --network none --user "$(id -u):$(id -g)" \
             --mount "type=bind,source=$project_dir,target=/docs" \
-            "$IMAGE:latest" new .
-          docker run --rm --user "$(id -u):$(id -g)" \
+            "$IMAGE" new .
+          docker run --rm --network none --user "$(id -u):$(id -g)" \
             --mount "type=bind,source=$project_dir,target=/docs" \
-            "$IMAGE:latest" build --strict
+            "$IMAGE" build --strict
+          docker run --rm --network none --entrypoint python \
+            "$IMAGE" -m pip check
+          # pip strips setuptools to pkg_resources; full copies need VEX review.
+          docker run --rm --network none --entrypoint python \
+            "$IMAGE" -c 'from pathlib import Path
+          from sysconfig import get_path
+          assert not any(Path(get_path("purelib")).rglob("setuptools"))'
+
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.76.2
+
+      - name: Scan image
+        run: |
+          trivy image --scanners vuln --exit-code 1 \
+            --vex .github/docker.vex.json --show-suppressed "$IMAGE"
 
   release:
     name: Release
