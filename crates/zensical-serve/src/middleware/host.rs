@@ -164,8 +164,8 @@ impl Middleware for TrustedHosts {
         };
 
         let local = self.trusts(&host.host);
-        let external = !local
-            && self.origins.iter().any(|origin| origin.matches_host(&host));
+        let external =
+            self.origins.iter().any(|origin| origin.matches_host(&host));
         if !local && !external {
             return Response::from_status(Status::BadRequest);
         }
@@ -557,6 +557,40 @@ mod tests {
         assert_eq!(
             middleware.process(crossed, &NotFound).status,
             Status::BadRequest
+        );
+    }
+
+    #[test]
+    fn external_origin_takes_precedence_over_a_local_host_alias() {
+        let middleware =
+            with_origins("127.0.0.1:8000", &["https://localhost:8443"])
+                .unwrap();
+
+        let proxied = Request::new()
+            .header(Header::Host, "localhost:8443")
+            .header(Header::Upgrade, "websocket")
+            .header(Header::Origin, "https://localhost:8443");
+        assert_eq!(
+            middleware.process(proxied, &NotFound).status,
+            Status::NotFound
+        );
+
+        let wrong_scheme = Request::new()
+            .header(Header::Host, "localhost:8443")
+            .header(Header::Upgrade, "websocket")
+            .header(Header::Origin, "http://localhost:8443");
+        assert_eq!(
+            middleware.process(wrong_scheme, &NotFound).status,
+            Status::BadRequest
+        );
+
+        let local = Request::new()
+            .header(Header::Host, "localhost:8000")
+            .header(Header::Upgrade, "websocket")
+            .header(Header::Origin, "http://localhost:8000");
+        assert_eq!(
+            middleware.process(local, &NotFound).status,
+            Status::NotFound
         );
     }
 }
