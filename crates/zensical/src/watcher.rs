@@ -178,6 +178,13 @@ impl Watcher {
             .iter()
             .map(|(path, _)| canonical_or_clone(path))
             .collect::<BTreeSet<_>>();
+
+        // Dependencies beneath docs are covered by its recursive watch. Separate
+        // registrations are avoided because the FSEvents stream is restarted on
+        // every watch and unwatch. The full dependency set is retained for restarts.
+        let dependency_paths =
+            dependency_watch_paths(&watched_files, &docs_path);
+
         // Initialize file agent - we use a debounce interval of 20ms, which
         // should be sufficient to correctly determine rename events
         let manager = Manager::new()
@@ -394,7 +401,7 @@ impl Watcher {
         for root in &config.api.roots {
             agent.watch(root)?;
         }
-        for (path, _) in &config.project.watched_files {
+        for path in dependency_paths {
             agent.watch(path)?;
         }
 
@@ -493,6 +500,17 @@ fn canonical_or_clone(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
+/// Dependencies outside the recursive documentation watch are returned.
+fn dependency_watch_paths(
+    watched_files: &BTreeSet<PathBuf>, docs_path: &Path,
+) -> Vec<PathBuf> {
+    watched_files
+        .iter()
+        .filter(|path| !path.starts_with(docs_path))
+        .cloned()
+        .collect()
+}
+
 /// A restart is requested when a previously discovered input is seen again.
 fn should_restart(
     event: &Event, event_path: &Path, config_path: &Path,
@@ -519,8 +537,84 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        should_restart, to_id, to_ids, Event, Kind, Manager, SourceMount,
+        canonical_or_clone, dependency_watch_paths, should_restart, to_id,
+        to_ids, Event, Kind, Manager, SourceMount,
     };
+
+    #[test]
+    fn documentation_dependencies_only_need_the_recursive_watch() {
+        let directory = tempdir().unwrap();
+        let docs = directory.path().join("docs");
+        let include = docs.join(".includes/fragment.j2");
+        let external = directory.path().join("docs-extra/data.yml");
+        for file in [&include, &external] {
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, "content").unwrap();
+        }
+        let docs = canonical_or_clone(&docs);
+        let include = canonical_or_clone(&include);
+        let external = canonical_or_clone(&external);
+        let watched_files = BTreeSet::from([include.clone(), external.clone()]);
+
+        // Only the external dependency is registered before the docs root.
+        let paths = dependency_watch_paths(&watched_files, &docs);
+        assert_eq!(paths, vec![external]);
+
+        let mut manager = Manager::new().include_hidden(docs.clone());
+        let events = manager
+            .handle(paths.into_iter().chain([docs]))
+            .into_iter()
+            .map(|event| event.unwrap())
+            .collect::<Vec<_>>();
+        let mut seen = BTreeSet::new();
+        let config = directory.path().join("zensical.toml");
+
+        // Hidden includes are discovered and retained as restart dependencies.
+        assert!(events.iter().any(|event| event.path().as_ref() == &include));
+        for event in events {
+            assert!(!should_restart(
+                &event,
+                &event.path(),
+                &config,
+                &[],
+                &watched_files,
+                &mut seen,
+            ));
+        }
+        let edit = Event::Modify {
+            kind: Kind::File,
+            path: Arc::new(include.clone()),
+        };
+        assert!(should_restart(
+            &edit,
+            &include,
+            &config,
+            &[],
+            &watched_files,
+            &mut seen,
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_targets_of_documentation_symlinks_are_still_watched() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().unwrap();
+        let docs = directory.path().join("docs");
+        fs::create_dir(&docs).unwrap();
+        let external = directory.path().join("fragment.j2");
+        fs::write(&external, "content").unwrap();
+        let alias = docs.join("fragment.j2");
+        symlink(&external, &alias).unwrap();
+
+        // Dependencies are canonicalized before registration and classification.
+        let docs = canonical_or_clone(&docs);
+        let watched_files = BTreeSet::from([canonical_or_clone(&alias)]);
+        let paths = dependency_watch_paths(&watched_files, &docs);
+
+        assert_eq!(paths, vec![canonical_or_clone(&external)]);
+    }
 
     #[test]
     fn restart_inputs_are_discovered_once_and_restarted_after_edits() {
