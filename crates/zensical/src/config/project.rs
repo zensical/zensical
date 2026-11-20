@@ -73,6 +73,8 @@ pub struct Project {
     pub use_directory_urls: bool,
     /// Whether to abort the build on any warnings.
     pub strict: bool,
+    /// Whether theme cache keys use file contents instead of modification times.
+    pub ignore_theme_mtimes: bool,
     /// Development server address.
     pub dev_addr: String,
     /// Copyright notice.

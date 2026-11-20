@@ -55,6 +55,9 @@ pub struct ServeOptions {
     pub external_origins: Vec<String>,
     /// Whether to open the browser automatically.
     pub open: bool,
+    /// Whether to use theme file contents instead of modification times for caching.
+    #[pyo3(default)]
+    pub ignore_theme_mtimes: Option<bool>,
 }
 
 // ----------------------------------------------------------------------------

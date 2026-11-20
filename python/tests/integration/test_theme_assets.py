@@ -31,10 +31,104 @@ import sys
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 
 import zensical
 from tests.integration.helpers import wait_for_serve
 from zensical.config import get_builtin_theme_dir
+from zensical.main import cli
+
+
+@pytest.mark.parametrize("option", ["config", "cli", "cli-disable"])
+@pytest.mark.parametrize("extension", ["toml", "yml"])
+def test_ignore_theme_mtimes_reuses_cache(
+    tmp_path: Path, option: str, extension: str
+) -> None:
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    source = docs / "index.md"
+    source.write_text("# Theme cache\n", encoding="utf-8")
+    theme = tmp_path / "theme"
+    theme.mkdir()
+    template = theme / "main.html"
+    template.write_text("First: {{ page.content }}", encoding="utf-8")
+    if extension == "toml":
+        config = tmp_path / "zensical.toml"
+        setting = "false" if option == "cli" else "true"
+        config.write_text(
+            '[project]\nsite_name = "Cache"\n'
+            f"ignore_theme_mtimes = {setting}\n"
+            '[project.theme]\ncustom_dir = "theme"\n',
+            encoding="utf-8",
+        )
+    else:
+        config = tmp_path / "mkdocs.yml"
+        setting = "false" if option == "cli" else "true"
+        config.write_text(
+            f"site_name: Cache\nignore_theme_mtimes: {setting}\n"
+            "theme:\n  custom_dir: theme\n",
+            encoding="utf-8",
+        )
+    args = ["build", "--strict", "-f", str(config)]
+    if option == "cli":
+        args.append("--ignore-theme-mtimes")
+    elif option == "cli-disable":
+        args.append("--no-ignore-theme-mtimes")
+    runner = CliRunner()
+    result = runner.invoke(cli, args)
+    assert result.exit_code == 0, result.output
+    output = tmp_path / "site/index.html"
+    assert "First:" in output.read_text(encoding="utf-8")
+
+    # Timestamp-only changes should preserve artifacts in content hash mode.
+    cached = [
+        path
+        for path in (tmp_path / ".cache").iterdir()
+        if path.name.isdecimal()
+    ]
+    assert cached
+    timestamp = 1_700_000_000_000_000_000
+    for path in cached:
+        os.utime(path, ns=(timestamp, timestamp))
+    template_timestamp = template.stat().st_mtime_ns + 1_000_000_000
+    os.utime(template, ns=(template_timestamp, template_timestamp))
+
+    result = runner.invoke(cli, args)
+    assert result.exit_code == 0, result.output
+    assert all(path.stat().st_mtime_ns == timestamp for path in cached) is (
+        option != "cli-disable"
+    )
+    assert "First:" in output.read_text(encoding="utf-8")
+
+    # Content hash mode also detects edits that preserve the mtime.
+    template.write_text("Later: {{ page.content }}", encoding="utf-8")
+    if option == "cli-disable":
+        template_timestamp += 1_000_000_000
+    os.utime(template, ns=(template_timestamp, template_timestamp))
+    result = runner.invoke(cli, args)
+    assert result.exit_code == 0, result.output
+    assert "Later:" in output.read_text(encoding="utf-8")
+
+    source.write_text("# Updated documentation\n", encoding="utf-8")
+    result = runner.invoke(cli, args)
+    assert result.exit_code == 0, result.output
+    assert "Updated documentation" in output.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "flag", ["--ignore-theme-mtimes", "--no-ignore-theme-mtimes"]
+)
+def test_theme_mtime_cli_override_does_not_bypass_config_validation(
+    tmp_path: Path, flag: str
+) -> None:
+    (tmp_path / "docs").mkdir()
+    config = tmp_path / "mkdocs.yml"
+    config.write_text('site_name: Cache\nignore_theme_mtimes: "true"\n')
+
+    result = CliRunner().invoke(cli, ["build", "-f", str(config), flag])
+
+    assert result.exit_code != 0
+    assert "'ignore_theme_mtimes' must be a bool" in result.output
 
 
 def test_same_second_template_edits_invalidate_cache(tmp_path: Path) -> None:
@@ -115,8 +209,10 @@ def test_theme_assets_are_published_at_both_logical_paths(
     assert (site / "assets/probe.css").read_text() == "/* docs override */"
 
 
+@pytest.mark.parametrize("ignore_theme_mtimes", [False, True])
 def test_nested_theme_asset_changes_and_fallbacks_in_serve(
     tmp_path: Path,
+    ignore_theme_mtimes: bool,
 ) -> None:
     docs = tmp_path / "docs"
     theme = docs / "overrides"
@@ -132,10 +228,13 @@ def test_nested_theme_asset_changes_and_fallbacks_in_serve(
     )
     site = tmp_path / "site"
     log_path = tmp_path / "serve.log"
+    args = [sys.executable, "-m", "zensical", "serve", "-f", str(config)]
+    if ignore_theme_mtimes:
+        args.append("--ignore-theme-mtimes")
 
     with log_path.open("w", encoding="utf-8") as log:
         process = subprocess.Popen(  # noqa: S603
-            [sys.executable, "-m", "zensical", "serve", "-f", str(config)],
+            args,
             stdout=log,
             stderr=subprocess.STDOUT,
         )

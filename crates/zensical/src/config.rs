@@ -270,6 +270,31 @@ impl Config {
         })
     }
 
+    /// Applies the effective theme cache mode after configuration parsing.
+    pub fn set_ignore_theme_mtimes(&mut self, ignore: bool) -> Result<()> {
+        if self.project.ignore_theme_mtimes == ignore {
+            return Ok(());
+        }
+
+        let template_hash = Python::attach(|py| {
+            let module = py.import("zensical.config")?;
+            let config = module.call_method0("get_config")?;
+            config.set_item("ignore_theme_mtimes", ignore)?;
+            let files = module.call_method1("_list_templates", (&config,))?;
+            let hash = module.call_method1("_hash", (files,))?;
+            config.set_item("template_hash", &hash)?;
+            hash.extract::<u64>()
+        })?;
+
+        let project = Arc::make_mut(&mut self.project);
+        project.ignore_theme_mtimes = ignore;
+        project.template_hash = template_hash;
+        let mut hasher = DefaultHasher::default();
+        project.hash(&mut hasher);
+        self.hash = hasher.finish();
+        Ok(())
+    }
+
     /// Returns whether a resolved Python Markdown extension is active.
     pub fn has_markdown_extension(&self, name: &str) -> bool {
         self.markdown_extensions

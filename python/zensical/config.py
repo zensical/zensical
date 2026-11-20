@@ -563,7 +563,7 @@ def _validate_core_settings(config: dict) -> list[str]:
         "extra_templates",
         "nav",
     }
-    bool_settings = {"strict", "use_directory_urls"}
+    bool_settings = {"strict", "use_directory_urls", "ignore_theme_mtimes"}
     known = (
         string_settings
         | list_settings
@@ -672,6 +672,7 @@ def _apply_defaults(config: dict, path: str) -> dict:
     set_default(config, "site_author", None, str)
     set_default(config, "use_directory_urls", True, bool)
     set_default(config, "strict", False, bool)
+    set_default(config, "ignore_theme_mtimes", False, bool)
     set_default(config, "dev_addr", "localhost:8000", str)
     set_default(config, "copyright", None, str)
     set_default(config, "watch", [], list)
@@ -1606,20 +1607,24 @@ def _list_watch_files(config: dict, config_file: str) -> set[tuple[str, int]]:
 
 def _list_templates(config: dict) -> list[tuple[str, int]]:
     """List all template files in the theme directories."""
-    # Collect file paths and their mtimes
-    files_with_mtime = []
+    # Content hashes allow cache reuse when installed themes get new mtimes.
+    ignore_mtimes = config["ignore_theme_mtimes"]
+    files_with_hash = []
     for directory in config["theme_dirs"]:
         for root, _, files in os.walk(directory):
             if ".icons" in root:
                 continue
             for file in files:
                 file_path = os.path.join(root, file)
-                # Subsecond edits must be reflected in the template cache key.
-                mtime = os.stat(file_path).st_mtime_ns
-                files_with_mtime.append((file_path, mtime))
+                if ignore_mtimes:
+                    fingerprint = _hash(Path(file_path).read_bytes())
+                else:
+                    # Subsecond edits must affect the template cache key.
+                    fingerprint = os.stat(file_path).st_mtime_ns
+                files_with_hash.append((file_path, fingerprint))
 
     # Sort by file path for deterministic order
-    return sorted(files_with_mtime)
+    return sorted(files_with_hash)
 
 
 # -----------------------------------------------------------------------------

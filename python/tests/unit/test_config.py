@@ -111,6 +111,76 @@ def _reset_config() -> Generator[None, None, None]:
     cfg_module._CONFIG = None
 
 
+@pytest.mark.parametrize("extension", ["toml", "yml"])
+@pytest.mark.parametrize("configured", [None, False, True])
+def test_ignore_theme_mtimes_configuration(
+    tmp_path: Path,
+    extension: str,
+    configured: bool | None,
+) -> None:
+    settings = {} if configured is None else {"ignore_theme_mtimes": configured}
+    if extension == "toml":
+        path = _write_toml_config(tmp_path, **settings)
+    else:
+        path = _write_mkdocs_config(tmp_path, _minimal_yaml(**settings))
+
+    config = parse_config(str(path))
+
+    assert config["ignore_theme_mtimes"] is bool(configured)
+    assert config["config_warnings"] == []
+    assert cfg_module.get_config() is config
+
+
+@pytest.mark.parametrize("ignore_mtimes", [False, True])
+@pytest.mark.parametrize("directory", ["installed", "overrides"])
+@pytest.mark.parametrize("name", ["main.html", "assets/probe.bin"])
+def test_theme_cache_fingerprints(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    ignore_mtimes: bool,
+    directory: str,
+    name: str,
+) -> None:
+    for theme_dir in ("installed", "overrides"):
+        (tmp_path / theme_dir).mkdir()
+    monkeypatch.setattr(
+        cfg_module, "get_builtin_theme_dir", lambda: str(tmp_path / "installed")
+    )
+    path = _write_mkdocs_config(
+        tmp_path,
+        _minimal_yaml(
+            ignore_theme_mtimes=ignore_mtimes,
+            theme={"custom_dir": "overrides"},
+        ),
+    )
+    template = tmp_path / directory / name
+    template.parent.mkdir(parents=True, exist_ok=True)
+    template.write_bytes(b"first\x00")
+    timestamp = 1_700_000_000_100_000_000
+    os.utime(template, ns=(timestamp, timestamp))
+    initial = parse_config(str(path))["template_hash"]
+
+    # A timestamp-only change is ignored only when opted in.
+    timestamp += 100_000_000
+    os.utime(template, ns=(timestamp, timestamp))
+    touched = parse_config(str(path))["template_hash"]
+    assert (initial == touched) is ignore_mtimes
+
+    # Content changes are detected even when timestamps are preserved.
+    template.write_bytes(b"later\x00")
+    os.utime(template, ns=(timestamp, timestamp))
+    edited = parse_config(str(path))["template_hash"]
+    assert (touched != edited) is ignore_mtimes
+
+    added = template.with_name("added.html")
+    added.write_text("new template")
+    assert parse_config(str(path))["template_hash"] != edited
+    added.unlink()
+    assert parse_config(str(path))["template_hash"] == edited
+    template.unlink()
+    assert parse_config(str(path))["template_hash"] != edited
+
+
 @pytest.mark.parametrize(
     "setting", [None, "info", "warn", "ignore", "relative_to_docs"]
 )
@@ -1485,6 +1555,8 @@ def test_inheritance_replaces_lists(
     ("setting", "value"),
     [
         ("strict", "false"),
+        ("ignore_theme_mtimes", "true"),
+        ("ignore_theme_mtimes", 1),
         ("use_directory_urls", "false"),
         ("strict", 1),
         ("site_name", 42),

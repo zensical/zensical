@@ -88,6 +88,9 @@ pub struct BuildOptions {
     pub clean: Option<bool>,
     /// Whether to enable strict mode and abort on warnings.
     pub strict: Option<bool>,
+    /// Whether to use theme file contents instead of modification times for caching.
+    #[pyo3(default)]
+    pub ignore_theme_mtimes: Option<bool>,
 }
 
 // ----------------------------------------------------------------------------
@@ -184,6 +187,14 @@ fn run(config_file: &PathBuf, mode: Mode) -> PyResult<bool> {
         }
         Mode::Serve(_, _) => false,
     };
+
+    // Determine whether theme cache keys should ignore modification times.
+    let ignore_theme_mtimes = match &mode {
+        Mode::Build(options) => options.ignore_theme_mtimes,
+        Mode::Serve(options, _) => options.ignore_theme_mtimes,
+    }
+    .unwrap_or(config.project.ignore_theme_mtimes);
+    config.set_ignore_theme_mtimes(ignore_theme_mtimes)?;
 
     // Strict builds must be aborted on configuration warnings before output is cleaned.
     if strict && !config.project.config_warnings.is_empty() {

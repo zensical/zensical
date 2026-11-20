@@ -66,6 +66,11 @@ def cli() -> None:
     is_flag=True,
     help="Enable strict mode - abort the build on warnings.",
 )
+@click.option(
+    "--ignore-theme-mtimes/--no-ignore-theme-mtimes",
+    default=None,
+    help="Use theme file contents instead of modification times for caching.",
+)
 def execute_build(config_file: str | None, **kwargs: Any) -> None:
     """Build a project."""
     if config_file is None:
@@ -115,6 +120,11 @@ def execute_build(config_file: str | None, **kwargs: Any) -> None:
     default=False,
     is_flag=True,
     help="Strict mode (currently unsupported).",
+)
+@click.option(
+    "--ignore-theme-mtimes/--no-ignore-theme-mtimes",
+    default=None,
+    help="Use theme file contents instead of modification times for caching.",
 )
 def execute_serve(config_file: str | None, **kwargs: Any) -> None:
     """Build and serve a project."""
