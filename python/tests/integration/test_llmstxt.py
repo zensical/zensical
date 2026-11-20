@@ -228,6 +228,81 @@ def test_emits_selected_pages_in_section_order_and_uses_final_titles(
     assert (site / "ai" / "full.txt").read_text(encoding="utf-8") == full
 
 
+@pytest.mark.parametrize("preprocess", [False, True])
+def test_preserves_ampersands_in_markdown_and_index_titles(
+    tmp_path: Path, preprocess: bool
+) -> None:
+    # Ordinary ampersands and literal entity names are exported together.
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text(
+        dedent("""\
+            # Backup & Restore
+
+            Tom & Jerry: `a && b`, 1 < 2 > 0, "quotes", 'apostrophes'.
+
+            R&D and AT&T, © &#169; &#xA9;, &amp;copy; &amp;#169; &amp;#xA9;.
+
+            | Key & Value | x < y |
+            | ----------- | ----- |
+            | a & b       | 1 < 2 |
+
+            ```
+            a && b; &copy; <tag>
+            ```
+        """),
+        encoding="utf-8",
+    )
+    (docs / "literal.md").write_text(
+        "# Literal &amp;copy;\n", encoding="utf-8"
+    )
+    (tmp_path / "preprocess.py").write_text(
+        "def preprocess(html, output):\n    return html\n", encoding="utf-8"
+    )
+    config = dedent(f"""\
+        site_name: Tools & Docs
+        site_description: Read & learn
+        markdown_extensions:
+          - tables
+        plugins:
+          - llmstxt:
+              preprocess: {"preprocess.py" if preprocess else "null"}
+              full_output: llms-full.txt
+              sections: {{Backup & Restore: [index.md, literal.md]}}
+    """)
+
+    # Conversion during the shared pass and after preprocessing must agree.
+    site = build(tmp_path, config)
+
+    markdown = (site / "index.md").read_text(encoding="utf-8")
+    assert markdown == dedent("""\
+        # Backup & Restore
+
+        Tom & Jerry: `a && b`, 1 \\< 2 \\> 0, "quotes", 'apostrophes'.
+
+        R&D and AT&T, © © ©, &amp;copy; &amp;\\#169; &amp;\\#xA9;.
+
+        | Key & Value | x \\< y |
+        | --- | --- |
+        | a & b | 1 \\< 2 |
+
+        ```
+        a && b; &copy; <tag>
+        ```
+    """)
+    assert markdown in (site / "llms-full.txt").read_text(encoding="utf-8")
+    assert (site / "llms.txt").read_text(encoding="utf-8") == dedent("""\
+        # Tools & Docs
+
+        > Read & learn
+
+        ## Backup & Restore
+
+        - [Backup & Restore](<https://example.org/docs/index.md>)
+        - [Literal &amp;copy;](<https://example.org/docs/literal/index.md>)
+    """)
+
+
 @pytest.mark.parametrize("directory_urls", [True, False])
 @pytest.mark.parametrize("autoclean", [True, False])
 def test_preserves_autorefs_and_refreshes_cached_targets(
