@@ -326,9 +326,10 @@ impl Llmstxt {
                     &self.base_url,
                     &markdown_url(document.page.destination())?,
                 );
-                let title = markdown::escape(
-                    &document.page.title.replace(['\r', '\n'], " "),
-                );
+                // Entities retained in heading-derived titles are decoded once.
+                let title =
+                    html_escape::decode_html_entities(&document.page.title);
+                let title = markdown::escape(&title.replace(['\r', '\n'], " "));
                 let _ = write!(
                     index,
                     "- [{title}]({})",

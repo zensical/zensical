@@ -424,7 +424,7 @@ impl Parser {
                 html_text(&mut element.body, text, element.preserve_html_lines);
             }
             Mode::Markdown => {
-                let mut characters = text.chars().peekable();
+                let mut characters = text.chars();
                 while let Some(character) = characters.next() {
                     if character.is_ascii_whitespace() {
                         space(&mut element.body);
@@ -432,7 +432,7 @@ impl Parser {
                         escape_character(
                             &mut element.body,
                             character,
-                            characters.peek().copied(),
+                            characters.as_str(),
                         );
                     }
                 }
@@ -836,14 +836,20 @@ fn code_span(text: &str) -> String {
 /// Escapes text that must remain literal when read as GFM.
 pub(super) fn escape(text: &str) -> String {
     let mut output = String::new();
-    let mut characters = text.chars().peekable();
+    let mut characters = text.chars();
     while let Some(character) = characters.next() {
-        escape_character(&mut output, character, characters.peek().copied());
+        escape_character(&mut output, character, characters.as_str());
     }
     output
 }
 
-fn escape_character(output: &mut String, character: char, next: Option<char>) {
+fn escape_character(output: &mut String, character: char, remaining: &str) {
+    static ENTITY: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"^(?:[A-Za-z][A-Za-z0-9]*|#[0-9]+|#[xX][0-9A-Fa-f]+);")
+            .expect("valid character reference pattern")
+    });
+
+    let next = remaining.chars().next();
     let starts_block = if matches!(character, '-' | '+' | '=' | '.' | ')') {
         let line = output.rsplit('\n').next().unwrap_or("").trim_start();
         line.is_empty() && matches!(character, '-' | '+' | '=')
@@ -854,7 +860,8 @@ fn escape_character(output: &mut String, character: char, next: Option<char>) {
     } else {
         false
     };
-    if character == '&' {
+    // Literal entity names are protected from decoding when the Markdown is read.
+    if character == '&' && ENTITY.is_match(remaining) {
         output.push_str("&amp;");
         return;
     }
@@ -1018,7 +1025,7 @@ mod tests {
 
         let markdown = convert(html, true);
 
-        assert_eq!(markdown, "# Title &amp; details\n\nA **bold** and *emphasized* word.  \nNext \\<tag\\> &amp;copy; \\[literal\\] \\*stars\\*.\n");
+        assert_eq!(markdown, "# Title & details\n\nA **bold** and *emphasized* word.  \nNext \\<tag\\> &amp;copy; \\[literal\\] \\*stars\\*.\n");
     }
 
     #[test]
@@ -1251,7 +1258,7 @@ mod tests {
 
         assert_eq!(
             markdown,
-            "| Name |\n| --- |\n| **A &amp; B**<br>`x_y` |\n\nAfter\n"
+            "| Name |\n| --- |\n| **A & B**<br>`x_y` |\n\nAfter\n"
         );
     }
 
@@ -1409,7 +1416,7 @@ mod tests {
                 "Status: 🟢 supported.\n\n",
                 "[🔴 Offline](<#status>)\n\n",
                 "👩‍💻\n\n",
-                "&amp; \\[status\\]\n",
+                "& \\[status\\]\n",
             )
         );
     }
@@ -1528,7 +1535,7 @@ mod tests {
             assert_eq!(
                 markdown,
                 concat!(
-                    "Before A \\[diagram\\] &amp; text after.\n\n",
+                    "Before A \\[diagram\\] & text after.\n\n",
                     "[Details more](<https://example.org/docs/topic/index.md>)\n\n",
                     "Empty.\n\n",
                     "<kbd>&lt;Diagram&gt;</kbd>\n",
@@ -1554,7 +1561,7 @@ mod tests {
                 markdown,
                 concat!(
                     "| Diagram |\n| --- |\n",
-                    "| Overview &amp; details |\n\n",
+                    "| Overview & details |\n\n",
                     "<table><tr><td colspan=\"2\">&lt;Detail&gt;</td></tr></table>\n",
                 ),
                 "image source: {source:?}"
