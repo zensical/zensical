@@ -40,6 +40,7 @@ pub mod autorefs;
 pub mod awesome_nav;
 pub mod blog;
 pub mod exclude;
+pub mod git_revision_date_localized;
 pub mod literate_nav;
 pub mod llmstxt;
 pub mod meta;
