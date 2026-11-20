@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from markdown.util import BLOCK_LEVEL_ELEMENTS
@@ -97,6 +98,16 @@ _BLOCK_TAGS: frozenset[bytes] = frozenset(
     tag.encode() for tag in BLOCK_LEVEL_ELEMENTS
 )
 
+# Bytes that can start a construct anywhere in a line, plus line endings, and
+# bytes that can start one at the start of a line. Everything else is literal
+# text, which the scanner steps over without looking at each byte.
+_RE_INLINE_TRIGGER = re.compile(rb"[\\`<$[{!\r\n]")
+_LINE_START_TRIGGERS = frozenset(b"\\`~$<{![*-+# \t\r\n")
+
+# Runs of horizontal whitespace, and bytes that matter inside link text
+_RE_WS_RUN = re.compile(rb"[ \t]+")
+_RE_BRACKET_OR_ESC = re.compile(rb"[\\\[\]]")
+
 # fmt: on
 
 # ---------------------------------------------------------------------------
@@ -115,7 +126,7 @@ class Cursor:
     * `shift` - offset added to all emitted spans.
     """
 
-    __slots__ = ("col", "data", "end", "pos", "shift")
+    __slots__ = ("_blank_prefix", "col", "data", "end", "pos", "shift")
 
     def __init__(self, data: bytes, shift: int = 0) -> None:
         self.data = data
@@ -123,10 +134,11 @@ class Cursor:
         self.pos = 0
         self.col = 0
         self.shift = shift
+        self._blank_prefix = True
 
     def at_line_start(self) -> bool:
         """Return whether the cursor is at the start of a line."""
-        return self.col == 0 or self._is_blank_prefix()
+        return self._blank_prefix
 
     def peek(self, offset: int = 0) -> int:
         """Return the byte at the current position plus the given offset."""
@@ -137,26 +149,37 @@ class Cursor:
 
     def advance(self, n: int = 1) -> None:
         """Advance the cursor by `n` bytes."""
-        for _ in range(n):
-            if self.pos < self.end:
-                if self.data[self.pos] in (_CR, _NL):
-                    self.col = 0
-                else:
-                    self.col += 1
-                self.pos += 1
+        if n <= 0 or self.pos >= self.end:
+            return
+        if n == 1:
+            byte = self.data[self.pos]
+            if byte in (_CR, _NL):
+                self.col = 0
+                self._blank_prefix = True
+            else:
+                self.col += 1
+                if self._blank_prefix and byte not in _WHITESPACE:
+                    self._blank_prefix = False
+            self.pos += 1
+            return
+
+        end = min(self.pos + n, self.end)
+        chunk = self.data[self.pos : end]
+        nl = chunk.rfind(b"\n")
+        cr = chunk.rfind(b"\r")
+        last_eol = max(cr, nl)
+        if last_eol != -1:
+            self.col = len(chunk) - last_eol - 1
+            self._blank_prefix = not chunk[last_eol + 1 :].strip(b" \t")
+        else:
+            self.col += len(chunk)
+            if self._blank_prefix and chunk.strip(b" \t"):
+                self._blank_prefix = False
+        self.pos = end
 
     def span(self, start: int, end: int) -> Span:
         """Create a `Span` in the outer coordinate system."""
         return Span(self.shift + start, self.shift + end)
-
-    def _is_blank_prefix(self) -> bool:
-        """Return whether there's only whitespace before the cursor."""
-        i = self.pos - 1
-        while i >= 0 and self.data[i] not in (_CR, _NL):
-            if self.data[i] not in _WHITESPACE:
-                return False
-            i -= 1
-        return True
 
 
 # ---------------------------------------------------------------------------
@@ -166,22 +189,59 @@ class Cursor:
 
 def _scan(cursor: Cursor) -> Iterator[Reference]:
     """Yield references."""
-    while cursor.pos < cursor.end:
-        char = cursor.data[cursor.pos]
+    data = cursor.data
+    end_limit = cursor.end
+    inline_search = _RE_INLINE_TRIGGER.search
+    while cursor.pos < end_limit:
+        # Within a line, jump to the next byte that can start a construct
+        if not cursor._blank_prefix:
+            match = inline_search(data, cursor.pos)
+            if match is None:
+                cursor.advance(end_limit - cursor.pos)
+                break
+            next_pos = match.start()
+            if next_pos > cursor.pos:
+                cursor.col += next_pos - cursor.pos
+                cursor.pos = next_pos
+            char = data[cursor.pos]
+            if char in (_NL, _CR):
+                cursor.col = 0
+                cursor._blank_prefix = True
+                cursor.pos += 1
+                continue
+
+        # At the start of a line, step over a byte that can't start one
+        else:
+            char = data[cursor.pos]
+            if char not in _LINE_START_TRIGGERS:
+                cursor.col += 1
+                cursor._blank_prefix = False
+                cursor.pos += 1
+                continue
 
         # Snippet directives and section markers: --8<-- ...
-        if cursor.at_line_start():
+        if cursor.at_line_start() and char in (_SPACE, _TAB, _HASH, _DASH):
             end = _scan_snippet(cursor)
             if end is not None:
                 cursor.advance(end - cursor.pos)
                 continue
 
         # Markdown comment hack: [//]: ...
-        if cursor.at_line_start():
+        if (
+            cursor.at_line_start()
+            and cursor.col <= 3  # noqa: PLR2004
+            and char in (_SPACE, _TAB, _CR, _NL, _LBRACKET)
+        ):
             end = _scan_markdown_comment(cursor)
             if end is not None:
                 cursor.advance(end - cursor.pos)
                 continue
+
+        # Skip horizontal whitespace runs in one step
+        if char in _WHITESPACE:
+            end = _skip_whitespace(cursor, cursor.pos + 1)
+            cursor.advance(end - cursor.pos)
+            continue
 
         # Escaped character or math
         if char == _BACKSLASH:
@@ -589,23 +649,32 @@ def _scan_link_text(cursor: Cursor, start: int) -> Span | None:
     if no matching closing `]` is found.
     """
     depth = 1
+    data = cursor.data
+    end_limit = cursor.end
+    search = _RE_BRACKET_OR_ESC.search
 
     # Start after the opening [
     end = start
-    while end < cursor.end:
-        char = cursor.data[end]
+    while end < end_limit:
+        match = search(data, end)
+        if match is None:
+            return None
+        end = match.start()
+        char = data[end]
 
         # Skip escaped character
-        if char == _BACKSLASH and end + 1 < cursor.end:
-            end += 2
-            continue
+        if char == _BACKSLASH:
+            if end + 1 < end_limit:
+                end += 2
+                continue
+            return None
 
         # Increment depth
         if char == _LBRACKET:
             depth += 1
 
         # Decrement depth, terminate if we reach 0
-        elif char == _RBRACKET:
+        else:
             depth -= 1
 
             # Terminate if brackets are balanced
@@ -1245,6 +1314,10 @@ def _scan_html_attrs(
     cursor: Cursor, pos: int
 ) -> tuple[int, dict[bytes, Span]] | None:
     """Scans for HTML attributes."""
+    # Unclosed tag - bail out early instead of scanning to the end
+    if cursor.data.find(b">", pos) == -1:
+        return None
+
     attrs: dict[bytes, Span] = {}
     while pos < cursor.end and cursor.data[pos] != _RANGLE:
         if cursor.data[pos] in (_SPACE, _TAB, _CR, _NL, _SLASH):
@@ -1616,8 +1689,10 @@ def _has_escaped_char(value: bytes) -> bool:
 
 def _skip_whitespace(cursor: Cursor, pos: int) -> int:
     """Skip horizontal whitespace (spaces and tabs)."""
-    while pos < cursor.end and cursor.data[pos] in _WHITESPACE:
-        pos += 1
+    if pos < cursor.end and cursor.data[pos] in _WHITESPACE:
+        match = _RE_WS_RUN.match(cursor.data, pos)
+        if match is not None:
+            return match.end()
     return pos
 
 
