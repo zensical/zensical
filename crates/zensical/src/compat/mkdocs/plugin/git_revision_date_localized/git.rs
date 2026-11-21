@@ -92,10 +92,15 @@ fn text(root: &Path, args: &[&str]) -> Result<String> {
 impl Repository {
     /// The containing repository is discovered through Git, including worktrees.
     pub fn discover(directory: &Path) -> Result<PathBuf> {
-        Ok(PathBuf::from(text(
-            directory,
-            &["rev-parse", "--show-toplevel"],
-        )?))
+        let root =
+            PathBuf::from(text(directory, &["rev-parse", "--show-toplevel"])?);
+
+        root.canonicalize().with_context(|| {
+            format!(
+                "unable to canonicalize Git worktree root {}",
+                root.display()
+            )
+        })
     }
 
     /// History inputs and tag names are captured for one rebuild.
