@@ -139,6 +139,9 @@ def test_serve_reloads_after_watched_theme_discovery(
     )
     include = docs / "fragment.j2"
     include.write_text("First value: {{ 1 + 1 }}\n", encoding="utf-8")
+    # An old timestamp is used so one write invalidates whole-second caches.
+    # A separate timestamp bump can be missed while the watcher is restarted.
+    os.utime(include, (1, 1))
     (docs / "index.md").write_text(
         '{% include "fragment.j2" %}\n',
         encoding="utf-8",
@@ -204,10 +207,6 @@ def test_serve_reloads_after_watched_theme_discovery(
 
             # A restart must be triggered by a subsequent dependency edit.
             target.write_text(content, encoding="utf-8")
-            # Template edits must be detected without a timestamp bump.
-            if dependency != "template":
-                timestamp = target.stat().st_mtime + 2
-                os.utime(target, (timestamp, timestamp))
 
             wait_for(expected, reloads=1)
             assert process.poll() is None
@@ -258,6 +257,9 @@ def test_serve_rebuilds_after_symlinked_macro_dependency_changes(
     docs = tmp_path / "content"
     target = tmp_path / ("page.md" if dependency == "page" else "fragment.j2")
     target.write_text("First value: {{ 1 + 1 }}\n", encoding="utf-8")
+    # An old timestamp is used so one write invalidates whole-second caches.
+    # A separate timestamp bump can be missed while the watcher is restarted.
+    os.utime(target, (1, 1))
     alias = docs / ("index.md" if dependency == "page" else "fragment.j2")
     try:
         alias.symlink_to(target)
@@ -290,8 +292,6 @@ def test_serve_rebuilds_after_symlinked_macro_dependency_changes(
 
             # Canonical targets are still watched after alias discovery.
             target.write_text("Updated value: {{ 1 + 1 }}\n", encoding="utf-8")
-            timestamp = target.stat().st_mtime + 2
-            os.utime(target, (timestamp, timestamp))
 
             wait_for("Updated value: 2")
             assert process.poll() is None
