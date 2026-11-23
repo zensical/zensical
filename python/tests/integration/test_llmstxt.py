@@ -253,9 +253,7 @@ def test_preserves_ampersands_in_markdown_and_index_titles(
         """),
         encoding="utf-8",
     )
-    (docs / "literal.md").write_text(
-        "# Literal &amp;copy;\n", encoding="utf-8"
-    )
+    (docs / "literal.md").write_text("# Literal &amp;copy;\n", encoding="utf-8")
     (tmp_path / "preprocess.py").write_text(
         "def preprocess(html, output):\n    return html\n", encoding="utf-8"
     )
