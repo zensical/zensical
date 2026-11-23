@@ -405,6 +405,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes pngquant
 
+      - name: Check Python formatting
+        run: uv run --locked --no-sync ruff format --check .
+
       - name: Run ruff
         run: uv run --locked --no-sync ruff check --no-fix-only .
 
