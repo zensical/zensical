@@ -92,10 +92,17 @@ fn text(root: &Path, args: &[&str]) -> Result<String> {
 impl Repository {
     /// The containing repository is discovered through Git, including worktrees.
     pub fn discover(directory: &Path) -> Result<PathBuf> {
-        Ok(PathBuf::from(text(
-            directory,
-            &["rev-parse", "--show-toplevel"],
-        )?))
+        let root =
+            PathBuf::from(text(directory, &["rev-parse", "--show-toplevel"])?);
+
+        // The canonical source's extended-length prefix on Windows must also
+        // be used by the root so that relative source paths can be computed.
+        root.canonicalize().with_context(|| {
+            format!(
+                "unable to canonicalize Git worktree root {}",
+                root.display()
+            )
+        })
     }
 
     /// History inputs and tag names are captured for one rebuild.
@@ -280,4 +287,96 @@ impl Repository {
 
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{command, Repository};
+    use std::fs;
+    use std::path::Path;
+    use tempfile::{tempdir, TempDir};
+
+    fn git(root: &Path, args: &[&str]) -> String {
+        let output = command(root)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env(
+                "GIT_CONFIG_GLOBAL",
+                if cfg!(windows) { "NUL" } else { "/dev/null" },
+            )
+            .env("GIT_AUTHOR_NAME", "Writer")
+            .env("GIT_AUTHOR_EMAIL", "writer@example.org")
+            .env("GIT_COMMITTER_NAME", "Builder")
+            .env("GIT_COMMITTER_EMAIL", "builder@example.org")
+            .env("GIT_AUTHOR_DATE", "2024-01-01T00:00:00Z")
+            .env("GIT_COMMITTER_DATE", "2025-01-01T00:00:00Z")
+            .args(args)
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    }
+
+    fn repository() -> TempDir {
+        let directory = tempdir().unwrap();
+        git(directory.path(), &["init", "-q", "--template="]);
+        fs::create_dir(directory.path().join("docs")).unwrap();
+        fs::write(directory.path().join("docs/index.md"), "# Home\n").unwrap();
+        git(directory.path(), &["add", "docs/index.md"]);
+        git(
+            directory.path(),
+            &["commit", "--no-gpg-sign", "-qm", "Create page"],
+        );
+        directory
+    }
+
+    fn assert_source_history(root: &Path) {
+        // Source paths are canonicalized before repository discovery. On
+        // Windows, an extended-length prefix is added by canonicalization.
+        let source = root.join("docs/index.md").canonicalize().unwrap();
+        let discovered =
+            Repository::discover(source.parent().unwrap()).unwrap();
+        let repository = Repository::new(discovered).unwrap();
+        let cache = root.join("cache");
+
+        let commit = repository
+            .query(&source, false, true, &[], &cache)
+            .unwrap()
+            .expect("the tracked page must have Git history");
+
+        // The committed author date and hash must be returned for the page.
+        assert_eq!(commit.hash, git(root, &["rev-parse", "HEAD"]));
+        assert_eq!(commit.timestamp, 1_704_067_200);
+    }
+
+    #[test]
+    fn resolves_history_for_a_canonical_source_path() {
+        let directory = repository();
+
+        assert_source_history(directory.path());
+    }
+
+    #[test]
+    fn resolves_history_for_a_canonical_source_path_in_a_linked_worktree() {
+        let directory = repository();
+        let worktree_parent = tempdir().unwrap();
+        let worktree = worktree_parent.path().join("linked");
+        git(
+            directory.path(),
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                worktree.to_str().unwrap(),
+                "HEAD",
+            ],
+        );
+
+        assert_source_history(&worktree);
+    }
 }
