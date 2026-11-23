@@ -804,6 +804,40 @@ def test_page_urls_in_generated_html(
 
 
 @pytest.mark.parametrize(
+    ("host", "edit_prefix"),
+    [
+        ("github.com", "edit/master"),
+        ("gitlab.com", "edit/master"),
+        ("bitbucket.org", "src/default"),
+    ],
+)
+def test_default_edit_links_with_nested_docs_directory(
+    tmp_path: Path, host: str, edit_prefix: str
+) -> None:
+    # A repository edit link is inferred for a nested source directory.
+    config_path = _make_toml_project(
+        tmp_path,
+        toml_extra=(
+            'docs_dir = "docs/zensical"\n'
+            f'repo_url = "https://{host}/team/repo"\n'
+            "[project.theme]\n"
+            'features = ["content.action.edit"]\nfont = false\n'
+        ),
+    )
+    docs = tmp_path / "docs" / "zensical"
+    docs.mkdir()
+    (docs / "guide.md").write_text("# Guide\n", encoding="utf-8")
+
+    _build(config_path)
+
+    # The page must be built with a URL path in its repository edit link.
+    output = tmp_path / "site" / "guide" / "index.html"
+    html = output.read_text(encoding="utf-8")
+    edit_url = f"https://{host}/team/repo/{edit_prefix}/docs/zensical/guide.md"
+    assert f'href="{edit_url}"' in html
+
+
+@pytest.mark.parametrize(
     "source", ["[draft] page.md", "[draft]/[EN] café 100%.md"]
 )
 @pytest.mark.parametrize(

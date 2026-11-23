@@ -725,7 +725,8 @@ def _apply_defaults(config: dict, path: str) -> dict:
         "gitlab.com": "GitLab",
         "bitbucket.org": "Bitbucket",
     }
-    rel_docs_dir = docs_dir.relative_to(project_root)
+    # Forward slashes are required in edit URLs on every platform.
+    rel_docs_dir = docs_dir.relative_to(project_root).as_posix()
     edit_uris = {
         "github.com": f"edit/master/{rel_docs_dir}",
         "gitlab.com": f"edit/master/{rel_docs_dir}",
