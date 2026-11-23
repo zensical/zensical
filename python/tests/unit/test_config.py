@@ -1436,6 +1436,32 @@ def test_repository_defaults_use_complete_netloc(
 
 
 @pytest.mark.parametrize(
+    "docs_dir", ["docs", "docs/zensical", "docs/zensical/reference"]
+)
+@pytest.mark.parametrize(
+    ("host", "edit_prefix"),
+    [
+        ("github.com", "edit/master"),
+        ("gitlab.com", "edit/master"),
+        ("bitbucket.org", "src/default"),
+    ],
+)
+def test_default_edit_uri_uses_url_path_separators(
+    tmp_path: Path, docs_dir: str, host: str, edit_prefix: str
+) -> None:
+    # Nested source directories are used to expose native Windows separators.
+    (tmp_path / docs_dir).mkdir(parents=True)
+    config_file = _write_toml_config(
+        tmp_path, docs_dir=docs_dir, repo_url=f"https://{host}/team/repo"
+    )
+
+    config = parse_config(str(config_file))
+
+    # Forward slashes must be used in the default edit URI on every platform.
+    assert config["edit_uri"] == f"{edit_prefix}/{docs_dir}"
+
+
+@pytest.mark.parametrize(
     "setting",
     [
         "nav",
