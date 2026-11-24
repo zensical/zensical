@@ -301,6 +301,54 @@ def test_preserves_ampersands_in_markdown_and_index_titles(
     """)
 
 
+@pytest.mark.parametrize("preprocess", [False, True])
+def test_preserves_ampersands_in_link_destinations(
+    tmp_path: Path, preprocess: bool
+) -> None:
+    # Query separators are included in inline links, autolinks, and image URLs.
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.md").write_text(
+        dedent("""\
+            # Links
+
+            See [docs](https://example.org/page?a=1&b=2) and <https://example.org/x?c=3&d=4>.
+
+            ![Image](https://example.org/image.png?a=1&b=2)
+        """),
+        encoding="utf-8",
+    )
+    (tmp_path / "preprocess.py").write_text(
+        "def preprocess(html, output):\n    return html\n", encoding="utf-8"
+    )
+    config = dedent(f"""\
+        plugins:
+          - llmstxt:
+              preprocess: {"preprocess.py" if preprocess else "null"}
+              full_output: llms-full.txt
+              sections: {{Pages: [index.md]}}
+    """)
+
+    site = build(tmp_path, config)
+
+    # URLs must be preserved in page and aggregate exports by both paths.
+    markdown = (site / "index.md").read_text(encoding="utf-8")
+    assert markdown == dedent("""\
+        # Links
+
+        See [docs](<https://example.org/page?a=1&b=2>) and [https://example.org/x?c=3&d=4](<https://example.org/x?c=3&d=4>).
+
+        ![Image](<https://example.org/image.png?a=1&b=2>)
+    """)
+    assert markdown in (site / "llms-full.txt").read_text(encoding="utf-8")
+
+    # URL attributes must still be escaped in the HTML site.
+    html = (site / "index.html").read_text(encoding="utf-8")
+    assert 'href="https://example.org/page?a=1&amp;b=2"' in html
+    assert 'href="https://example.org/x?c=3&amp;d=4"' in html
+    assert 'src="https://example.org/image.png?a=1&amp;b=2"' in html
+
+
 @pytest.mark.parametrize("directory_urls", [True, False])
 @pytest.mark.parametrize("autoclean", [True, False])
 def test_preserves_autorefs_and_refreshes_cached_targets(

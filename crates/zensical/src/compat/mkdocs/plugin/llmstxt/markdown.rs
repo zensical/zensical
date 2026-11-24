@@ -882,6 +882,10 @@ pub(super) fn destination(url: &str) -> String {
         Regex::new(r"%20|(?:%[89A-Fa-f][0-9A-Fa-f])+")
             .expect("valid percent-encoding pattern")
     });
+    static ENTITIES: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"&([A-Za-z][A-Za-z0-9]*|#[0-9]+|#[xX][0-9A-Fa-f]+);")
+            .expect("valid character reference pattern")
+    });
 
     // Decode spaces and UTF-8 text without changing encoded URL delimiters.
     let url = encode_url(url);
@@ -893,7 +897,8 @@ pub(super) fn destination(url: &str) -> String {
             _ => captures[0].to_owned(),
         }
     });
-    format!("<{}>", url.replace('&', "&amp;"))
+    // Only literal entity names are escaped; query separators are retained.
+    format!("<{}>", ENTITIES.replace_all(&url, "&amp;$1;"))
 }
 
 fn encode_url(url: &str) -> String {
@@ -1026,6 +1031,37 @@ mod tests {
         let markdown = convert(html, true);
 
         assert_eq!(markdown, "# Title & details\n\nA **bold** and *emphasized* word.  \nNext \\<tag\\> &amp;copy; \\[literal\\] \\*stars\\*.\n");
+    }
+
+    #[test]
+    fn preserves_ampersands_in_link_and_image_destinations() {
+        let html = concat!(
+            "<p><a href='https://example.org/page?a=1&amp;b=2'>docs</a> and ",
+            "<a href='https://example.org/x?c=3&#38;d=4'>https://example.org/x?c=3&amp;d=4</a>.</p>",
+            "<p><img src='image.png?a=1&#x26;b=2' alt='Image'></p>",
+            "<p><a href='?a=&amp;amp;&amp;b=&amp;copy;'>Named entities</a> ",
+            "<a href='?a=&amp;#169;'>Decimal entity</a> ",
+            "<a href='?a=&amp;#xA9;'>Hexadecimal entity</a></p>",
+            "<p><kbd><a href='?a=1&amp;b=2'>HTML link</a></kbd></p>",
+        );
+
+        for autoclean in [true, false] {
+            let markdown = convert(html, autoclean);
+
+            // Query separators are retained, and literal entities and HTML attributes are escaped.
+            assert_eq!(
+                markdown,
+                concat!(
+                    "[docs](<https://example.org/page?a=1&b=2>) and ",
+                    "[https://example.org/x?c=3&d=4](<https://example.org/x?c=3&d=4>).\n\n",
+                    "![Image](<https://example.org/docs/guide/image.png?a=1&b=2>)\n\n",
+                    "[Named entities](<https://example.org/docs/guide/?a=&amp;amp;&b=&amp;copy;>) ",
+                    "[Decimal entity](<https://example.org/docs/guide/?a=&amp;#169;>) ",
+                    "[Hexadecimal entity](<https://example.org/docs/guide/?a=&amp;#xA9;>)\n\n",
+                    "<kbd><a href=\"https://example.org/docs/guide/?a=1&amp;b=2\">HTML link</a></kbd>\n",
+                )
+            );
+        }
     }
 
     #[test]
@@ -1595,7 +1631,7 @@ mod tests {
 
         let markdown = convert(html, true);
 
-        assert_eq!(markdown, "[Topic](<https://example.org/docs/topic/index.md>) [Other](<https://example.org/docs/other.html?x=1&amp;y=2#part>) [Local](<#local>) [Root](</root>) [External](<https://elsewhere.org/>)\n");
+        assert_eq!(markdown, "[Topic](<https://example.org/docs/topic/index.md>) [Other](<https://example.org/docs/other.html?x=1&y=2#part>) [Local](<#local>) [Root](</root>) [External](<https://elsewhere.org/>)\n");
     }
 
     #[test]
@@ -1631,7 +1667,7 @@ mod tests {
                 "[External](<https://example.org/café notes)>)\n\n",
                 "[Root](</café notes/>)\n\n",
                 "[Fragment](<#café notes>)\n\n",
-                "[Query](<https://example.org/docs/guide/?q=café notes&amp;next=1>)\n\n",
+                "[Query](<https://example.org/docs/guide/?q=café notes&next=1>)\n\n",
                 "![Café](<https://example.org/docs/images/café notes.png>)\n\n",
                 "[Unicode](</notes 🌍>)\n",
             )
