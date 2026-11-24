@@ -76,6 +76,8 @@ FROM base AS runtime
 # Refresh this stage in CI so OS updates leave the compiler cache intact.
 RUN apk upgrade --no-cache -a \
     && apk add --no-cache \
+        'libcrypto3>=3.5.9-r1' \
+        'libssl3>=3.5.9-r1' \
         libgcc \
         tini
 
