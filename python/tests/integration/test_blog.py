@@ -618,7 +618,7 @@ def test_archive_and_category_views_share_native_pagination_pipeline(
     assert "#Rust@blog/category/rust/" in navigation
     assert "Posts" not in navigation
     paginated = category.joinpath("page", "2", "index.html").read_text("utf-8")
-    assert "Categories[Rust=true,]" in paginated
+    assert "Categories[Rust=True,]" in paginated
     assert not (tmp_path / "docs" / "blog" / "archive").exists()
     assert not (tmp_path / "docs" / "blog" / "category").exists()
 
@@ -1365,7 +1365,7 @@ def test_structured_links_resolve_pages_anchors_and_nested_sections(
     ).read_text("utf-8")
     assert "Guide section=guide/#details=Details[]" in post
     assert "Download=blog/assets/reference.pdf=" in post
-    assert "Resources=none=[External=https://example.com;]" in post
+    assert "Resources=None=[External=https://example.com;]" in post
 
 
 def test_excerpt_toc_contains_only_the_post_root(

@@ -369,7 +369,7 @@ def test_root_readme_is_a_homepage_in_layout_context(tmp_path: Path) -> None:
     zensical.build(str(config), _BUILD_OPTIONS)
 
     html = (tmp_path / "site/index.html").read_text()
-    assert '<meta property="x:homepage" content="true" />' in html
+    assert '<meta property="x:homepage" content="True" />' in html
 
 
 def test_honors_documented_log_levels_and_strict_mode(tmp_path: Path) -> None:
