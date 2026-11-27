@@ -1182,7 +1182,7 @@ requires-dist = [
     { name = "pymdown-extensions", specifier = ">=11.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "tomli", specifier = ">=2.4.0" },
-    { name = "zensical-ui", specifier = "==0.0.43" },
+    { name = "zensical-ui", specifier = "==0.0.44" },
 ]
 
 [package.metadata.requires-dev]
@@ -1207,9 +1207,9 @@ docker = [
 
 [[package]]
 name = "zensical-ui"
-version = "0.0.43"
+version = "0.0.44"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/76/a4/b4371de747307b046f734c75aa820c904d94efa0cac959593ff681738c1d/zensical_ui-0.0.43.tar.gz", hash = "sha256:e82d161ad797fff833cd045cfa3ddb9be69f276386b78dd5a4dff76dfbd41596", size = 4078131, upload-time = "2026-11-19T19:07:26.578Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/9e/7c128e546265461b059ceb3edc86d6871b526757c75eb0cee4e9626fec1f/zensical_ui-0.0.44.tar.gz", hash = "sha256:7c47d4f02b5ac6aedbd0ea0b9591012e13519448df75d5e009af2ea0e60567f2", size = 4081024, upload-time = "2026-11-27T15:33:31.231Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c2/a8/6f58ac0a22e0ad479d2dd483a9a82e50017c4f79e20141f3d3f62d995a77/zensical_ui-0.0.43-py3-none-any.whl", hash = "sha256:804bfe979ccc1b96244b7decde09e3a92a3c67da64e6887a617877a30ce02ff2", size = 10070402, upload-time = "2026-11-19T19:07:23.804Z" },
+    { url = "https://files.pythonhosted.org/packages/48/8f/07fab10b6a18e9da5ce55df807a82ab34c1523394fd9df3892869378f3ef/zensical_ui-0.0.44-py3-none-any.whl", hash = "sha256:d3f15987042c1b9930df85418a1400c52a3bec96e310e35d42e4f9e69ffd8b9b", size = 10087156, upload-time = "2026-11-27T15:33:28.726Z" },
 ]
