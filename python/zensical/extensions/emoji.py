@@ -62,14 +62,19 @@ def to_svg(  # noqa: PLR0917
         icons = md.inlinePatterns["emoji"].emoji_index["emoji"]  # ty:ignore[unresolved-attribute]
 
         # Create and return element to host icon
-        el = Element("span", {"class": options.get("classes", index)})
+        el = Element(
+            "span",
+            {"class": options.get("classes", index), "aria-hidden": "true"},
+        )
         el.text = md.htmlStash.store(_load(icons[shortname]["path"]))
         return el
 
     # Delegate to `pymdownx.emoji` extension
-    return emoji.to_svg(
+    el = emoji.to_svg(
         index, shortname, alias, uc, alt, title, category, options, md
     )
+    el.set("aria-hidden", "true")
+    return el
 
 
 # -----------------------------------------------------------------------------
